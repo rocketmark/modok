@@ -72,6 +72,8 @@ class CustomerIssue(QuineNode):
 class SimilarityMatch(QuineNode):
     node_type: Literal["SimilarityMatch"]
     project_slug: str
+    customer_issue_id: str   # str repr of the CustomerIssue QuineNodeId
+    known_issue_id: str      # str repr of the KnownIssue QuineNodeId
     method: str
     score: float
     evidence_anchors: list[str]
@@ -102,3 +104,19 @@ class DiagnosticNote(QuineNode):
     body: str
     source: str
     created_at: str
+
+
+_NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
+    "Project": Project,
+    "Feature": Feature,
+    "Module": Module,
+    "File": File,
+    "DocSection": DocSection,
+    "ErrorSignature": ErrorSignature,
+    "KnownIssue": KnownIssue,
+    "CustomerIssue": CustomerIssue,
+    "SimilarityMatch": SimilarityMatch,
+    "Fix": Fix,
+    "ResolutionEvent": ResolutionEvent,
+    "DiagnosticNote": DiagnosticNote,
+}

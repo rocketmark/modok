@@ -148,7 +148,20 @@ Every Quine node ID is namespaced by `projectSlug`. The CLI and MCP tools requir
 
 `DiagnosticNote` is the only provisional node type — for agent or human notes that have not yet been validated into a typed node.
 
-### 7. Python implementation
+### 7. Quine lifecycle and data management
+
+Quine runs as a standalone JAR (not Docker) on both dev machines and the shared Mac mini. The JAR is the deployment unit — no container daemon required, no build step. RocksDB is the persistence backend.
+
+All MODOK data and config lives under `~/.modok/`:
+- `~/.modok/config.toml` — Quine endpoint URL, project registry paths, LLM gateway config
+- `~/.modok/data/quine.db` — RocksDB graph store
+- `~/.modok/quine.conf` — Quine HOCON config (webserver address, store path, persistence settings)
+
+Quine lifecycle is manual: the developer (or launchd on the Mac mini) starts Quine before running MODOK. MODOK `ping()`s Quine on startup and gives a clear actionable error if it's unreachable. The CLI provides a `modok quine start/stop/status` convenience subgroup that wraps the JAR process, but does not require it — operators who manage Quine themselves can ignore it.
+
+On the shared Mac mini, a launchd plist keeps Quine running as a persistent background service across reboots.
+
+### 8. Python implementation
 
 Python is chosen for iteration speed, natural LLM SDK integration, and consistency with the stagehand codebase (the first target project). The modular layout (`modok.core`, `modok.quine`, `modok.ingestion`, `modok.mcp`, `modok.cli`) mirrors the logical component split and allows future replacement of performance-critical pieces without rewriting the whole system. `pydantic` v2 enforces schema correctness at runtime. `ruff` + `mypy` enforce style and types statically.
 
@@ -162,5 +175,6 @@ Python is chosen for iteration speed, natural LLM SDK integration, and consisten
 ## References
 
 - `docs/modok-setup-brainstorm.md` — original architecture brainstorm
+- `docs/quine-setup.md` — Quine installation, config, and Mac mini launchd setup
 - Quine documentation: https://docs.quine.io
 - OpenAI-compatible chat completions API (used by Ollama and remote providers)

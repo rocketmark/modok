@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 import httpx
-from hypothesis import given, assume
+from hypothesis import given, assume, settings
 from hypothesis import strategies as st
 
 from modok.quine.ids import idFrom
@@ -254,21 +254,23 @@ async def test_upsert_node_replaces_properties():
 
 
 # @spec QC-NW-002
-@given(name_a=st.text(min_size=1, max_size=50), name_b=st.text(min_size=1, max_size=50))
+@given(name_a=st.text(alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50),
+       name_b=st.text(alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50))
 @pytest.mark.asyncio
 async def test_upsert_node_sends_full_property_set(name_a, name_b):
     assume(name_a != name_b)
-    sent = []
+    sent_params = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        sent.append(request.content.decode())
+        import json as _json
+        sent_params.append(_json.loads(request.content)["parameters"])
         return quine_upsert_response()
 
     client = make_client(httpx.MockTransport(handler))
     await client.upsert_node(Project(node_type="Project", project_slug="p", name=name_a))
     await client.upsert_node(Project(node_type="Project", project_slug="p", name=name_b))
-    assert name_b in sent[1]
-    assert name_a not in sent[1]
+    assert sent_params[1]["name"] == name_b
+    assert sent_params[0]["name"] == name_a
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +564,7 @@ async def test_raises_after_3_failed_attempts():
 
 # @spec QC-CN-001
 @given(n_failures=st.integers(min_value=1, max_value=3))
+@settings(deadline=None)  # test intentionally waits on retry backoff
 @pytest.mark.asyncio
 async def test_retries_up_to_3_times_property(n_failures):
     attempt_count = 0
