@@ -175,6 +175,6 @@ Python is chosen for iteration speed, natural LLM SDK integration, and consisten
 ## References
 
 - `docs/modok-setup-brainstorm.md` — original architecture brainstorm
-- `docs/quine-setup.md` — Quine installation, config, and Mac mini launchd setup
+- `docs/setup.md` — full new-machine bootstrap guide (clone, Quine, config, init, first ingest)
 - Quine documentation: https://docs.quine.io
 - OpenAI-compatible chat completions API (used by Ollama and remote providers)
