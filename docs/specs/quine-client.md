@@ -22,9 +22,10 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-ID-001** [P, C]: The system shall compute all Quine node IDs deterministically via `idFrom(*parts)`, where parts are joined with a null-byte separator and hashed with SHA-256, taking the first 8 bytes as a signed int64.
 - [ ] **QC-ID-002** [P]: The system shall use the node type name as the first element of every `idFrom()` tuple, such that two node types with identical remaining parts always produce different IDs.
-- [ ] **QC-ID-003** [P]: The system shall include `project_slug` as a tuple element in the ID of every node type except `CustomerIssue` and `SimilarityMatch`.
+- [ ] **QC-ID-003** [P]: The system shall include `project_slug` as a tuple element in the ID of every node type except `CustomerIssue`.
 - [ ] **QC-ID-004** [U]: The system shall identify `CustomerIssue` nodes by `('customer-issue', source_system, ticket_id)`, without `project_slug`, because tickets arrive from external systems before project linkage is established.
 - [ ] **QC-ID-005** [U]: The system shall identify `ResolutionEvent` nodes by `('resolution', project_slug, source_system, ticket_id, fix_id)`, including `source_system` to disambiguate ticket IDs that collide across source systems.
+- [ ] **QC-ID-006** [P]: The system shall include `project_slug` in the `SimilarityMatch` ID tuple so that two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically cannot share a `SimilarityMatch` node across project boundaries.
 
 ---
 
@@ -33,6 +34,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 - [ ] **QC-NW-001** [U, C]: When `upsert_node` is called for a node that does not exist in Quine, the system shall create the node with all properties from the pydantic model.
 - [ ] **QC-NW-002** [P, C]: When `upsert_node` is called for a node that already exists in Quine, the system shall replace all node properties with the current pydantic model's values, removing any properties not present in the current model.
 - [ ] **QC-NW-003** [P, C]: When `upsert_node` is called, the system shall not modify any edges on the node.
+- [ ] **QC-NW-004** [P]: The system shall never infer edge changes from property changes; edge lifecycle is managed exclusively via `write_edge`, regardless of which properties are added, changed, or removed from a node.
 
 ---
 
@@ -48,6 +50,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-EW-001** [U, C]: When `write_edge` is called for an edge that does not exist, the system shall create the directed edge from `from_id` to `to_id` with the given `edge_type`.
 - [ ] **QC-EW-002** [P, C]: When `write_edge` is called for an edge that already exists, the system shall treat the call as a no-op without raising an error.
+- [ ] **QC-EW-003** [U, C]: When `write_edge` is called referencing a node ID that does not yet have a corresponding `upsert_node` call, the system shall permit the write; the resulting shell node is valid intermediate ingestion state and shall be promoted to a full node when `upsert_node` is subsequently called.
 
 ---
 
@@ -55,6 +58,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-TR-001** [U, C]: When `traverse` is called, the system shall execute the traversal as a Cypher query against Quine's `/api/v1/query/cypher` endpoint and return hydrated `QuineNode` instances with all properties populated, without requiring a separate per-node fetch.
 - [ ] **QC-TR-002** [U]: The system shall provide a raw `query(cypher, params)` escape hatch for complex traversals used internally by the Diagnostic Retrieval Engine; this method shall not be exposed via the MCP server.
+- [ ] **QC-TR-003** [U]: If a node returned by `traverse` fails deserialization (e.g., missing a required field), the system shall raise `QuineDeserializationError` identifying the malformed node ID rather than returning a partial result list.
 
 ---
 
@@ -62,7 +66,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-CN-001** [P, C]: The system shall retry failed Quine HTTP requests up to 3 times with exponential backoff on 5xx responses and timeouts.
 - [ ] **QC-CN-002** [P, C]: The system shall not retry on 4xx responses.
-- [ ] **QC-CN-003** [U]: The system shall apply a default per-request timeout of 10 seconds.
+- [ ] **QC-CN-003** [U]: The system shall apply a default timeout of 10 seconds per attempt, such that each retry attempt receives a fresh 10-second window independent of prior attempts.
 - [ ] **QC-CN-004** [U]: The system shall provide a `ping()` method that returns `True` if Quine is reachable and `False` otherwise, without raising.
 
 ---

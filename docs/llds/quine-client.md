@@ -27,6 +27,8 @@ def idFrom(*parts: str) -> QuineNodeId:
 
 The node type name is always the first element of the tuple. This guarantees that two different node types with identical remaining parts produce different IDs by construction — no runtime check needed. A property test verifies this invariant holds for every registered node type.
 
+`SimilarityMatch` includes `project_slug` despite being a computed node — without it, two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically would silently share a `SimilarityMatch` node across project boundaries, violating isolation.
+
 ID tuples by node type:
 
 | Node type | ID tuple |
@@ -49,7 +51,7 @@ ID tuples by node type:
 | `Risk` | `('risk', project_slug, risk_id)` |
 | `FailureMode` | `('failure-mode', project_slug, feature_slug, mode_id)` |
 | `ObservationEvent` | `('observation', project_slug, source, event_id)` |
-| `SimilarityMatch` | `('similarity-match', customer_issue_id, known_issue_id, method)` |
+| `SimilarityMatch` | `('similarity-match', project_slug, customer_issue_id, known_issue_id, method)` |
 | `DiagnosticNote` | `('diagnostic-note', project_slug, note_id)` |
 | `DeploymentEvent` | `('deployment', project_slug, service_name, version, deployed_at)` |
 
@@ -261,9 +263,13 @@ Property serialization: pydantic models are serialized via `.model_dump()`, then
 The client wraps `httpx.AsyncClient`. Connection parameters:
 
 - `base_url`: Quine HTTP endpoint (e.g., `http://localhost:8080`)
-- `timeout`: default 10s per request
+- `timeout`: default 10s **per attempt** (not per total operation — each retry gets a fresh 10s window)
 - `retries`: 3 attempts with exponential backoff for transient HTTP errors (5xx, timeout)
 - No retry on 4xx (client errors are bugs, not transients)
+
+**Edge-before-node writes are permitted.** Writing an edge to a node that doesn't yet exist in Quine creates a shell node. This is valid intermediate state during ingestion — doc sections reference features before features are written, depending on parse order. `upsert_node` promotes shell nodes to full nodes when called. The "fail loudly" principle applies to reads (missing nodes on `get_node` raise), not to edge writes.
+
+**No atomicity guarantee across sequential calls.** The client does not guarantee that `node_exists()` followed by `get_node()` is atomic. Callers that need check-then-act behavior must call `get_node` directly and handle `QuineNodeNotFoundError`. At MODOK's single-writer sequential ingestion model this is not a practical concern, but the contract is explicit.
 
 The client does not manage Quine's lifecycle. Quine is started externally (Docker or JAR) before MODOK runs.
 
