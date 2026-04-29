@@ -371,7 +371,9 @@ Warnings do not halt ingestion. Errors do.
 7. ✅ Registry location — in-repo `registries/` directory, version-controlled.
 
 ### Deferred
-1. **CI/CD sync to Mac mini** — when the Mac mini becomes the shared instance, a CI step will push ingestion runs to it. Mechanism (SSH + modok CLI, or a MODOK HTTP ingest endpoint) TBD.
+1. **Edge write order within a node** — SI-WRITE-001 mandates node write order; edge writes within a single node's context follow the order of the edge vocabulary table in the Quine client LLD. Not specified further; deterministic by construction from the model.
+2. **Property caching risk** — SI-WRITE-003 requires full node re-upsert on re-ingest. The guard is that node objects must always be regenerated from the current doc, never cached from a prior parse. Enforce in code review, not in a spec.
+3. **CI/CD sync to Mac mini** — when the Mac mini becomes the shared instance, a CI step will push ingestion runs to it. Mechanism (SSH + modok CLI, or a MODOK HTTP ingest endpoint) TBD.
 2. **Incremental ingestion** — currently re-ingests all files on every run. For large doc trees, a file hash cache would skip unchanged files. Not needed at stagehand's doc volume.
 3. **Multi-repo projects** — a project whose docs and code span multiple repos. Registry paths and file validation would need to be repo-relative. Deferred until a concrete case arises.
 4. **LLM proposal review UX** — the CLI review prompt is one field at a time. For docs with many missing fields this could be slow. A batch review mode (show all proposals, approve/reject interactively) may be needed.
