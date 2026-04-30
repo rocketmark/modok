@@ -59,7 +59,7 @@ Tests verify the diagnosis.
                            │
                            ▼
                   ┌─────────────────┐
-                  │   MODOK Core     │
+                  │   MODOK Core    │
                   └───────┬─────────┘
                           │
           ┌───────────────┴────────────────┐
@@ -69,22 +69,22 @@ Tests verify the diagnosis.
           │                                │
           ▼                                ▼
 ┌──────────────────────┐        ┌──────────────────────┐
-│ Diagnostic Retrieval │        │ Static Ingestion     │
-│ Engine               │        │ Pipeline             │
+│ Diagnostic Retrieval │        │ Ingestion Pipeline   │
+│ Engine               │        │                      │
 │ builds debug packets │        │ parse/validate/write │
 └──────────┬───────────┘        └──────────┬───────────┘
            │                               │
            ▼                               ▼
       ┌────────────────────────────────────────┐
-      │          Quine Memory Graph             │
-      │ typed nodes · explicit edges · IDs      │
+      │          Quine Memory Graph            │
+      │ typed nodes · explicit edges · IDs     │
       └────────────────────────────────────────┘
            ▲
            │
-┌──────────┴───────────┐
+┌──────────┴────────────┐
 │ Optional Vector Index │
 │ candidate recall only │
-└──────────────────────┘
+└───────────────────────┘
 
 LLM Gateway:
 - optional sidecar
