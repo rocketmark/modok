@@ -14,6 +14,8 @@ Instead of rediscovering context from scratch, MODOK returns a focused **debug p
 - known issues
 - and prior fixes that matter for a given problem.
 
+Unlike typical RAG systems that return chunks of text, MODOK retrieves structured relationships. It maps an issue directly to the relevant parts of your system.
+
 <br clear="right"/>
 
 ---
