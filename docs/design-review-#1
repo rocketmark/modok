@@ -1,0 +1,539 @@
+# MODOK Design Review (Consolidated Feedback)
+
+## Overview
+
+This document consolidates design feedback across:
+- High-Level Design
+- Static Ingestion LLD
+- LLM Gateway LLD
+- Quine Client LLD
+
+The goal is to:
+- Identify over-engineering
+- Highlight inconsistencies
+- Surface missing critical pieces
+- Refocus the design on a strong, minimal v1
+
+---
+
+# 1. Core Principle Alignment
+
+## What’s Strong
+
+The following principles are solid and should remain unchanged:
+
+- Explicit metadata is truth
+- LLM output is a proposal, never a fact
+- Deterministic IDs ensure idempotency
+- Graph is the system of record for relationships
+- Files remain the source of truth
+
+These are the foundation of the system and are correct.
+
+---
+
+# 2. Updated Position on Quine
+
+## Clarification
+
+Quine is **appropriate for v1** because:
+
+> The core problem is storing and traversing relationships between artifacts.
+
+## Constraint (Important)
+
+Quine should be used **only as a relationship store in v1**.
+
+### Allowed in v1
+- Typed nodes
+- Deterministic IDs
+- Explicit edges
+- Graph traversal for retrieval
+
+### Explicitly Deferred
+- Standing queries
+- Event streaming
+- Stream-mode ingestion
+- Complex lifecycle management
+- Advanced Quine-specific abstractions
+
+### Key Guidance
+
+> Do not justify Quine usage based on future stream-mode.
+> Justify it based on current need: structured relationship memory.
+
+---
+
+# 3. Critical Design Gaps (Must Fix)
+
+## 3.1 Edge Reconciliation (Highest Priority)
+
+### Problem
+
+Nodes are idempotent, but edges are not.
+
+When metadata changes, stale edges remain in the graph.
+
+### Example
+
+```yaml
+source_files:
+  - agent/src/old_shtp.c
+```
+
+If removed later:
+- Node updates
+- Edge remains → graph becomes incorrect
+
+### Required Solution
+
+Introduce **edge ownership + replacement**:
+
+```
+For each ingested source:
+  delete all edges owned by that source
+  recreate edges from current metadata
+```
+
+Without this, the graph will degrade over time.
+
+---
+
+## 3.2 Mechanical Truth vs Inference Conflict
+
+### Problem
+
+You define:
+
+> Explicit metadata is truth
+
+But ingestion:
+- extracts facts from prose
+- assigns confidence
+- auto-writes ≥ 0.90
+
+### Issue
+
+This violates the core invariant.
+
+### Recommendation
+
+For v1:
+
+```
+ONLY explicit metadata → written to graph
+ALL inferred/prose facts → suggestions only
+```
+
+Remove confidence-based auto-write.
+
+---
+
+## 3.3 Validation vs Graph Behavior Conflict
+
+### Conflict
+
+Ingestion:
+- Fail loudly on invalid references
+
+Quine client:
+- Allows edge-before-node (shell nodes)
+
+### Recommendation
+
+Adopt **strict ingestion mode**:
+
+```
+All nodes must exist before edges
+No shell nodes in ingestion
+All references validated before write
+```
+
+---
+
+## 3.4 Multi-Project Isolation Gap
+
+### Problem
+
+`CustomerIssue` IDs do not include `project_slug`.
+
+### Risk
+
+- Cross-project collisions
+- Weak isolation guarantees
+
+### Recommendation
+
+```
+('customer-issue', project_slug, source_system, ticket_id)
+```
+
+If project unknown → use temporary namespace.
+
+---
+
+# 4. Over-Engineering (Defer for v1)
+
+## 4.1 Commit Diff Ingestion
+
+Includes:
+- CommitEvent
+- FileChange
+- hunk parsing
+- feature derivation
+
+### Issue
+
+Second ingestion system before core ingestion is proven.
+
+### Recommendation
+
+Defer entirely.
+
+Keep only:
+```
+commit_sha on Fix and ResolutionEvent
+```
+
+---
+
+## 4.2 LLM Auto-Escalation
+
+### Current Design
+
+- local → remote fallback
+- confidence threshold
+
+### Issue
+
+- Model confidence is unreliable
+- Adds complexity early
+
+### Recommendation
+
+```
+Default: local only
+Optional: explicit remote usage
+Escalate only on validation failure
+```
+
+---
+
+## 4.3 Post-Commit Hook
+
+### Issue
+
+- Surprising behavior
+- Hard to debug
+- Affects developer workflow
+
+### Recommendation
+
+Start with manual:
+
+```bash
+modok ingest --project stagehand
+```
+
+Add hooks later.
+
+---
+
+## 4.4 Vector Index
+
+Already optional — keep it that way.
+
+Do not build until graph-only retrieval works.
+
+---
+
+## 4.5 Node Type Explosion
+
+Current schema includes many node types not needed for v1.
+
+### Recommendation (Minimal Set)
+
+```
+Feature
+Module
+File
+Doc / DocRef
+Test
+KnownIssue
+Fix
+CustomerIssue
+ResolutionEvent
+ErrorSignature
+```
+
+Add others later when needed.
+
+---
+
+## 4.6 SimilarityMatch Node
+
+Conceptually correct but premature.
+
+### Recommendation
+
+- Compute similarity at query time
+- Persist only confirmed relationships
+
+---
+
+## 4.7 Quine Client Abstractions
+
+### Issue
+
+`traverse()` abstraction may be premature.
+
+### Recommendation
+
+Start with:
+```
+query()
+get_node()
+```
+
+Add abstraction later if needed.
+
+---
+
+# 5. Underspecified Areas (Critical to Success)
+
+## 5.1 Debug Packet Definition
+
+The system’s primary output is not well defined.
+
+### Required
+
+Define exact schema:
+
+```json
+{
+  "issue_summary": "...",
+  "anchors": {
+    "feature": "...",
+    "errors": [...],
+    "environment": {...}
+  },
+  "top_features": [...],
+  "relevant_files": [...],
+  "relevant_tests": [...],
+  "known_issues": [...],
+  "recent_fixes": [...],
+  "evidence": [...],
+  "confidence": 0.82
+}
+```
+
+---
+
+## 5.2 Ranking Strategy
+
+Currently unspecified.
+
+### Must Define
+
+- feature match weighting
+- error signature weighting
+- recency boost
+- fix relevance
+- test coverage relevance
+
+This is the core of system quality.
+
+---
+
+## 5.3 Ingestion Contract
+
+Examples exist, but rules are unclear.
+
+### Missing
+
+- Required vs optional fields
+- What fails vs warns
+- Schema evolution rules
+
+---
+
+## 5.4 Resolution Feedback Loop
+
+You define `ResolutionEvent`, but not the workflow.
+
+### Missing
+
+- How resolution is recorded
+- How it improves future retrieval
+- How success is measured
+
+This is where long-term value compounds.
+
+---
+
+## 5.5 DocSection Purpose
+
+### Issue
+
+- Extracted but not clearly used
+
+### Recommendation
+
+Remove for v1 unless clearly tied to retrieval.
+
+---
+
+# 6. LLM Gateway Feedback
+
+## What’s Good
+
+- Strict boundary (proposal only)
+- Stateless design
+- Structured output validation
+- Caller owns writes
+
+## Issues
+
+### 6.1 Interface Inconsistency
+
+Gateway uses doc summary but does not accept it.
+
+### Fix
+
+```
+propose_metadata(doc_path, frontmatter, body_summary, missing_fields)
+```
+
+---
+
+### 6.2 Provider Compatibility Claim
+
+OpenAI compatibility is overstated.
+
+### Fix
+
+```
+Use "OpenAI-compatible providers or adapters"
+```
+
+---
+
+### 6.3 Confidence-Based Escalation
+
+Unreliable.
+
+### Recommendation
+
+Use validation failure as primary trigger.
+
+---
+
+# 7. Quine Client Feedback
+
+## What’s Good
+
+- Deterministic IDs
+- Idempotent node writes
+- Clean separation
+- Explicit edge model
+
+## Issues
+
+### 7.1 Edge Cleanup Missing
+
+Already covered — must be fixed.
+
+---
+
+### 7.2 Shell Node Behavior
+
+Conflicts with ingestion strictness.
+
+### Recommendation
+
+Disallow in ingestion path.
+
+---
+
+### 7.3 Collision Claim
+
+Type-prefix reduces risk but does not eliminate it.
+
+Clarify wording.
+
+---
+
+### 7.4 Project Isolation
+
+Raw Cypher can bypass isolation.
+
+### Recommendation
+
+Ensure all retrieval enforces `project_slug`.
+
+---
+
+# 8. Recommended v1 Architecture
+
+## Step 1: Ingestion
+
+```
+parse explicit metadata
+→ validate references
+→ upsert nodes
+→ replace edges per source
+```
+
+## Step 2: Retrieval
+
+```
+extract anchors from ticket
+→ traverse graph
+→ rank results
+```
+
+## Step 3: Output
+
+```
+generate structured debug packet
+```
+
+## Step 4: Feedback
+
+```
+record resolution
+→ improve future retrieval
+```
+
+---
+
+# 9. Bottom Line
+
+## Strong Areas
+
+- Clear philosophy
+- Schema-driven ingestion
+- Deterministic identity model
+- Proper LLM boundary
+
+## Risks
+
+- Overbuilding before validation
+- Conflicting design rules
+- Missing edge reconciliation
+- Underspecified retrieval logic
+
+## Most Important Fix
+
+```
+Implement edge ownership + deletion on re-ingest
+```
+
+Without this, the graph will accumulate stale relationships and degrade over time.
+
+---
+
+## Final Guidance
+
+> Build the smallest system that produces a useful debug packet.
+> Everything else should follow from that.
