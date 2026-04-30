@@ -43,7 +43,7 @@ ID tuples by node type:
 | `TestPlan` | `('test-plan', project_slug, plan_slug)` |
 | `TestCase` | `('test-case', project_slug, plan_slug, case_slug)` |
 | `KnownIssue` | `('known-issue', project_slug, issue_id)` |
-| `CustomerIssue` | `('customer-issue', source_system, ticket_id)` |
+| `CustomerIssue` | `('customer-issue', project_slug, source_system, ticket_id)` |
 | `ErrorSignature` | `('error', project_slug, normalized_error)` |
 | `Fix` | `('fix', project_slug, fix_id)` |
 | `ResolutionEvent` | `('resolution', project_slug, source_system, ticket_id, fix_id)` |
@@ -55,7 +55,7 @@ ID tuples by node type:
 | `DiagnosticNote` | `('diagnostic-note', project_slug, note_id)` |
 | `DeploymentEvent` | `('deployment', project_slug, service_name, version, deployed_at)` |
 
-`CustomerIssue` does not carry `project_slug` in its ID because tickets arrive from external systems (Zendesk, GitHub Issues, etc.) before they are linked to a project. The `source_system` + `ticket_id` pair is globally unique.
+`CustomerIssue` carries `project_slug` in its ID. Tickets are always ingested in the context of a known project — the ingestion CLI requires `--project`. Cross-project ticket ID collisions (same `source_system` + `ticket_id` in two projects) are therefore possible and must be namespaced by `project_slug`.
 
 ## Node Schema
 
@@ -112,6 +112,7 @@ class KnownIssue(QuineNode):
 
 class CustomerIssue(QuineNode):
     node_type: Literal["CustomerIssue"]
+    project_slug: str
     source_system: str
     ticket_id: str
     summary: str
@@ -269,6 +270,10 @@ The client wraps `httpx.AsyncClient`. Connection parameters:
 
 **Edge-before-node writes are permitted.** Writing an edge to a node that doesn't yet exist in Quine creates a shell node. This is valid intermediate state during ingestion — doc sections reference features before features are written, depending on parse order. `upsert_node` promotes shell nodes to full nodes when called. The "fail loudly" principle applies to reads (missing nodes on `get_node` raise), not to edge writes.
 
+**Ghost properties are a known limitation of `upsert_node`.** The Cypher `SET` clause writes current model fields but does not remove properties that were present on a prior write and have since been removed from the schema. A node that was written with an old schema version may carry extra properties indefinitely. This is accepted in v1 — MODOK's schemas are stable and property removal is rare. If ghost properties become a problem, the fix is a fetch-then-replace pattern (read current properties, SET all current fields, REMOVE all others).
+
+**`replace_edges` is the reconciliation primitive for authoritative relationships.** When ingestion re-processes a source (doc, ticket, registry entry), it calls `replace_edges(from_id, edge_type, to_ids)` to delete all existing edges of that type from the source node and recreate only the current set. This prevents stale edges from accumulating when metadata changes. Ingestion callers are responsible for knowing which edge types they own; `replace_edges` is never called speculatively.
+
 **No atomicity guarantee across sequential calls.** The client does not guarantee that `node_exists()` followed by `get_node()` is atomic. Callers that need check-then-act behavior must call `get_node` directly and handle `QuineNodeNotFoundError`. At MODOK's single-writer sequential ingestion model this is not a practical concern, but the contract is explicit.
 
 The client does not manage Quine's lifecycle. Quine is started externally (Docker or JAR) before MODOK runs.
@@ -290,7 +295,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 
 ### Resolved
 1. ✅ Multi-project namespace — `project_slug` in every ID tuple from day one.
-2. ✅ `CustomerIssue` ID excludes `project_slug` — tickets arrive before project linkage is known.
+2. ✅ `CustomerIssue` ID includes `project_slug` — ingestion always has project context; same `source_system` + `ticket_id` can appear in multiple projects and must be namespaced.
 3. ✅ No edge properties — use intermediate nodes for relationship metadata.
 4. ✅ `upsert_node` does full property replace — schema evolution is automatic, no ghost properties.
 5. ✅ Node type name is always first in `idFrom()` tuple — type collisions impossible by construction, verified by property test.

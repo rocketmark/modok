@@ -24,11 +24,9 @@ class TraversalStep:
         self,
         edge_type: str,
         direction: Literal["out", "in", "both"] = "out",
-        node_type_filter: str | None = None,
     ) -> None:
         self.edge_type = edge_type
         self.direction = direction
-        self.node_type_filter = node_type_filter
 
 
 class QuineClient:
