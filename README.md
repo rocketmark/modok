@@ -38,6 +38,8 @@ MODOK is a continuation of that idea, but focused on building a persistent memor
 
 I’m building this because I expect to operate a system largely on my own, and I need that kind of mechanical support to debug effectively and consistently. 
 
+This implementation is inspired by and directly builds on [Jess Szmajda’s LID project](https://github.com/jszmajda/lid).
+
 ---
 
 ## What MODOK does
