@@ -4,29 +4,93 @@
 
 **Mechanized Oracle Designed Only for Knowledge**
 
-MODOK is a Quine-backed diagnostic memory graph that helps AI agents — Claude, ChatGPT, local LLMs, VS Code agents, Visual Studio agents — quickly move from a customer issue to the most relevant docs, code areas, tests, known issues, prior fixes, and operational signals.
+MODOK gives AI agents a *running start* when debugging software issues.
+
+Instead of rediscovering context from scratch, MODOK returns a focused **debug packet**: the exact docs, code, tests, known issues, and prior fixes that matter for a given problem.
 
 <br clear="right"/>
 
+---
+
 ## The problem
 
-Diagnosing a software issue requires orienting across many artifacts before any useful inspection can begin. Agents repeat this traversal from scratch every session, with no memory of what was relevant last time.
+Diagnosing a software issue is mostly **orientation**:
+
+- What feature is this in?
+- Where is the code?
+- What tests cover it?
+- Has this happened before?
+- What fixed it last time?
+
+Humans rebuild this context manually.  
+Agents rebuild it every session.
+
+It’s slow, repetitive, and lossy.
+
+---
 
 ## What MODOK does
 
-Given a customer issue (structured or freeform), MODOK returns a focused **debug packet**:
+MODOK turns a customer issue into a **debug starting point**.
 
 ```
-Customer ticket
+Customer issue
    ↓
-MODOK extracts symptoms, errors, product area, and context
+MODOK extracts anchors (feature, errors, symptoms)
    ↓
-Quine graph finds related docs, code, tests, known issues, and prior fixes
+Graph lookup finds related:
+  - docs
+  - code areas
+  - tests
+  - known issues
+  - prior fixes
    ↓
-Agent inspects the current repo with a running start
-   ↓
-Focused diagnosis and starting point
+Returns a debug packet
 ```
+
+### Example (simplified)
+
+```json
+{
+  "feature": "shtp-receiver",
+  "errors": ["shtp-version-mismatch"],
+
+  "relevant_files": [
+    "agent/src/shtp.c",
+    "client/shtp_receiver.py"
+  ],
+
+  "relevant_tests": [
+    "agent/tests/test_shtp.c"
+  ],
+
+  "known_issues": [
+    "Client misreads version field offset"
+  ],
+
+  "recent_fixes": [
+    "fix-shtp-version-offset (commit a3f9c12)"
+  ]
+}
+```
+
+The agent starts here — not from zero.
+
+---
+
+## Core idea
+
+MODOK is a **persistent memory of how your system is structured and how it fails**.
+
+It stores relationships like:
+
+```
+feature → module → file → test → known issue → fix
+```
+
+So instead of searching blindly, agents navigate a **map of the system**.
+
+---
 
 ## Design principles
 
@@ -37,33 +101,105 @@ Tests are for verification.
 
 Explicit metadata is truth.
 LLM output is a proposal.
-Quine stores validated structure.
+Only validated structure is stored.
 ```
 
-## Architecture
+---
 
-- **Quine** — persistent graph store for typed, source-backed relationships (feature → module → file → test → known issue → fix)
-- **Static ingestion** — mechanical pipeline that ingests design docs, code maps, tickets, and resolution records without LLM involvement in the write path
-- **LLM Gateway** — pluggable, local-first (Ollama); Claude or GPT-4 as optional escalation targets. No LLM SDK is a hard dependency.
-- **Diagnostic Retrieval Engine** — builds ranked debug packets from graph traversal, optionally boosted by vector search
-- **MCP server + CLI** — agents call MODOK via MCP tools; developers use the CLI directly
+## How it works
 
-## Modes
+### 1. Ingestion (mechanical, trusted)
 
-| Mode | Data sources |
-|---|---|
-| **Static** | Design docs, testing docs, code maps, tickets, known issues |
-| **Stream** *(future)* | AWS logs, deployments, config changes, feature-flag events, live issue patterns |
+Docs, registries, tickets, and resolutions are parsed into structured metadata:
+
+- features, modules, files
+- error signatures
+- known issues and fixes
+
+No LLM writes to the system of record.
+
+---
+
+### 2. Graph (persistent memory)
+
+Relationships are stored in a graph:
+
+- deterministic IDs
+- typed nodes and edges
+- multi-project isolation
+
+MODOK uses **Quine** as the underlying graph store.
+
+---
+
+### 3. Retrieval
+
+Given an issue:
+
+- extract anchors (feature, errors, symptoms)
+- traverse the graph
+- rank relevant nodes
+- assemble a debug packet
+
+---
+
+### 4. LLM (optional, bounded)
+
+LLMs are used only for:
+
+- parsing freeform tickets
+- suggesting missing metadata
+
+They **never write directly** to the graph.
+
+---
+
+## What MODOK is (and isn’t)
+
+### ✔️ MODOK is
+
+- A **debug context engine**
+- A **relationship memory for your system**
+- A **tool agents call before debugging**
+
+### ❌ MODOK is not
+
+- A code search engine
+- A log storage system
+- A replacement for reading code or running tests
+- An autonomous debugger
+
+---
+
+## Current scope (v1)
+
+- Static ingestion (docs, registries, tickets, resolutions)
+- Deterministic graph of system relationships
+- Debug packet generation from graph traversal
+
+---
+
+## Future (not in v1)
+
+- Live event ingestion (logs, deployments)
+- Streaming / standing queries
+- Real-time incident enrichment
+
+---
 
 ## Implementation
 
-Python · pydantic v2 · ruff · mypy · Quine (graph) · optional vector index
+- Python
+- pydantic v2
+- Quine (graph store)
 
-Multi-project from day one — a single MODOK instance serves multiple projects, each in its own namespace.
+---
 
 ## Status
 
-Early development. 
+Early development.
+
+---
 
 ## Docs
 
