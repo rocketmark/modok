@@ -111,5 +111,18 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Ingestion Report
 
-- [ ] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), and files skipped (present but no `modok:` frontmatter — SI-DISC-003). Ignored and skipped are separate counts.
+- [ ] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), files skipped (present but no `modok:` frontmatter — SI-DISC-003), commits processed, and file changes written. Ignored and skipped are separate counts. Commits processed and file changes written are 0 when diff ingestion is not active.
 - [ ] **SI-RPT-002** [U]: Warnings shall not halt ingestion; errors shall halt ingestion for the affected file and allow ingestion of remaining files to continue.
+
+---
+
+## Commit Diff Ingestion
+
+- [ ] **SI-DIFF-001** [U]: When the post-commit hook fires and `source_paths` is configured for the project, the system shall parse the triggering commit's metadata (SHA, author, ISO timestamp, message first line) and upsert a `CommitEvent` node.
+- [ ] **SI-DIFF-002** [U]: When `source_paths` is not configured for a project, or is configured as an empty list, the system shall skip commit diff ingestion entirely and emit no warnings.
+- [ ] **SI-DIFF-003** [U]: For each file in the commit's diff that matches a configured `source_path`, the system shall upsert a `FileChange` node containing the repo-relative path, lines added, lines removed, and hunk headers (`@@ -a,b +c,d @@` lines only — no diff body text).
+- [ ] **SI-DIFF-004** [U]: The system shall write a `File -[:CHANGED_IN]-> FileChange -[:IN_COMMIT]-> CommitEvent` edge chain for each file in the diff that matches a `source_path`.
+- [ ] **SI-DIFF-005** [U]: For each `FileChange`, the system shall write a `CommitEvent -[:TOUCHES_FEATURE]-> Feature` edge for every Feature whose `source_files` or whose Module's `source_roots` contain the changed file's repo path. Each unique (CommitEvent, Feature) pair produces at most one `TOUCHES_FEATURE` edge.
+- [ ] **SI-DIFF-006** [U]: Files in the commit diff that do not match any configured `source_path` shall be silently ignored by the diff ingestion stage; they are not reported as warnings or errors.
+- [ ] **SI-DIFF-007** [P]: `CommitEvent` node ID shall be deterministic: `idFrom("CommitEvent", project_slug, commit_sha)`. `FileChange` node ID shall be deterministic: `idFrom("FileChange", project_slug, commit_sha, repo_path)`. Re-ingesting the same commit shall produce the same node IDs and upsert (not duplicate) existing nodes.
+- [ ] **SI-DIFF-008** [U]: The system shall not store raw diff body text in any node or edge. Hunk headers only.

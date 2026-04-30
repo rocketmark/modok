@@ -1,24 +1,71 @@
 from __future__ import annotations
 from pathlib import Path
 
+import yaml
+
+from modok.ingestion.errors import RegistryNotFoundError
+
+_REQUIRED_FILES = ["features.yml", "modules.yml", "errors.yml", "doc-types.yml"]
+
 
 class Registry:
     """Loaded feature/module/error/doc-type registries from {repo_root}/registries/."""
 
     def __init__(self, repo_root: Path) -> None:
-        raise NotImplementedError
+        reg_dir = repo_root / "registries"
+        if not reg_dir.is_dir():
+            raise RegistryNotFoundError(f"registries/ directory not found at {repo_root}")
+
+        for fname in _REQUIRED_FILES:
+            if not (reg_dir / fname).exists():
+                raise RegistryNotFoundError(f"Required registry file missing: {reg_dir / fname}")
+
+        self._features: dict = self._load(reg_dir / "features.yml").get("features", {}) or {}
+        self._modules: dict = self._load(reg_dir / "modules.yml").get("modules", {}) or {}
+        self._errors: dict = self._load(reg_dir / "errors.yml").get("errors", {}) or {}
+        self._doc_types: dict = self._load(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
+
+    @staticmethod
+    def _load(path: Path) -> dict:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
 
     def has_feature(self, slug: str) -> bool:
-        raise NotImplementedError
+        return slug in self._features
 
     def has_module(self, slug: str) -> bool:
-        raise NotImplementedError
+        return slug in self._modules
 
     def has_error(self, slug: str) -> bool:
-        raise NotImplementedError
+        return slug in self._errors
 
-    def has_doc_type(self, doc_type: str) -> bool:
-        raise NotImplementedError
+    def has_doc_type(self, slug: str) -> bool:
+        return slug in self._doc_types
 
     def required_fields(self, doc_type: str) -> list[str]:
-        raise NotImplementedError
+        entry = self._doc_types.get(doc_type, {})
+        if not isinstance(entry, dict):
+            return []
+        return list(entry.get("required_fields", []))
+
+    def modules_covering_path(self, repo_path: str) -> list[str]:
+        """Return module slugs whose source_roots contain the given repo path."""
+        matches = []
+        for slug, entry in self._modules.items():
+            if not isinstance(entry, dict):
+                continue
+            for root in entry.get("source_roots", []):
+                if repo_path.startswith(root.rstrip("/") + "/") or repo_path == root:
+                    matches.append(slug)
+                    break
+        return matches
+
+    def features_for_module(self, module_slug: str) -> list[str]:
+        """Return feature slugs that reference the given module slug."""
+        matches = []
+        for slug, entry in self._features.items():
+            if not isinstance(entry, dict):
+                continue
+            if module_slug in entry.get("modules", []):
+                matches.append(slug)
+        return matches

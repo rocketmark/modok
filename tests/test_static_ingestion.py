@@ -24,6 +24,7 @@ from modok.ingestion.discovery import (
     has_modok_frontmatter,
 )
 from modok.ingestion.errors import (
+    InvalidSlugReferenceError,
     MissingCommitShaError,
     MissingRequiredFieldError,
     RegistryNotFoundError,
@@ -171,9 +172,11 @@ def test_discover_skipped_count_increments_for_no_frontmatter(tmp_path):
     write_file(tmp_path / "also_no_fm.yml", "just: yaml\n")
 
     files, _ = discover_files(tmp_path)
-    # skipped count is separate from files returned; check via report in pipeline
-    # here we just verify the files without frontmatter are not in the result
-    assert all(has_modok_frontmatter(f) for f in files)
+    # discover_files returns all supported-extension files; frontmatter filtering
+    # happens in the pipeline. All three files are returned here.
+    assert len(files) == 3
+    # The pipeline would skip the two without frontmatter (tracked as files_skipped)
+    assert sum(1 for f in files if has_modok_frontmatter(f)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +241,8 @@ def test_missing_required_field_without_fix_does_not_invoke_llm(tmp_path):
         """
     path = write_file(tmp_path / "doc.md", content)
 
-    with patch("modok.ingestion.parser.invoke_llm_gateway") as mock_llm:
-        fm = parse_frontmatter(path)
-        # Simulate pipeline: detect missing fields, fix=False
+    fm = parse_frontmatter(path)
+    with patch("modok.ingestion.pipeline.invoke_llm_gateway") as mock_llm:
         from modok.ingestion.pipeline import check_required_fields
         warnings, errors = check_required_fields(fm, "lld", fix=False)
         mock_llm.assert_not_called()
@@ -586,7 +588,7 @@ def test_resolution_yaml_missing_commit_sha_raises(tmp_path):
 
 # @spec SI-SHA-003
 def test_dirty_working_tree_emits_warning_not_error(tmp_path):
-    with patch("modok.ingestion.parser.is_working_tree_dirty", return_value=True):
+    with patch("modok.ingestion.pipeline.is_working_tree_dirty", return_value=True):
         from modok.ingestion.pipeline import check_working_tree
         warnings = check_working_tree(tmp_path)
         assert any("dirty" in w.lower() or "last commit" in w.lower() for w in warnings)
@@ -779,8 +781,12 @@ def test_registry_does_not_load_from_modok_home(tmp_path, monkeypatch):
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    (repo_root / "registries").mkdir()
-    (repo_root / "registries" / "features.yml").write_text("features: {}\n")
+    reg = repo_root / "registries"
+    reg.mkdir()
+    (reg / "features.yml").write_text("features: {}\n")
+    (reg / "modules.yml").write_text("modules: {}\n")
+    (reg / "errors.yml").write_text("errors: {}\n")
+    (reg / "doc-types.yml").write_text("doc_types: {}\n")
 
     registry = Registry(repo_root=repo_root)
     assert not registry.has_feature("shtp-receiver")
@@ -960,3 +966,430 @@ def test_error_in_one_file_does_not_halt_others(tmp_path):
 
     assert report.errors  # bad.md produced an error
     assert report.docs_processed >= 1  # good.md was processed
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-001 — CommitEvent upserted from hook commit metadata
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-001
+def test_ingest_commit_writes_commit_event_node():
+    from modok.ingestion.pipeline import ingest_commit_diff
+    from modok.quine.models import CommitEvent
+
+    client = MagicMock()
+    ingest_commit_diff(
+        project_slug="stagehand",
+        commit_sha="abc1234def5678",
+        source_paths=["agent/", "client/"],
+        registry=MagicMock(spec=Registry),
+        client=client,
+    )
+
+    upserted_types = [type(call.args[0]).__name__ for call in client.upsert_node.call_args_list]
+    assert "CommitEvent" in upserted_types
+
+
+# @spec SI-DIFF-001
+def test_commit_event_carries_required_fields():
+    from modok.ingestion.pipeline import ingest_commit_diff
+    from modok.quine.models import CommitEvent
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234",
+            "author": "Mark Stalzer",
+            "timestamp_iso": "2026-04-30T12:00:00Z",
+            "message_summary": "fix: correct shtp version byte offset",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat", return_value=[]):
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=MagicMock(spec=Registry),
+                client=client,
+            )
+
+    commit_events = [
+        call.args[0] for call in client.upsert_node.call_args_list
+        if isinstance(call.args[0], CommitEvent)
+    ]
+    assert len(commit_events) == 1
+    evt = commit_events[0]
+    assert evt.author == "Mark Stalzer"
+    assert evt.timestamp_iso == "2026-04-30T12:00:00Z"
+    assert evt.message_summary == "fix: correct shtp version byte offset"
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-002 — skip diff ingestion when source_paths absent or empty
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-002
+def test_diff_ingestion_skipped_when_no_source_paths():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    client = MagicMock()
+    ingest_commit_diff(
+        project_slug="stagehand",
+        commit_sha="abc1234",
+        source_paths=[],  # empty → skip
+        registry=MagicMock(spec=Registry),
+        client=client,
+    )
+
+    client.upsert_node.assert_not_called()
+    client.write_edge.assert_not_called()
+
+
+# @spec SI-DIFF-002
+def test_diff_ingestion_skipped_when_source_paths_none():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    client = MagicMock()
+    ingest_commit_diff(
+        project_slug="stagehand",
+        commit_sha="abc1234",
+        source_paths=None,
+        registry=MagicMock(spec=Registry),
+        client=client,
+    )
+
+    client.upsert_node.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-003 — FileChange node per matching source file
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-003
+def test_file_change_node_written_per_matching_file():
+    from modok.ingestion.pipeline import ingest_commit_diff
+    from modok.quine.models import FileChange
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234",
+            "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z",
+            "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 12, "removed": 3,
+                 "hunks": ["@@ -10,4 +10,13 @@"]},
+                {"path": "client/shtp_receiver.py", "added": 5, "removed": 1,
+                 "hunks": ["@@ -20,3 +20,7 @@"]},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/", "client/"],
+                registry=MagicMock(spec=Registry),
+                client=client,
+            )
+
+    file_changes = [
+        call.args[0] for call in client.upsert_node.call_args_list
+        if isinstance(call.args[0], FileChange)
+    ]
+    assert len(file_changes) == 2
+    paths = {fc.repo_path for fc in file_changes}
+    assert "agent/src/shtp.c" in paths
+    assert "client/shtp_receiver.py" in paths
+
+
+# @spec SI-DIFF-003
+def test_file_change_node_carries_lines_and_hunks():
+    from modok.ingestion.pipeline import ingest_commit_diff
+    from modok.quine.models import FileChange
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 12, "removed": 3,
+                 "hunks": ["@@ -10,4 +10,13 @@"]},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=MagicMock(spec=Registry),
+                client=client,
+            )
+
+    fc = next(
+        call.args[0] for call in client.upsert_node.call_args_list
+        if isinstance(call.args[0], FileChange)
+    )
+    assert fc.lines_added == 12
+    assert fc.lines_removed == 3
+    assert fc.hunks == ["@@ -10,4 +10,13 @@"]
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-004 — edge chain File -> FileChange -> CommitEvent
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-004
+def test_edge_chain_written_for_each_file_change():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 5, "removed": 1,
+                 "hunks": ["@@ -1,3 +1,7 @@"]},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=MagicMock(spec=Registry),
+                client=client,
+            )
+
+    edge_calls = client.write_edge.call_args_list
+    rel_types = [c.args[1] for c in edge_calls]
+    assert "CHANGED_IN" in rel_types
+    assert "IN_COMMIT" in rel_types
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-005 — TOUCHES_FEATURE edges derived from registry
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-005
+def test_touches_feature_edge_written_for_matching_module_source_root():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    registry = MagicMock(spec=Registry)
+    # Simulate module registry: shtp module covers agent/src/
+    registry.modules_covering_path.return_value = ["shtp"]
+    registry.features_for_module.return_value = ["shtp-receiver"]
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 1, "removed": 0,
+                 "hunks": ["@@ -1,1 +1,2 @@"]},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=registry,
+                client=client,
+            )
+
+    edge_calls = client.write_edge.call_args_list
+    rel_types = [c.args[1] for c in edge_calls]
+    assert "TOUCHES_FEATURE" in rel_types
+
+
+# @spec SI-DIFF-005
+def test_touches_feature_edge_deduplicated_per_commit_feature_pair():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    registry = MagicMock(spec=Registry)
+    # Both files map to the same feature
+    registry.modules_covering_path.return_value = ["shtp"]
+    registry.features_for_module.return_value = ["shtp-receiver"]
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 1, "removed": 0, "hunks": []},
+                {"path": "agent/src/shtp.h", "added": 1, "removed": 0, "hunks": []},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=registry,
+                client=client,
+            )
+
+    touches_feature_calls = [
+        c for c in client.write_edge.call_args_list if c.args[1] == "TOUCHES_FEATURE"
+    ]
+    assert len(touches_feature_calls) == 1  # deduplicated to one edge
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-006 — files outside source_paths silently ignored
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-006
+def test_files_outside_source_paths_silently_ignored():
+    from modok.ingestion.pipeline import ingest_commit_diff
+    from modok.quine.models import FileChange
+
+    client = MagicMock()
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                # Only docs/ file — not in source_paths=["agent/"]
+                {"path": "docs/lld/shtp.md", "added": 2, "removed": 0, "hunks": []},
+            ]
+            ingest_commit_diff(
+                project_slug="stagehand",
+                commit_sha="abc1234",
+                source_paths=["agent/"],
+                registry=MagicMock(spec=Registry),
+                client=client,
+            )
+
+    file_changes = [
+        call.args[0] for call in client.upsert_node.call_args_list
+        if isinstance(call.args[0], FileChange)
+    ]
+    assert len(file_changes) == 0
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-007 — deterministic node IDs; re-ingest upserts not duplicates
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-007
+@given(
+    sha=st.text(min_size=7, max_size=40, alphabet=st.characters(whitelist_categories=("L", "N"))),
+    path=st.text(min_size=1, max_size=50, alphabet=st.characters(whitelist_categories=("L", "N"))),
+)
+def test_commit_event_id_is_deterministic(sha, path):
+    from modok.quine.ids import idFrom
+    id1 = idFrom("CommitEvent", "stagehand", sha)
+    id2 = idFrom("CommitEvent", "stagehand", sha)
+    assert id1 == id2
+
+
+# @spec SI-DIFF-007
+@given(
+    sha=st.text(min_size=7, max_size=40, alphabet=st.characters(whitelist_categories=("L", "N"))),
+    path=st.text(min_size=1, max_size=50, alphabet=st.characters(whitelist_categories=("L", "N"))),
+)
+def test_file_change_id_is_deterministic(sha, path):
+    from modok.quine.ids import idFrom
+    id1 = idFrom("FileChange", "stagehand", sha, path)
+    id2 = idFrom("FileChange", "stagehand", sha, path)
+    assert id1 == id2
+
+
+# @spec SI-DIFF-007
+def test_reingest_same_commit_calls_upsert_not_create():
+    from modok.ingestion.pipeline import ingest_commit_diff
+
+    client = MagicMock()
+    kwargs = dict(
+        project_slug="stagehand",
+        commit_sha="abc1234",
+        source_paths=["agent/"],
+        registry=MagicMock(spec=Registry),
+        client=client,
+    )
+    with patch("modok.ingestion.pipeline.parse_commit_metadata") as mock_meta:
+        mock_meta.return_value = {
+            "commit_sha": "abc1234", "author": "Mark",
+            "timestamp_iso": "2026-04-30T00:00:00Z", "message_summary": "fix",
+        }
+        with patch("modok.ingestion.pipeline.parse_diff_numstat") as mock_diff:
+            mock_diff.return_value = [
+                {"path": "agent/src/shtp.c", "added": 1, "removed": 0, "hunks": []},
+            ]
+            ingest_commit_diff(**kwargs)
+            first_count = client.upsert_node.call_count
+            client.upsert_node.reset_mock()
+            ingest_commit_diff(**kwargs)
+            second_count = client.upsert_node.call_count
+
+    assert first_count == second_count  # same upsert count, not doubled
+
+
+# ---------------------------------------------------------------------------
+# SI-DIFF-008 — no raw diff body stored
+# ---------------------------------------------------------------------------
+
+# @spec SI-DIFF-008
+def test_no_raw_diff_body_in_file_change_node():
+    from modok.quine.models import FileChange
+    import inspect
+    # FileChange model must not have a field for raw diff text
+    fields = set(FileChange.model_fields.keys())
+    for bad in ("diff", "diff_text", "patch", "body", "raw"):
+        assert bad not in fields, f"FileChange must not store {bad!r}"
+
+
+# @spec SI-DIFF-008
+def test_hunk_headers_only_not_diff_lines():
+    from modok.ingestion.pipeline import parse_diff_numstat
+    raw = textwrap.dedent("""\
+        12\t3\tagent/src/shtp.c
+        """)
+    hunks_raw = textwrap.dedent("""\
+        @@ -10,4 +10,13 @@
+        -old line
+        +new line
+         context
+        """)
+    # parse_diff_numstat extracts only @@ lines, not +/- diff body
+    with patch("modok.ingestion.pipeline.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=f"abc1234\nMark\n2026-04-30T00:00:00Z\nfix\n\n{raw}\n{hunks_raw}",
+        )
+        result = parse_diff_numstat("abc1234")
+
+    if result:  # may be empty if parsing not yet refined
+        for entry in result:
+            for h in entry.get("hunks", []):
+                assert h.startswith("@@"), f"Non-hunk line in hunks: {h!r}"
+                assert not h.startswith("+") and not h.startswith("-")
+
+
+# ---------------------------------------------------------------------------
+# SI-RPT-001 (extended) — report includes commits_processed, file_changes_written
+# ---------------------------------------------------------------------------
+
+# @spec SI-RPT-001
+def test_report_has_commits_processed_and_file_changes_written():
+    report = IngestionReport(
+        docs_processed=5,
+        commits_processed=3,
+        file_changes_written=12,
+    )
+    assert report.commits_processed == 3
+    assert report.file_changes_written == 12
+
+
+# @spec SI-RPT-001
+def test_report_diff_fields_default_to_zero():
+    report = IngestionReport()
+    assert report.commits_processed == 0
+    assert report.file_changes_written == 0

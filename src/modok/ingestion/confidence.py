@@ -15,4 +15,12 @@ def confidence_band(
     penalties: list[float] | None = None,
     uncertainty: float = 0.06,
 ) -> ConfidenceBand:
-    raise NotImplementedError
+    score = base
+    for b in boosts or []:
+        score = score + b * (1.0 - score)
+    for p in penalties or []:
+        score = score * (1.0 - p)
+    score = max(0.0, min(1.0, score))
+    low = max(0.0, score - uncertainty)
+    high = min(1.0, score + uncertainty)
+    return ConfidenceBand(score=score, low=low, high=high)
