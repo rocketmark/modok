@@ -6,6 +6,8 @@
 
 MODOK is a Quine-backed diagnostic memory graph that helps AI agents — Claude, ChatGPT, local LLMs, VS Code agents, Visual Studio agents — quickly move from a customer issue to the most relevant docs, code areas, tests, known issues, prior fixes, and operational signals.
 
+<br clear="right"/>
+
 ## The problem
 
 Diagnosing a software issue requires orienting across many artifacts before any useful inspection can begin. Agents repeat this traversal from scratch every session, with no memory of what was relevant last time.
