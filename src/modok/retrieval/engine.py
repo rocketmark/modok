@@ -106,7 +106,8 @@ async def _traverse_error_to_known_issues(
     normalized_error: str,
     project_slug: str,
     client: QuineClient,
-) -> list[dict[str, str]]:
+) -> list[tuple[QuineNodeId, dict[str, str]]]:
+    """Return (quine_node_id, props) for each KnownIssue reachable from this error."""
     rows = await client.query(
         "MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error}) "
         "MATCH (e)<-[:HAS_ERROR]-(ki:KnownIssue) "
@@ -114,22 +115,22 @@ async def _traverse_error_to_known_issues(
         {"project_slug": project_slug, "normalized_error": normalized_error},
     )
     return [
-        row[0]["properties"]
+        (row[0]["id"], row[0]["properties"])
         for row in rows
         if row and row[0].get("properties", {}).get("issue_id")
     ]
 
 
 async def _traverse_ki_to_fixes(
-    ki_issue_id: str,
+    ki_node_id: QuineNodeId,
     project_slug: str,
     client: QuineClient,
 ) -> list[dict[str, str]]:
     rows = await client.query(
-        "MATCH (ki:KnownIssue {project_slug: $project_slug, issue_id: $ki_id}) "
+        "MATCH (ki:KnownIssue) WHERE id(ki) = $ki_node_id "
         "MATCH (ki)-[:RESOLVED_BY]->(fix:Fix) "
         "RETURN fix",
-        {"project_slug": project_slug, "ki_id": ki_issue_id},
+        {"project_slug": project_slug, "ki_node_id": ki_node_id},
     )
     return [
         row[0]["properties"]
@@ -261,7 +262,7 @@ async def retrieve(
         except Exception as exc:
             raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
         matched_ids = []
-        for props in ki_props_list:
+        for ki_node_id, props in ki_props_list:
             ki_id = props["issue_id"]
             _accumulate_match_count(ki_counts, ki_id, 1)
             ki_meta[ki_id] = props
@@ -270,7 +271,7 @@ async def retrieve(
             # @spec DRE-TRAV-003, DRE-SCORE-006
             try:
                 fix_props_list = await _traverse_ki_to_fixes(
-                    ki_id, project_slug, client
+                    ki_node_id, project_slug, client
                 )
             except Exception as exc:
                 raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc

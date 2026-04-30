@@ -791,6 +791,53 @@ async def test_retrieve_does_not_call_write_methods():
     mock_client.replace_edges.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_retrieve_does_not_write_to_disk(tmp_path, monkeypatch):
+    # @spec DRE-WRITE-002
+    import builtins
+    from modok.retrieval.engine import retrieve
+
+    original_open = builtins.open
+    opened_files: list[str] = []
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        if "w" in str(mode) or "a" in str(mode) or "x" in str(mode):
+            opened_files.append(str(file))
+        return original_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", tracking_open)
+
+    issue = make_customer_issue()
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=["feat-a"],
+        has_errors=[],
+    )
+
+    await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+
+    assert opened_files == [], f"retrieve() wrote to disk: {opened_files}"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_uses_query_not_traverse():
+    # @spec DRE-TRAV-006
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue()
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=["feat-a"],
+        has_errors=[],
+    )
+
+    await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+
+    mock_client.traverse.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Query side-effect helper
 # ---------------------------------------------------------------------------
@@ -813,6 +860,19 @@ def _make_query_side_effect(
     error_known_issues = error_known_issues or {}
     ki_fixes = ki_fixes or {}
     similarity_matches = similarity_matches or []
+
+    # Build a stable integer-ID → issue_id map for KnownIssue nodes.
+    # KI nodes get IDs starting at 1000 to avoid collisions with other node types.
+    # This map lets the RESOLVED_BY traversal dispatch on the integer node ID
+    # that the error→KI traversal returns, matching real Quine behaviour.
+    _ki_node_id_map: dict[int, str] = {}  # quine_node_id → issue_id string
+    _next_ki_id = 1000
+    for kis in error_known_issues.values():
+        for (kid, _, _) in kis:
+            if not any(v == kid for v in _ki_node_id_map.values()):
+                _ki_node_id_map[_next_ki_id] = kid
+                _next_ki_id += 1
+    _ki_issue_id_to_node_id = {v: k for k, v in _ki_node_id_map.items()}
 
     def _side_effect(cypher: str, params: dict | None = None):
         params = params or {}
@@ -850,7 +910,7 @@ def _make_query_side_effect(
             err = params.get("normalized_error", "")
             kis = error_known_issues.get(err, [])
             return [
-                [{"id": i, "properties": {
+                [{"id": _ki_issue_id_to_node_id.get(kid, 1000 + i), "properties": {
                     "issue_id": kid, "summary": summary, "status": status,
                     "project_slug": proj, "node_type": "KnownIssue",
                 }}]
@@ -858,8 +918,10 @@ def _make_query_side_effect(
             ]
 
         if "RESOLVED_BY" in cypher:
-            ki_id = params.get("ki_id", "")
-            fixes = ki_fixes.get(ki_id, [])
+            # Dispatch on integer Quine node ID — matches real traversal behaviour.
+            ki_node_id = params.get("ki_node_id")
+            kid = _ki_node_id_map.get(ki_node_id, "")
+            fixes = ki_fixes.get(kid, [])
             return [
                 [{"id": i, "properties": {
                     "fix_id": fid, "summary": summary, "kind": kind,
