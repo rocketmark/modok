@@ -10,7 +10,7 @@ Two rules govern the DRE:
 
 **Graph-first anchors.** Anchors are read from validated graph edges on the `CustomerIssue` node. The LLM gateway is a fallback, invoked only when graph anchors are insufficient. This preserves ingestion as the source of truth and makes retrieval deterministic and fast in the common case.
 
-**Match count prioritization.** Items matched by more anchors appear first. No numeric scoring, no weights, no calibration. Match count is a concrete, unambiguous signal that extends naturally to weighted scoring later without changing the interface.
+**Weighted match count prioritization.** Items matched by more anchors appear first. The count is weighted: similarity matches are worth more than anchor traversals, and confirmed matches are worth more than candidates. This is honest about the signal — not all matches are equal — while remaining calibration-free and deterministic.
 
 ## Interface
 
@@ -66,6 +66,7 @@ class EvidenceAnchor:
 class DebugPacket:
     issue_summary: str
     anchors: AnchorSet
+    anchor_count: int                    # total anchor instances used; callers use this to interpret confidence
     known_issues: list[KnownIssueRef]   # sorted descending by match_count; max 10
     recent_fixes: list[FixRef]           # sorted descending by match_count; max 10
     relevant_files: list[FileRef]        # sorted descending by match_count; max 20
@@ -147,7 +148,7 @@ MATCH (ki)-[:RESOLVED_BY]->(fix:Fix)
 RETURN fix
 ```
 
-`Fix` nodes found here contribute to `recent_fixes`. `Fix` match count inherits from the `KnownIssue` that led to it.
+`Fix` nodes found here contribute to `recent_fixes`. Each `KnownIssue -[:RESOLVED_BY]-> Fix` hop that fires increments the `Fix` node's `match_count` by 1. If multiple `KnownIssue` nodes resolve to the same `Fix`, their contributions are summed — a `Fix` reached by two `KnownIssue` nodes gets `match_count = 2`.
 
 ### Pre-computed similarity
 
@@ -162,14 +163,17 @@ RETURN ki, sm.review_status
 
 All traversals use `QuineClient.query()`. The DRE does not use `QuineClient.traverse()` — multi-hop patterns with inline `project_slug` filtering cannot be expressed through the `TraversalStep` abstraction without extension.
 
-## Match Count and Prioritization
+## Weighted Match Count and Prioritization
 
-Each result item accumulates `match_count` as traversals complete:
+Each result item accumulates a weighted `match_count` as traversals complete:
 
-- First time an item appears: `match_count = 1`
-- Each additional anchor that also points to the same item: `match_count += 1`
-- `confirmed` SimilarityMatch: `match_count += 2` (counts as stronger signal)
-- `candidate` SimilarityMatch: `match_count += 1`
+- First time an item appears via anchor traversal: `match_count = 1`
+- Each additional anchor that also reaches the same item: `match_count += 1`
+- `Fix` reached by N `KnownIssue` nodes: `match_count = N` (summed across hops)
+- `KnownIssue` reached via `confirmed` SimilarityMatch: `match_count += 2`
+- `KnownIssue` reached via `candidate` SimilarityMatch: `match_count += 1`
+
+The similarity weights reflect signal strength: a confirmed match is a validated fact worth more than a raw anchor hit; a candidate is worth as much as one anchor. All contributions accumulate with no upper bound other than the result cap.
 
 After all traversals, each result list is sorted descending by `match_count`. Items with equal `match_count` preserve insertion order (first-found). Each list is capped before return:
 
@@ -220,8 +224,8 @@ The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `Module`, `File`,
 | LLM fallback on missing graph anchors | Call `parse_ticket` if no graph anchors found | Always error; always succeed with empty anchors | A `CustomerIssue` with no anchors and no raw text is genuinely ambiguous; surfacing the error is honest |
 | `environment` omitted from v1 | Not in AnchorSet | Included; mapped to ObservationEvent | No graph node type maps to environment anchors; including it implies traversal support that doesn't exist |
 | `symptoms` informational only | In AnchorSet but not scored | Used in traversal; omitted entirely | Symptoms are useful context for the consuming agent but no node type maps to them; keeping them in the packet is honest |
-| Match count, not numeric scoring | Integer accumulation | Float weights; tier enum | Concrete signal requiring no calibration; extends to weights later by multiplying per-anchor multipliers |
-| `confirmed` SimilarityMatch gets +2 | Differentiated by status | All matches equal; exclude candidate | Confirmed matches are validated facts; awarding them higher count reflects that stronger signal |
+| Weighted match count | Integer accumulation with fixed per-source weights | Float weights calibrated on data; tier enum; pure unweighted count | Fixed weights (confirmed=+2, candidate=+1, anchor=+1) are honest about signal strength without requiring calibration; extends to tuned weights later |
+| `confirmed` SimilarityMatch gets +2, `candidate` gets +1 | Differentiated by review status | All matches equal; exclude candidates | Confirmed matches are validated facts worth more than a raw anchor hit; candidates are uncertain but still a signal |
 | Result caps | 10 / 10 / 20 | No cap; configurable cap | Common error signatures can fan out to hundreds of KnownIssues; caps prevent overwhelming output without losing the most relevant items |
 | `RESOLVED_BY` for fix retrieval | `KnownIssue -[:RESOLVED_BY]-> Fix` | Via `ResolutionEvent` | `Fix` nodes are the general-purpose fix record; `ResolutionEvent` records specific real-world applications, not needed in the retrieval path |
 | Raw Cypher via `query()` | `QuineClient.query()` for all traversals | `QuineClient.traverse()` | Multi-hop patterns with inline `project_slug` filtering cannot be expressed through `TraversalStep` without extension |
@@ -236,7 +240,7 @@ The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `Module`, `File`,
 2. **Recency boost** — `Fix` nodes carry no timestamp in v1. Requires a timestamp field on `Fix` or a linked `ResolutionEvent` with a `resolved_at` field. Deferred until `ResolutionEvent` ingestion is built.
 3. **Vector index recall** — deferred per design review §4.4 until graph-only retrieval is proven. When added, vector candidates would be injected into traversal results before match-count sorting.
 4. **`relevant_tests`** — add when a `Test` node type and `HAS_TEST` edges are introduced in the ingestion pipeline.
-5. **Anchor caching** — `parse_ticket` in the fallback path re-parses raw text on every call. Caching parsed anchors as graph edges (written back to Quine after LLM extraction) would eliminate repeat LLM calls. Deferred until latency is measured as a problem.
+5. **Anchor caching** — `parse_ticket` in the fallback path re-parses raw text on every `retrieve()` call. This is intentional: anchors derived from LLM output are not written back to Quine, so each call repeats the LLM work. The repeat cost is accepted in v1. When it becomes a measured problem, the fix is to write the derived anchors back as `AFFECTS`/`HAS_ERROR` edges via the ingestion pipeline (making them graph-first on the next call). The DRE does not write these itself — writes belong to ingestion.
 6. **Configurable result caps** — current caps (10/10/20) are hardcoded. If callers need different limits, a `max_results` parameter can be added without changing the core logic.
 7. **`ResolutionEvent` in fix retrieval** — if showing only general `Fix` nodes proves insufficient (e.g., callers need to know which fixes were applied to real tickets), traverse `ResolutionEvent` as a secondary fix source.
 

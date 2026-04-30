@@ -48,14 +48,14 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
-## Match Count and Prioritization
+## Weighted Match Count and Prioritization
 
 - [ ] **DRE-SCORE-001** [U]: Each result item shall carry a `match_count` initialised to `1` on first appearance. Each additional anchor that produces the same item shall increment `match_count` by `1`.
 - [ ] **DRE-SCORE-002** [U]: A `KnownIssue` reached via a `confirmed` `SimilarityMatch` shall have its `match_count` incremented by `2`. A `KnownIssue` reached via a `candidate` `SimilarityMatch` shall have its `match_count` incremented by `1`.
 - [ ] **DRE-SCORE-003** [U]: After all traversals complete, each result list shall be sorted descending by `match_count`. Items with equal `match_count` shall preserve insertion order (first-found).
 - [ ] **DRE-SCORE-004** [U]: `known_issues` shall be capped at 10 items after sorting. `recent_fixes` shall be capped at 10 items. `relevant_files` shall be capped at 20 items. Caps are applied after sorting so the highest-scoring items are retained.
 - [ ] **DRE-SCORE-005** [P]: For any two result items A and B where A was matched by more anchors than B, A shall appear before B in its result list.
-- [ ] **DRE-SCORE-006** [U]: `Fix` nodes shall have their `match_count` incremented once per `KnownIssue -[:RESOLVED_BY]-> Fix` hop that fires during traversal, regardless of how many anchors reached that `KnownIssue`. `match_count` accumulates across all traversal sources with no upper bound other than the result cap.
+- [ ] **DRE-SCORE-006** [U]: `Fix` nodes shall have their `match_count` incremented by `1` for each `KnownIssue -[:RESOLVED_BY]-> Fix` hop that fires during traversal. If multiple `KnownIssue` nodes resolve to the same `Fix`, their contributions shall be summed. `match_count` accumulates across all traversal sources with no upper bound other than the result cap.
 
 ---
 
@@ -69,7 +69,8 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Debug Packet Structure
 
-- [ ] **DRE-PKT-001** [U]: `retrieve` shall return a `DebugPacket` containing `issue_summary`, `anchors`, `known_issues`, `recent_fixes`, `relevant_files`, `evidence`, and `confidence`.
+- [ ] **DRE-PKT-001** [U]: `retrieve` shall return a `DebugPacket` containing `issue_summary`, `anchors`, `anchor_count`, `known_issues`, `recent_fixes`, `relevant_files`, `evidence`, and `confidence`.
+- [ ] **DRE-PKT-005** [U]: `DebugPacket.anchor_count` shall be set to the total number of anchor instances (feature slugs + error signature strings) used during traversal, including those that produced no results. Callers use this field alongside `confidence` to assess retrieval quality.
 - [ ] **DRE-PKT-002** [U]: Result sections with no matches shall be returned as empty lists, not omitted from the packet.
 - [ ] **DRE-PKT-003** [U]: `DebugPacket.issue_summary` shall be set to the `summary` field of the fetched `CustomerIssue` node.
 - [ ] **DRE-PKT-004** [U]: `DebugPacket.evidence` shall contain one `EvidenceAnchor` per anchor instance that produced at least one result, recording the anchor type, anchor value, and list of matched node IDs.
