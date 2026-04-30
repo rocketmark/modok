@@ -1,6 +1,6 @@
 # MODOK
 
-**Mechanical Oracle Designed Only for Knowledge**
+**Mechanized Oracle Designed Only for Knowledge**
 
 MODOK is a Quine-backed diagnostic memory graph that helps AI agents — Claude, ChatGPT, local LLMs, VS Code agents, Visual Studio agents — quickly move from a customer issue to the most relevant docs, code areas, tests, known issues, prior fixes, and operational signals.
 
@@ -59,7 +59,7 @@ Multi-project from day one — a single MODOK instance serves multiple projects,
 
 ## Status
 
-Early development. First target project: [stagehand](https://github.com/marks/stagehand).
+Early development. 
 
 ## Docs
 
