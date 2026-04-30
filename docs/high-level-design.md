@@ -100,7 +100,7 @@ Tests verify the diagnosis.
 
 **Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
 
-**Diagnostic Retrieval Engine** — given a ticket (structured or freeform), extracts anchors (feature, error, environment), queries Quine for related nodes, optionally boosts recall with vector search, assembles and returns a ranked debug packet.
+**Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Results are prioritized by anchor match count: items matched by more anchors appear first. No numeric scoring or vector search in v1.
 
 **Optional Vector Index** — fuzzy recall for natural-language ticket text. Candidates from vector search are always expanded through Quine before inclusion in the debug packet. Not required for Phase 4 functionality; graph-anchor similarity (shared ErrorSignature, Feature, FailureMode, etc.) is sufficient for most cases.
 
