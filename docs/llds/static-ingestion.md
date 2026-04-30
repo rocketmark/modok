@@ -482,6 +482,7 @@ Warnings do not halt ingestion. Errors do.
 ## References
 
 - `docs/llds/quine-client.md` — write primitives used by this layer
+- `docs/llds/llm-gateway.md` — LLM proposal interface; the ingestion pipeline must catch `LLMResponseError` and `LLMUnavailableError` from `propose_metadata` and emit a structured warning rather than halting the run (SI-LLM-003, LLM-META-004)
 - `docs/llds/static-ingestion-notes.md` — pre-draft notes
 - `docs/testing-standard.md` — test level conventions
 - `docs/modok-setup-brainstorm.md` §5 — original parser design
