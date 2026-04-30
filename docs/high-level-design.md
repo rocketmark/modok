@@ -55,39 +55,41 @@ Tests verify the diagnosis.
 ## System Design
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Agents                                   │
-│   Claude · ChatGPT · local LLM · VS Code agent · CLI user      │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │  MCP tools  /  CLI commands
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         MODOK                                   │
-│                                                                 │
-│  ┌──────────────────┐    ┌──────────────────────────────────┐   │
-│  │   CLI / MCP      │───▶│   Diagnostic Retrieval Engine    │   │
-│  │   (entry points) │    │   builds debug packets           │   │
-│  └──────────────────┘    └──────────────┬───────────────────┘   │
-│                                         │                       │
-│  ┌──────────────────┐                   │                       │
-│  │   LLM Gateway    │◀──────────────────┤                       │
-│  │   (pluggable)    │    proposal only  │                       │
-│  │  local · remote  │                   │                       │
-│  └──────────────────┘                   │                       │
-│                                         ▼                       │
-│  ┌──────────────────┐    ┌──────────────────────────────────┐   │
-│  │  Static          │───▶│   Quine Memory Graph             │   │
-│  │  Ingestion       │    │   (persistent, versioned)        │   │
-│  └──────────────────┘    └──────────────┬───────────────────┘   │
-│                                         │                       │
-│  ┌──────────────────┐                   │                       │
-│  │  Optional Vector │───────────────────┘                       │
-│  │  Index           │   recall booster only                     │
-│  └──────────────────┘                                           │
-└─────────────────────────────────────────────────────────────────┘
+                    Agents / CLI / MCP
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │   MODOK Core     │
+                  └───────┬─────────┘
                           │
-                          ▼
-                    Debug Packet
+          ┌───────────────┴────────────────┐
+          │                                │
+          ▼                                ▼
+   Read / Query Path                 Write / Ingest Path
+          │                                │
+          ▼                                ▼
+┌──────────────────────┐        ┌──────────────────────┐
+│ Diagnostic Retrieval │        │ Static Ingestion     │
+│ Engine               │        │ Pipeline             │
+│ builds debug packets │        │ parse/validate/write │
+└──────────┬───────────┘        └──────────┬───────────┘
+           │                               │
+           ▼                               ▼
+      ┌────────────────────────────────────────┐
+      │          Quine Memory Graph             │
+      │ typed nodes · explicit edges · IDs      │
+      └────────────────────────────────────────┘
+           ▲
+           │
+┌──────────┴───────────┐
+│ Optional Vector Index │
+│ candidate recall only │
+└──────────────────────┘
+
+LLM Gateway:
+- optional sidecar
+- proposes ticket parsing / metadata / similarity
+- never writes trusted graph facts directly
 ```
 
 ### Major components
