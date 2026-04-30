@@ -47,11 +47,7 @@ remote →  configured provider endpoint + api_key    optional escalation
 
 Backend is selected per-call by the `backend` parameter: `"local"` (default), `"remote"`, or `"auto"`.
 
-`"auto"` runs local first, then escalates to remote if:
-1. The local response fails pydantic validation (primary trigger — catches malformed output regardless of confidence), OR
-2. The local response passes validation but `confidence < auto_escalation_threshold` (0.60 default — secondary signal; unreliable on models that don't self-report, but useful when present).
-
-Remote is only attempted if configured; if not configured, `auto` behaves as `local`.
+`"auto"` runs local first, then escalates to remote if the local response fails pydantic validation. Remote is only attempted if configured; if not configured, `auto` behaves as `local`.
 
 Note: Ollama exposes the OpenAI-compatible endpoint for any hosted model including Gemma. Gemma variants may not reliably honour `response_format: json_object`. The response validator attempts JSON extraction from raw text as a fallback before raising `LLMResponseError`, which handles this case without escalation for minor formatting deviations.
 
@@ -64,7 +60,6 @@ local_model     = "llama3.2"
 remote_endpoint = "https://api.anthropic.com/v1"   # optional
 remote_model    = "claude-sonnet-4-6"               # optional
 remote_api_key  = ""                                # optional; read from env if absent
-auto_escalation_threshold = 0.60
 timeout_seconds = 30          # default; overridden per call type below
 timeout_parse_ticket    = 30  # background-safe; can be slow
 timeout_propose_metadata = 15 # interactive (--fix workflow); must feel fast
@@ -149,13 +144,12 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 |---|---|---|---|
 | OpenAI-compatible endpoint | Single interface for all backends | Separate Ollama SDK + Anthropic SDK | One code path; Ollama, Claude, GPT-4, and any future model support it; no provider lock-in |
 | Local-first with optional escalation | Ollama default; remote opt-in | Remote-first; always-local; always-remote | Local keeps costs zero for normal use; remote available when local model is insufficient |
-| `auto` escalation threshold | 0.60 confidence (configurable) | Hard-coded; always escalate; never escalate | Threshold captures the "local model clearly uncertain" case without always paying remote cost |
 | Fixed 1s retry delay | Simple fixed delay | Exponential backoff | LLM calls are already 5–30s; backoff adds negligible benefit and complicates reasoning |
 | API key from env fallback | `MODOK_LLM_API_KEY` env var | Config file only; keychain | Env var is the standard CI/server pattern; config file is for local dev; both supported |
 | `response_format: json_object` | JSON mode on all calls | Free-form text parsed with regex; function calling / tool use | JSON mode is the most portable structured output across all providers; function calling is provider-specific |
 | Prompts in `prompts.py` | Fixed frozen templates | Loaded from YAML/TOML at runtime; user-configurable | Fixed templates are auditable and testable; runtime loading adds attack surface and complexity |
 | Gateway never writes | Proposals returned to caller | Gateway writes directly to Quine; gateway writes to doc file | Keeps write path mechanical; gateway is purely read/inference; audit trail stays in caller |
-| `auto` escalation trigger | Validation failure (primary) + confidence < threshold (secondary) | Confidence only; validation only | Validation catches bad output from models that ignore confidence fields; confidence catches uncertain-but-valid output |
+| `auto` escalation trigger | Validation failure only | Confidence only; validation + confidence | Confidence scores from small models are unreliable; validation failure is a concrete, deterministic signal |
 | `propose_similarity` caller supplies candidates | Caller pre-fetches `KnownIssueSummary` list and passes to gateway | Gateway queries Quine directly | Gateway stays stateless; retrieval logic belongs in the retrieval engine |
 | `LLMResponseError` is hard exception | Always raise; caller handles degradation | Gateway returns empty/partial result | Caller knows its UX context; swallowing errors in the gateway hides failures |
 | `raw_response` persistence | In-memory only; returned in result struct | Gateway persists to audit log | Persistence is a future audit-log concern; current callers only need it for debug logging |
@@ -170,7 +164,7 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 4. ✅ Retry strategy — fixed 1s delay, `max_retries` attempts, immediate raise on 4xx.
 5. ✅ Structured output — `json_object` response format, pydantic validation with raw-text JSON extraction fallback, `LLMResponseError` on failure.
 6. ✅ Write responsibility — gateway returns proposals; callers own all writes.
-7. ✅ `auto` escalation trigger — validation failure primary, self-reported confidence secondary.
+7. ✅ `auto` escalation trigger — validation failure only.
 8. ✅ `propose_similarity` inputs — caller passes pre-fetched `KnownIssueSummary` list; gateway is stateless.
 9. ✅ `LLMResponseError` handling — hard exception always; caller decides degradation strategy.
 10. ✅ `raw_response` storage — in-memory only; no gateway persistence.

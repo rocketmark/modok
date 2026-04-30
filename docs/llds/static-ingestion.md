@@ -39,7 +39,6 @@ The following node types carry commit SHA fields:
 | `Fix` | `commit_sha` | Required | The commit that introduced the fix |
 | `ResolutionEvent` | `commit_sha` | Required | The commit at time of resolution |
 | `KnownIssue` | `commit_sha` | Optional | The commit that introduced the issue, if known |
-| `DocSection` | `commit_sha` | Optional | The commit at last doc update; used for staleness detection |
 
 The ingestion pipeline populates `commit_sha` from `git log --format=%H -1 -- <file_path>` on the file being ingested, using the most recent commit that touched that file. For `Fix` and `ResolutionEvent`, the SHA is required in the source YAML; ingestion fails loudly if it is missing.
 
@@ -223,10 +222,7 @@ For each ingested file the pipeline runs these stages in order. Any stage that f
 4. Parse MODOK blocks
    └── extract structured facts from fenced modok blocks in body
 
-5. Extract headings and line ranges
-   └── build DocSection nodes from H2/H3 headings with line ranges
-
-6. Compute commit SHA
+5. Compute commit SHA
    └── git log --format=%H -1 -- <file_path>
 
 7. LLM proposal pass (optional)
@@ -256,7 +252,7 @@ Nodes are written in dependency order to avoid dangling edge references (though 
 3. `Feature`
 4. `Module`
 5. `File`
-6. `Doc` → `DocSection`
+6. `Doc`
 7. `ErrorSignature`
 8. `FailureMode`
 9. `Risk`
@@ -324,101 +320,6 @@ The proposal pass:
 
 The LLM never writes to Quine directly. When `--fix` is used, it writes to the doc file; the mechanical parser then validates and writes to Quine.
 
-## Commit Diff Ingestion
-
-When the post-commit hook fires, the pipeline extracts structured change data from the triggering commit in addition to re-ingesting any modified docs. This gives the graph a lightweight change history that the diagnostic retrieval engine can traverse — "what changed in the files relevant to this feature in the last N commits?"
-
-### Node types
-
-**`CommitEvent`** — one node per commit SHA:
-
-| Field | Type | Notes |
-|---|---|---|
-| `project_slug` | str | |
-| `commit_sha` | str | 7-char short SHA for display; full SHA for identity |
-| `author` | str | from `git log --format=%an` |
-| `timestamp_iso` | str | ISO-8601 UTC, from `git log --format=%aI` |
-| `message_summary` | str | first line of commit message only |
-
-**`FileChange`** — one node per (file, commit) pair:
-
-| Field | Type | Notes |
-|---|---|---|
-| `project_slug` | str | |
-| `commit_sha` | str | |
-| `repo_path` | str | repo-relative path |
-| `lines_added` | int | from `--numstat` |
-| `lines_removed` | int | from `--numstat` |
-| `hunks` | list[str] | `@@ -a,b +c,d @@` headers only, not full diff |
-
-No raw diff text is stored — only hunk headers. Full diff is always recoverable from git.
-
-### Edge vocabulary (additions)
-
-| From | Rel | To | Notes |
-|---|---|---|---|
-| `File` | `CHANGED_IN` | `FileChange` | one per (file, commit) |
-| `FileChange` | `IN_COMMIT` | `CommitEvent` | links change to its commit |
-| `CommitEvent` | `TOUCHES_FEATURE` | `Feature` | derived: any FileChange whose repo_path matches a Feature's source_files or module source_roots |
-
-### Trigger and scope
-
-Commit diff ingestion runs only from the post-commit hook (not from manual `modok ingest-docs`). The hook has access to `$GIT_COMMIT` (the just-committed SHA) and uses it directly — no `git log` needed. The diff is extracted via:
-
-```bash
-git show --numstat --format="%H%n%an%n%aI%n%s" $GIT_COMMIT
-```
-
-Only files that match the project's registered `source_paths` (distinct from `ingestion_paths`, which cover docs) are included. Files outside source_paths are ignored for diff ingestion; they may still trigger doc ingestion if they match ingestion_paths.
-
-**`source_paths`** is a new optional key in `~/.modok/config.toml` per project:
-
-```toml
-[projects.stagehand]
-repo_root = "/home/marks/github/stagehand"
-ingestion_paths = ["docs/", "registries/", "tickets/"]
-source_paths = ["agent/", "client/"]
-```
-
-If `source_paths` is absent, commit diff ingestion is skipped for that project (opt-in).
-
-### ID scheme
-
-```python
-CommitEvent.id = idFrom("CommitEvent", project_slug, commit_sha)
-FileChange.id  = idFrom("FileChange",  project_slug, commit_sha, repo_path)
-```
-
-### Pipeline stages (diff path)
-
-```
-1. Parse commit metadata
-   └── git show --format="%H%n%an%n%aI%n%s" $GIT_COMMIT
-   └── write/upsert CommitEvent node
-
-2. Parse numstat
-   └── git show --numstat $GIT_COMMIT
-   └── filter to source_paths
-   └── write/upsert FileChange node per matching file
-   └── write File -[CHANGED_IN]-> FileChange -[IN_COMMIT]-> CommitEvent
-
-3. Derive TOUCHES_FEATURE edges
-   └── for each FileChange, check repo_path against Feature registry source_files + Module source_roots
-   └── write CommitEvent -[TOUCHES_FEATURE]-> Feature for each match
-```
-
-### What this enables
-
-A retrieval query for "what changed in feature shtp-receiver in the last 7 days" becomes:
-
-```cypher
-MATCH (f:Feature {project_slug: 'stagehand', feature_slug: 'shtp-receiver'})
-      <-[:TOUCHES_FEATURE]-(c:CommitEvent)
-WHERE c.timestamp_iso > '...'
-MATCH (c)<-[:IN_COMMIT]-(fc:FileChange)
-RETURN c, fc ORDER BY c.timestamp_iso DESC
-```
-
 ## Output
 
 Every ingestion run emits a structured report:
@@ -453,23 +354,17 @@ Warnings do not halt ingestion. Errors do.
 | Confidence threshold for auto-write | 0.90 (verified) | 0.75 (strong); 1.00 (only explicit) | 0.90 catches explicit metadata with minor uncertainty; avoids writing weak inferences as facts |
 | Registry location | In-repo `registries/` directory, version-controlled | `~/.modok/projects/{slug}/registries/` (machine-local) | Registries are source-of-truth metadata; they belong with the code and docs they describe, not in machine-local state |
 | Node write order | Dependency order (Project → Feature → ... → ResolutionEvent) | Unordered; edge-first | Keeps graph clean even though Quine permits shell nodes; easier to debug partial ingest runs |
-| Commit diff node granularity | `CommitEvent` + `FileChange` intermediate node | Single `CommitEvent` with embedded file list; direct `File-[:CHANGED_IN {lines}]->CommitEvent` edge with properties | No edge properties rule requires intermediate node; FileChange gives queryable per-file change data |
-| Diff storage | Hunk headers only (`@@ -a,b +c,d @@`), not full diff | Full diff stored in graph; no diff stored | Full diff is recoverable from git and large; hunk headers give line-range context for retrieval without bloat |
-| Commit diff trigger | Hook only (has `$GIT_COMMIT`); not on manual ingest | Manual ingest also diffs latest commit; CI triggers via API | Hook has authoritative commit context; manual ingest intent is doc sync, not change history reconstruction |
-| source_paths opt-in | New `source_paths` key in config.toml; skip diff ingestion if absent | Always diff all changed files; diff everything under ingestion_paths | Separates "docs to ingest" from "code to track"; avoids noise from unrelated file changes |
-| TOUCHES_FEATURE derivation | Derived at ingest time from registry source_files/module source_roots | Derived at query time; stored as fixed edge | Pre-computing edges at ingest keeps query paths simple; registry is authoritative at ingest time |
 
 ## Open Questions & Future Decisions
 
 ### Resolved
 1. ✅ Ingestion trigger — git post-commit hook, opt-in via `modok init`.
 2. ✅ Hook install on existing hook — append MODOK section, replace if already present.
-3. ✅ Commit SHA tracking — required on `Fix` and `ResolutionEvent`; optional on `KnownIssue` and `DocSection`.
+3. ✅ Commit SHA tracking — required on `Fix` and `ResolutionEvent`; optional on `KnownIssue`.
 4. ✅ Dirty working tree — warn and complete; do not block.
 5. ✅ LLM role — proposer only; write-back to doc is opt-in via `--fix`; never writes to Quine directly.
 6. ✅ Confidence model scope — prose/structure extraction only; MODOK block content always verified (1.00).
 7. ✅ Registry location — in-repo `registries/` directory, version-controlled.
-8. ✅ Commit diff ingestion — `CommitEvent` + `FileChange` nodes from hook; hunk headers only; `source_paths` opt-in in config.toml; `TOUCHES_FEATURE` derived at ingest.
 
 ### Deferred
 1. **Edge write order within a node** — SI-WRITE-001 mandates node write order; edge writes within a single node's context follow the order of the edge vocabulary table in the Quine client LLD. Not specified further; deterministic by construction from the model.

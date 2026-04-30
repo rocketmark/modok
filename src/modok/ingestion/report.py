@@ -13,8 +13,6 @@ class IngestionReport:
     pending_items: int = 0
     files_ignored: int = 0
     files_skipped: int = 0
-    commits_processed: int = 0
-    file_changes_written: int = 0
     duration_seconds: float = 0.0
 
     def __str__(self) -> str:

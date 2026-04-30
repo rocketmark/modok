@@ -228,14 +228,14 @@ def test_auto_escalates_at_most_once(max_retries):
 
 # @spec LLM-BACK-004
 @pytest.mark.asyncio
-async def test_auto_escalates_to_remote_on_low_confidence():
+async def test_auto_does_not_escalate_on_low_confidence():
+    """Low confidence alone does not trigger escalation — only validation failure does."""
     from modok.llm.gateway import parse_ticket
 
     cfg = make_config(
         remote_endpoint="https://api.anthropic.com/v1",
         remote_model="claude-sonnet-4-6",
         remote_api_key="sk-test",
-        auto_escalation_threshold=0.60,
     )
     low_conf_response = """\
 {
@@ -243,19 +243,18 @@ async def test_auto_escalates_to_remote_on_low_confidence():
   "error_signatures": [],
   "environment": {},
   "symptoms": [],
-  "confidence": 0.40
+  "confidence": 0.10
 }
 """
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
         with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
-            mock_chat.side_effect = [low_conf_response, VALID_TICKET_RESPONSE]
-            await parse_ticket("ticket text", "stagehand", backend="auto")
+            mock_chat.return_value = low_conf_response
+            result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
-    assert mock_chat.call_count == 2
-    # Second call must have gone to the remote endpoint, not local
-    second_call_endpoint = mock_chat.call_args_list[1].kwargs.get("endpoint", "")
-    assert "anthropic" in second_call_endpoint or "localhost" not in second_call_endpoint
+    # Local response validated fine — no escalation even though confidence is low
+    assert mock_chat.call_count == 1
+    assert result.confidence == 0.10
 
 
 # ---------------------------------------------------------------------------
@@ -835,6 +834,7 @@ async def test_propose_similarity_returns_proposals():
 
     issue = CustomerIssue(
         node_type="CustomerIssue",
+        project_slug="stagehand",
         source_system="github",
         ticket_id="gh-200",
         summary="pose dropout on windows",
@@ -868,6 +868,7 @@ async def test_similarity_proposal_has_all_required_fields():
 
     issue = CustomerIssue(
         node_type="CustomerIssue",
+        project_slug="stagehand",
         source_system="github",
         ticket_id="gh-200",
         summary="dropout",
@@ -900,6 +901,7 @@ async def test_empty_candidates_returns_empty_without_llm_call():
 
     issue = CustomerIssue(
         node_type="CustomerIssue",
+        project_slug="stagehand",
         source_system="github",
         ticket_id="gh-200",
         summary="dropout",
@@ -927,6 +929,7 @@ async def test_propose_similarity_uses_prompt_from_prompts_module():
 
     issue = CustomerIssue(
         node_type="CustomerIssue",
+        project_slug="stagehand",
         source_system="github",
         ticket_id="gh-200",
         summary="dropout",

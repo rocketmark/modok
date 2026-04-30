@@ -108,11 +108,11 @@ Tests verify the diagnosis.
 
 ### 1. Quine as the graph store
 
-Quine is chosen because it supports graph-oriented ingestion, event-driven graph updates, and standing queries — which are needed for the future stream-mode vision even if not used in v1. Alternatives (Neo4j, ArangoDB, a plain SQLite adjacency table) were considered; Quine's event-streaming model is the differentiator.
+Quine is chosen because the core problem is storing and traversing relationships between artifacts — and Quine is purpose-built for that. Typed nodes, deterministic IDs, explicit edges, and Cypher traversal are all available without the operational overhead of a full database cluster. Alternatives (Neo4j, ArangoDB, a plain SQLite adjacency table) were considered; Quine's graph model and local JAR deployment are the differentiators for a single-user or small-team tool.
 
 ### 2. LLM-agnostic gateway
 
-The LLM interface is an abstract boundary with local-first defaults. A local model (Ollama) handles ticket parsing and metadata suggestion on the Mac mini without network calls. Claude or GPT-4 are invoked only when configured and when the local model's output confidence is below threshold. This makes MODOK usable offline, cost-predictable, and portable to any agent environment.
+The LLM interface is an abstract boundary with local-first defaults. A local model (Ollama) handles ticket parsing and metadata suggestion on the Mac mini without network calls. Claude or GPT-4 are invoked only when configured and when the local model's output fails validation. This makes MODOK usable offline, cost-predictable, and portable to any agent environment.
 
 No LLM SDK is a hard dependency. The gateway communicates over a common interface (OpenAI-compatible chat completions endpoint, which both Ollama and the major remote providers support).
 
@@ -141,10 +141,7 @@ Every Quine node ID is namespaced by `projectSlug`. The CLI and MCP tools requir
 - `KnownIssue` — repeatable or recognizable problem
 - `Fix` — workaround, patch, config change, or remediation
 - `ResolutionEvent` — a specific issue was resolved at a time by applying a fix
-- `Decision` — source-backed architecture/design choice
 - `Risk` — known risky area or failure mode
-- `ObservationEvent` — timestamped signal from logs, tickets, deployments, or tests
-- `DocSection` — source-backed evidence from docs
 
 `DiagnosticNote` is the only provisional node type — for agent or human notes that have not yet been validated into a typed node.
 

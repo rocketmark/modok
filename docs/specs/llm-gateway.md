@@ -20,8 +20,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [ ] **LLM-BACK-001** [U]: When `backend="local"`, the system shall send the request to the configured `local_endpoint` using the configured `local_model`, regardless of whether a remote backend is configured.
 - [ ] **LLM-BACK-002** [U]: When `backend="remote"` and no remote endpoint or API key is configured, the system shall raise `LLMConfigError` without making any network call.
-- [ ] **LLM-BACK-003** [U]: When `backend="auto"`, the system shall attempt the local backend first. If the local response fails pydantic validation, the system shall escalate to the remote backend if configured. Escalation happens at most once per gateway call — if both validation failure and low confidence apply, only one remote attempt is made.
-- [ ] **LLM-BACK-004** [U]: When `backend="auto"` and the local response passes validation but `confidence < auto_escalation_threshold`, the system shall escalate to the remote backend if configured. Escalation happens at most once per gateway call.
+- [ ] **LLM-BACK-003** [U]: When `backend="auto"`, the system shall attempt the local backend first. If the local response fails pydantic validation, the system shall escalate to the remote backend if configured. Escalation happens at most once per gateway call.
 - [ ] **LLM-BACK-005** [U]: When `backend="auto"` and no remote backend is configured, the system shall behave identically to `backend="local"` and shall not raise an error due to the absence of a remote backend.
 - [ ] **LLM-BACK-006** [U]: The API key shall be read from `remote_api_key` in config first; if absent or empty, from the `MODOK_LLM_API_KEY` environment variable. If neither is set and a remote call is attempted, the system shall raise `LLMConfigError`.
 
@@ -29,7 +28,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Retry and Timeout
 
-- [ ] **LLM-RETRY-001** [U]: On a timeout or 5xx response, the system shall retry up to `max_retries` times with a 1-second fixed delay between attempts, on the same backend. Retry does not trigger backend escalation — escalation is triggered only by validation failure or low confidence (LLM-BACK-003, LLM-BACK-004).
+- [ ] **LLM-RETRY-001** [U]: On a timeout or 5xx response, the system shall retry up to `max_retries` times with a 1-second fixed delay between attempts, on the same backend. Retry does not trigger backend escalation — escalation is triggered only by validation failure (LLM-BACK-003).
 - [ ] **LLM-RETRY-002** [U]: On a 4xx response, the system shall raise `LLMGatewayError` immediately without retrying.
 - [ ] **LLM-RETRY-003** [U]: After all retries are exhausted without a valid response, the system shall raise `LLMUnavailableError`.
 - [ ] **LLM-RETRY-004** [U]: `parse_ticket` calls shall use `timeout_parse_ticket` (default 30s) per attempt. `propose_metadata` and `propose_similarity` calls shall use `timeout_propose_metadata` and `timeout_propose_similarity` respectively (default 15s each). When a per-call-type timeout key is absent from config, the system shall fall back to `timeout_seconds`.

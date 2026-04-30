@@ -196,11 +196,10 @@ async def _call_auto(
     cfg: dict,
     validator,
 ) -> Any:
-    """Run local first; escalate to remote on validation failure or low confidence."""
+    """Run local first; escalate to remote on validation failure only."""
     local_endpoint = cfg.get("local_endpoint", "http://localhost:11434/v1")
     local_model = cfg.get("local_model", "llama3.2")
     max_retries = int(cfg.get("max_retries", 2))
-    threshold = float(cfg.get("auto_escalation_threshold", 0.60))
 
     has_remote = bool(cfg.get("remote_endpoint") and cfg.get("remote_model"))
 
@@ -214,16 +213,12 @@ async def _call_auto(
         max_retries=max_retries,
     )
 
-    # Try to validate local response
     if has_remote:
         try:
-            result = _parse_and_validate(raw, validator)
-            confidence = getattr(result, "confidence", 1.0)
-            if confidence >= threshold:
-                return result
+            return _parse_and_validate(raw, validator)
         except LLMResponseError:
             pass
-        # Escalate to remote — at most once
+        # Escalate to remote — at most once, only on validation failure
         r_endpoint, r_model, r_key = _check_remote_config(cfg)
         raw = await _call_with_retry(
             messages=messages,

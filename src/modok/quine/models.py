@@ -62,6 +62,7 @@ class KnownIssue(QuineNode):
 
 class CustomerIssue(QuineNode):
     node_type: Literal["CustomerIssue"]
+    project_slug: str
     source_system: str
     ticket_id: str
     summary: str
@@ -106,25 +107,6 @@ class DiagnosticNote(QuineNode):
     created_at: str
 
 
-class CommitEvent(QuineNode):
-    node_type: Literal["CommitEvent"]
-    project_slug: str
-    commit_sha: str
-    author: str
-    timestamp_iso: str
-    message_summary: str
-
-
-class FileChange(QuineNode):
-    node_type: Literal["FileChange"]
-    project_slug: str
-    commit_sha: str
-    repo_path: str
-    lines_added: int
-    lines_removed: int
-    hunks: list[str]
-
-
 _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Project": Project,
     "Feature": Feature,
@@ -138,6 +120,4 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Fix": Fix,
     "ResolutionEvent": ResolutionEvent,
     "DiagnosticNote": DiagnosticNote,
-    "CommitEvent": CommitEvent,
-    "FileChange": FileChange,
 }

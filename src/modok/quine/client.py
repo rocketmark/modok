@@ -136,14 +136,27 @@ class QuineClient:
         self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId
     ) -> None:
         # MERGE on both endpoints and the relationship — idempotent by construction.
-        # Edge-before-node writes are permitted; Quine creates shell nodes for
-        # referenced IDs that don't yet have properties.
         query = (
             "MERGE (a) WHERE id(a) = $from_id "
             "MERGE (b) WHERE id(b) = $to_id "
             f"MERGE (a)-[:{edge_type}]->(b)"
         )
         await self._cypher(query, {"from_id": from_id, "to_id": to_id})
+
+    # @spec QC-EW-004
+    async def replace_edges(
+        self, from_id: QuineNodeId, edge_type: str, to_ids: list[QuineNodeId]
+    ) -> None:
+        """Delete all edges of edge_type from from_id, then recreate for to_ids.
+
+        Use this on re-ingest so stale edges from removed metadata don't persist.
+        """
+        await self._cypher(
+            f"MATCH (a)-[r:{edge_type}]->() WHERE id(a) = $from_id DELETE r",
+            {"from_id": from_id},
+        )
+        for to_id in to_ids:
+            await self.write_edge(from_id, edge_type, to_id)
 
     async def edge_exists(
         self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId
@@ -199,7 +212,7 @@ def _node_id_from_model(node: QuineNode) -> QuineNodeId:
         Project, Feature, Module, File, DocSection, ErrorSignature,
         KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
         DiagnosticNote,
-    )
+    )  # CommitEvent/FileChange removed (deferred)
     if isinstance(node, Project):
         return idFrom("project", node.project_slug)
     if isinstance(node, Feature):
@@ -215,7 +228,7 @@ def _node_id_from_model(node: QuineNode) -> QuineNodeId:
     if isinstance(node, KnownIssue):
         return idFrom("known-issue", node.project_slug, node.issue_id)
     if isinstance(node, CustomerIssue):
-        return idFrom("customer-issue", node.source_system, node.ticket_id)
+        return idFrom("customer-issue", node.project_slug, node.source_system, node.ticket_id)
     if isinstance(node, SimilarityMatch):
         return idFrom("similarity-match", node.project_slug, node.customer_issue_id,
                       node.known_issue_id, node.method)

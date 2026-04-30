@@ -138,7 +138,7 @@ def test_different_node_types_produce_different_ids(type_a, type_b, rest):
 
 
 # ---------------------------------------------------------------------------
-# QC-ID-003 — project_slug in every node type except CustomerIssue
+# QC-ID-003 — project_slug in every node type
 # ---------------------------------------------------------------------------
 
 # @spec QC-ID-003
@@ -149,20 +149,27 @@ def test_different_project_slugs_produce_different_ids(slug_a, slug_b, rest):
 
 
 # ---------------------------------------------------------------------------
-# QC-ID-004 — CustomerIssue ID has no project_slug
+# QC-ID-004 — CustomerIssue ID includes project_slug
 # ---------------------------------------------------------------------------
 
 # @spec QC-ID-004
-def test_customer_issue_id_excludes_project_slug():
-    id1 = idFrom("customer-issue", "zendesk", "1842")
-    id2 = idFrom("customer-issue", "zendesk", "1842")
+def test_customer_issue_id_is_deterministic():
+    id1 = idFrom("customer-issue", "stagehand", "zendesk", "1842")
+    id2 = idFrom("customer-issue", "stagehand", "zendesk", "1842")
     assert id1 == id2
 
 
 # @spec QC-ID-004
+def test_customer_issue_id_differs_by_project():
+    id_a = idFrom("customer-issue", "stagehand", "zendesk", "1842")
+    id_b = idFrom("customer-issue", "other-project", "zendesk", "1842")
+    assert id_a != id_b
+
+
+# @spec QC-ID-004
 def test_customer_issue_id_differs_by_source_system():
-    id_zendesk = idFrom("customer-issue", "zendesk", "1842")
-    id_github = idFrom("customer-issue", "github", "1842")
+    id_zendesk = idFrom("customer-issue", "stagehand", "zendesk", "1842")
+    id_github = idFrom("customer-issue", "stagehand", "github", "1842")
     assert id_zendesk != id_github
 
 
@@ -185,7 +192,7 @@ def test_resolution_event_id_includes_source_system():
 @given(slug_a=slugs, slug_b=slugs)
 def test_similarity_match_id_includes_project_slug(slug_a, slug_b):
     assume(slug_a != slug_b)
-    ci_id = str(idFrom("customer-issue", "zendesk", "1842"))
+    ci_id = str(idFrom("customer-issue", slug_a, "zendesk", "1842"))
     ki_id = str(idFrom("known-issue", slug_a, "issue-001"))
     id_a = idFrom("similarity-match", slug_a, ci_id, ki_id, "graph-anchor")
     id_b = idFrom("similarity-match", slug_b, ci_id, ki_id, "graph-anchor")
@@ -447,6 +454,56 @@ async def test_write_edge_before_upsert_does_not_raise():
     from_id = _idFrom("project", "proj-a")
     to_id = _idFrom("feature", "proj-a", "feat-not-yet-written")
     await client.write_edge(from_id, "HAS_FEATURE", to_id)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# QC-EW-004 — replace_edges deletes stale edges then recreates
+# ---------------------------------------------------------------------------
+
+# @spec QC-EW-004
+@pytest.mark.asyncio
+async def test_replace_edges_deletes_then_recreates():
+    from modok.quine.ids import idFrom as _idFrom
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        body = json.loads(request.content)
+        calls.append(body["query"])
+        return quine_upsert_response()
+
+    transport = httpx.MockTransport(handler)
+    client = make_client(transport)
+    from_id = _idFrom("project", "proj-a")
+    to_id = _idFrom("feature", "proj-a", "feat-x")
+
+    await client.replace_edges(from_id, "HAS_FEATURE", [to_id])
+
+    # First call must be a DELETE, second must be a MERGE (write_edge)
+    assert any("DELETE" in q for q in calls), "replace_edges must DELETE stale edges"
+    assert any("MERGE" in q for q in calls), "replace_edges must re-create specified edges"
+
+
+# @spec QC-EW-004
+@pytest.mark.asyncio
+async def test_replace_edges_with_empty_list_only_deletes():
+    from modok.quine.ids import idFrom as _idFrom
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        body = json.loads(request.content)
+        calls.append(body["query"])
+        return quine_upsert_response()
+
+    transport = httpx.MockTransport(handler)
+    client = make_client(transport)
+    from_id = _idFrom("project", "proj-a")
+
+    await client.replace_edges(from_id, "HAS_FEATURE", [])
+
+    assert len(calls) == 1
+    assert "DELETE" in calls[0]
 
 
 # ---------------------------------------------------------------------------

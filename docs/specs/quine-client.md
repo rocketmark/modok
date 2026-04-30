@@ -22,8 +22,8 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-ID-001** [P, C]: The system shall compute all Quine node IDs deterministically via `idFrom(*parts)`, where parts are joined with a null-byte separator and hashed with SHA-256, taking the first 8 bytes as a signed int64.
 - [ ] **QC-ID-002** [P]: The system shall use the node type name as the first element of every `idFrom()` tuple, such that two node types with identical remaining parts always produce different IDs.
-- [ ] **QC-ID-003** [P]: The system shall include `project_slug` as a tuple element in the ID of every node type except `CustomerIssue`.
-- [ ] **QC-ID-004** [U]: The system shall identify `CustomerIssue` nodes by `('customer-issue', source_system, ticket_id)`, without `project_slug`, because tickets arrive from external systems before project linkage is established.
+- [ ] **QC-ID-003** [P]: The system shall include `project_slug` as a tuple element in the ID of every node type.
+- [ ] **QC-ID-004** [U]: The system shall identify `CustomerIssue` nodes by `('customer-issue', project_slug, source_system, ticket_id)`. project_slug is required to prevent cross-project ID collisions.
 - [ ] **QC-ID-005** [U]: The system shall identify `ResolutionEvent` nodes by `('resolution', project_slug, source_system, ticket_id, fix_id)`, including `source_system` to disambiguate ticket IDs that collide across source systems.
 - [ ] **QC-ID-006** [P]: The system shall include `project_slug` in the `SimilarityMatch` ID tuple so that two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically cannot share a `SimilarityMatch` node across project boundaries.
 
@@ -50,7 +50,8 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 - [ ] **QC-EW-001** [U, C]: When `write_edge` is called for an edge that does not exist, the system shall create the directed edge from `from_id` to `to_id` with the given `edge_type`.
 - [ ] **QC-EW-002** [P, C]: When `write_edge` is called for an edge that already exists, the system shall treat the call as a no-op without raising an error.
-- [ ] **QC-EW-003** [U, C]: When `write_edge` is called referencing a node ID that does not yet have a corresponding `upsert_node` call, the system shall permit the write; the resulting shell node is valid intermediate ingestion state and shall be promoted to a full node when `upsert_node` is subsequently called.
+- [ ] **QC-EW-003** [U]: write_edge is permitted to reference node IDs that have not yet been upserted. The ingestion pipeline validates all node references before writing edges; shell nodes are not part of the intended ingestion state.
+- [ ] **QC-EW-004** [U]: The system shall provide a replace_edges(from_id, edge_type, to_ids) operation that deletes all edges of the given type from from_id before recreating the specified set. This is used on re-ingest to eliminate stale edges from removed metadata.
 
 ---
 
