@@ -2,11 +2,15 @@
 
 ## Context and Design Philosophy
 
-The Diagnostic Retrieval Engine (DRE) is MODOK's read path. Given a `CustomerIssue` node ID, it extracts anchors from the issue's raw text, traverses Quine to find related nodes, and returns a debug packet.
+The Diagnostic Retrieval Engine (DRE) is MODOK's read path. Given a `CustomerIssue` node ID, it extracts anchors from the graph, traverses Quine to find related nodes, and returns a debug packet.
 
 The DRE is strictly read-only. It writes nothing to Quine. Its only output is the debug packet returned to the caller.
 
-One rule governs prioritization: **items matched by more anchors appear first**. No numeric scoring, no calibration, no weights. Match count is a concrete, unambiguous signal that extends naturally to weighted scoring later without changing the interface.
+Two rules govern the DRE:
+
+**Graph-first anchors.** Anchors are read from validated graph edges on the `CustomerIssue` node. The LLM gateway is a fallback, invoked only when graph anchors are insufficient. This preserves ingestion as the source of truth and makes retrieval deterministic and fast in the common case.
+
+**Match count prioritization.** Items matched by more anchors appear first. No numeric scoring, no weights, no calibration. Match count is a concrete, unambiguous signal that extends naturally to weighted scoring later without changing the interface.
 
 ## Interface
 
@@ -20,19 +24,18 @@ async def retrieve(
 
 `issue_id` must be the ID of an existing `CustomerIssue` node. The caller is responsible for ingesting the issue before calling `retrieve`. The DRE does not accept raw text — anchor extraction and node creation are ingestion responsibilities.
 
-`project_slug` is required and used in every Quine query. The DRE never traverses cross-project.
+`project_slug` is required. The DRE verifies that the fetched `CustomerIssue` node's `project_slug` matches the argument before traversal. If they differ, raises `DRENotFoundError`.
 
-`backend` is forwarded to the LLM gateway for anchor extraction. Defaults to `"local"`.
+`backend` is forwarded to the LLM gateway if the fallback path is needed. Defaults to `"local"`.
 
 ## Debug Packet Schema
 
 ```python
 @dataclass
 class AnchorSet:
-    feature_slug: str | None
-    error_signatures: list[str]
-    environment: dict[str, str]
-    symptoms: list[str]
+    feature_slugs: list[str]        # from graph edges; may be empty
+    error_signatures: list[str]     # from graph edges; may be empty
+    symptoms: list[str]             # informational only; not used in traversal
 
 @dataclass
 class KnownIssueRef:
@@ -55,7 +58,7 @@ class FileRef:
 
 @dataclass
 class EvidenceAnchor:
-    anchor_type: str        # "feature", "error_signature", "environment"
+    anchor_type: str        # "feature", "error_signature"
     anchor_value: str
     matched_node_ids: list[str]
 
@@ -63,130 +66,183 @@ class EvidenceAnchor:
 class DebugPacket:
     issue_summary: str
     anchors: AnchorSet
-    known_issues: list[KnownIssueRef]   # sorted descending by match_count
-    recent_fixes: list[FixRef]           # sorted descending by match_count
-    relevant_files: list[FileRef]        # sorted descending by match_count
+    known_issues: list[KnownIssueRef]   # sorted descending by match_count; max 10
+    recent_fixes: list[FixRef]           # sorted descending by match_count; max 10
+    relevant_files: list[FileRef]        # sorted descending by match_count; max 20
     evidence: list[EvidenceAnchor]
-    confidence: float                    # matched_anchors / total_anchors; 0.0 if no anchors
+    confidence: float                    # see Confidence below
 ```
 
-Sections with no matches are returned as empty lists, not omitted. A caller can distinguish "nothing found" from "field not returned."
+Sections with no matches are returned as empty lists, not omitted.
 
-`relevant_tests` is omitted — no `Test` node type exists yet.
+`environment` and `relevant_tests` are omitted from v1. No graph node type maps to environment anchors. No `Test` node type exists yet.
 
 ## Anchor Extraction
 
-The DRE fetches the `CustomerIssue` node from Quine. It calls `gateway.parse_ticket(raw_text, project_slug)` to extract anchors.
+### Graph-first (primary path)
 
-If `raw_text` is `None` or `parse_ticket` raises `LLMResponseError`, the DRE raises `DREAnchorError`. The caller decides whether to retry or surface the error. The DRE does not silently proceed with no anchors — an anchor-less traversal returns an empty packet with no diagnostic value.
+The DRE fetches the `CustomerIssue` node, then reads its outbound edges:
 
-If `parse_ticket` raises `LLMUnavailableError`, the DRE raises `DREUnavailableError`.
+```cypher
+MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
+MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug})
+RETURN f.feature_slug
+```
+
+```cypher
+MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
+MATCH (ci)-[:HAS_ERROR]->(e:ErrorSignature {project_slug: $project_slug})
+RETURN e.normalized_error
+```
+
+Anchors are considered sufficient if at least one feature slug or one error signature is found. If sufficient, the LLM fallback is skipped entirely.
+
+### LLM fallback
+
+If no graph anchors are found and `raw_text` is present on the `CustomerIssue` node, the DRE calls `gateway.parse_ticket(raw_text, project_slug, backend=backend)` and uses the returned `feature_slug` and `error_signatures` as anchors.
+
+If `raw_text` is `None` and no graph anchors exist, raises `DREAnchorError`.
+
+If `parse_ticket` raises `LLMResponseError`, raises `DREAnchorError`.
+
+If `parse_ticket` raises `LLMUnavailableError`, raises `DRELLMUnavailableError`.
+
+`symptoms` from the LLM result are included in `AnchorSet.symptoms` for context but are not used in graph traversal or match count.
 
 ## Graph Traversal
 
-Each anchor type drives a separate traversal. Results from all traversals are collected, deduplicated, and scored by match count before assembly.
+Each anchor drives a traversal. Results are collected, deduplicated by node ID, and scored by match count across all traversals.
 
-### Feature anchor
+### Feature anchor → files
+
+For each `feature_slug` in anchors:
 
 ```cypher
 MATCH (f:Feature {project_slug: $project_slug, feature_slug: $feature_slug})
-MATCH (f)-[:HAS_FILE]->(file)
+MATCH (f)-[:IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)
 RETURN file
 ```
 
 Files found here contribute to `relevant_files`.
 
-### Error signature anchor
+### Error signature anchor → known issues
 
-For each error string in `error_signatures`:
+For each `normalized_error` in anchors:
 
 ```cypher
 MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error})
-MATCH (e)-[:LINKED_TO]->(ki:KnownIssue)
+MATCH (e)<-[:HAS_ERROR]-(ki:KnownIssue)
 RETURN ki
 ```
 
 `KnownIssue` nodes found here contribute to `known_issues`.
 
-### Known issue → fix
+### Known issue → fixes
 
 For each `KnownIssue` found above:
 
 ```cypher
 MATCH (ki:KnownIssue) WHERE id(ki) = $ki_id
-MATCH (ki)-[:FIXED_BY]->(fix:Fix)
+MATCH (ki)-[:RESOLVED_BY]->(fix:Fix)
 RETURN fix
 ```
 
-`Fix` nodes found here contribute to `recent_fixes`.
+`Fix` nodes found here contribute to `recent_fixes`. `Fix` match count inherits from the `KnownIssue` that led to it.
 
 ### Pre-computed similarity
 
 ```cypher
 MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
 MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue)
-RETURN ki
+WHERE sm.review_status IN ['candidate', 'confirmed']
+RETURN ki, sm.review_status
 ```
 
-Any `KnownIssue` reached this way also contributes to `known_issues` with `match_count` incremented for the overlap.
+`KnownIssue` nodes reached via `confirmed` matches get `match_count += 2`; via `candidate` matches get `match_count += 1`. `rejected` matches are excluded. If a `KnownIssue` was already found via error signature traversal, its match count accumulates.
 
-All traversals are performed via `QuineClient.query()`. The DRE uses raw Cypher through `query()` for traversals — not `traverse()` — because the multi-hop patterns require inline filtering by `project_slug`.
+All traversals use `QuineClient.query()`. The DRE does not use `QuineClient.traverse()` — multi-hop patterns with inline `project_slug` filtering cannot be expressed through the `TraversalStep` abstraction without extension.
 
 ## Match Count and Prioritization
 
-Each result item accumulates a `match_count` as traversals complete:
+Each result item accumulates `match_count` as traversals complete:
 
 - First time an item appears: `match_count = 1`
 - Each additional anchor that also points to the same item: `match_count += 1`
+- `confirmed` SimilarityMatch: `match_count += 2` (counts as stronger signal)
+- `candidate` SimilarityMatch: `match_count += 1`
 
-After all traversals, each result list is sorted `descending by match_count`. Items with equal `match_count` preserve insertion order (first-found).
+After all traversals, each result list is sorted descending by `match_count`. Items with equal `match_count` preserve insertion order (first-found). Each list is capped before return:
 
-`confidence = len([a for a in anchors if a produced at least one result]) / total_anchors`
+- `known_issues`: max 10
+- `recent_fixes`: max 10
+- `relevant_files`: max 20
 
-If no anchors were extracted, `confidence = 0.0`.
+## Confidence
+
+```
+confidence = matched_anchor_instances / total_anchor_instances
+```
+
+Where an "anchor instance" is one feature slug or one error signature string. Each instance that produced at least one result in any traversal counts as matched.
+
+If no anchors were extracted (impossible after the anchor extraction step, but defensive): `confidence = 0.0`.
+
+Example: 1 feature slug + 3 error signatures = 4 instances. If 1 feature match and 2 error matches produced results: `confidence = 3/4 = 0.75`.
 
 ## Error Types
 
 ```python
 class DREError(Exception): pass
-class DRENotFoundError(DREError): pass      # CustomerIssue node not found in Quine
-class DREAnchorError(DREError): pass        # anchor extraction failed
-class DREUnavailableError(DREError): pass   # Quine or LLM gateway unreachable
+class DRENotFoundError(DREError): pass          # CustomerIssue node not found, or project_slug mismatch
+class DREAnchorError(DREError): pass            # no graph anchors and LLM fallback failed or unavailable
+class DREGraphUnavailableError(DREError): pass  # Quine unreachable
+class DRELLMUnavailableError(DREError): pass    # LLM gateway unreachable (fallback path only)
 ```
 
 ## Project Isolation
 
-Every Cypher query includes `project_slug` as a property filter. The `project_slug` argument to `retrieve()` is never derived from the graph — it is always passed explicitly by the caller. This prevents a cross-project traversal even if two projects share node IDs (which deterministic hashing makes unlikely but not impossible).
+`project_slug` is passed explicitly to `retrieve()` and verified against the fetched `CustomerIssue` node before any traversal begins. Every Cypher query includes `project_slug` as a property filter. The DRE never derives `project_slug` from graph state.
+
+## Eventual Consistency
+
+The DRE reads whatever edges are currently in Quine. If ingestion has not yet run `replace_edges` after a metadata change, the DRE may return stale relationships. This is accepted in v1. The ingestion pipeline is responsible for edge reconciliation; the DRE documents the dependency on correct ingestion behavior.
 
 ## ID Scheme
 
-The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `File`, `ErrorSignature`, `KnownIssue`, `Fix`, and `SimilarityMatch` nodes. IDs are resolved by Quine traversal; the DRE does not call `idFrom` directly.
+The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `Module`, `File`, `ErrorSignature`, `KnownIssue`, `Fix`, and `SimilarityMatch` nodes. IDs are resolved by Quine traversal; the DRE does not call `idFrom` directly.
 
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Input is node ID, not raw text | `CustomerIssue` node ID required | Accept raw text; accept either | Ingestion and retrieval are separate responsibilities; node-ID-only keeps the DRE read-only and avoids duplicating ingestion logic |
-| Anchor extraction via LLM gateway | `parse_ticket` called at retrieve time | Store parsed anchors on node at ingest; skip LLM in DRE | Anchors may change as the model improves; re-parsing at retrieve time keeps them fresh without a migration |
-| Match count, not numeric scoring | Integer count of anchors matched | Float weights; tier enum | Match count is a concrete signal requiring no calibration; extends to weighted scoring by multiplying per-anchor weights later |
-| `DREAnchorError` on extraction failure | Hard exception; caller decides | Proceed with empty anchors; log and degrade | An anchor-less traversal returns an empty packet with no diagnostic value; surfacing the failure is more honest |
-| `relevant_tests` omitted | Not in schema | Included as empty list | No `Test` node type exists; an empty list implies the field exists but returned nothing, which is misleading |
-| Raw Cypher via `query()` | `QuineClient.query()` for all DRE traversals | `QuineClient.traverse()` | Multi-hop patterns require inline `project_slug` filtering; `traverse()` abstraction cannot express this without extension |
-| Pre-computed similarity included | Traverse `HAS_SIMILARITY_MATCH` if present | Similarity only via anchor extraction | Pre-computed matches are validated graph facts; ignoring them wastes prior work |
+| Input is node ID, not raw text | `CustomerIssue` node ID required | Accept raw text; accept either | Ingestion and retrieval are separate responsibilities; node-ID-only keeps the DRE read-only and stateless |
+| Graph-first anchors | Read from `AFFECTS` / `HAS_ERROR` edges; LLM only as fallback | Always use LLM; always use graph | Graph edges are validated facts; LLM re-parsing every call is slow and redundant when ingestion already wrote the structure |
+| LLM fallback on missing graph anchors | Call `parse_ticket` if no graph anchors found | Always error; always succeed with empty anchors | A `CustomerIssue` with no anchors and no raw text is genuinely ambiguous; surfacing the error is honest |
+| `environment` omitted from v1 | Not in AnchorSet | Included; mapped to ObservationEvent | No graph node type maps to environment anchors; including it implies traversal support that doesn't exist |
+| `symptoms` informational only | In AnchorSet but not scored | Used in traversal; omitted entirely | Symptoms are useful context for the consuming agent but no node type maps to them; keeping them in the packet is honest |
+| Match count, not numeric scoring | Integer accumulation | Float weights; tier enum | Concrete signal requiring no calibration; extends to weights later by multiplying per-anchor multipliers |
+| `confirmed` SimilarityMatch gets +2 | Differentiated by status | All matches equal; exclude candidate | Confirmed matches are validated facts; awarding them higher count reflects that stronger signal |
+| Result caps | 10 / 10 / 20 | No cap; configurable cap | Common error signatures can fan out to hundreds of KnownIssues; caps prevent overwhelming output without losing the most relevant items |
+| `RESOLVED_BY` for fix retrieval | `KnownIssue -[:RESOLVED_BY]-> Fix` | Via `ResolutionEvent` | `Fix` nodes are the general-purpose fix record; `ResolutionEvent` records specific real-world applications, not needed in the retrieval path |
+| Raw Cypher via `query()` | `QuineClient.query()` for all traversals | `QuineClient.traverse()` | Multi-hop patterns with inline `project_slug` filtering cannot be expressed through `TraversalStep` without extension |
+| Stale edges accepted | Document eventual consistency | DRE validates edge freshness | Edge reconciliation is ingestion's responsibility; the DRE cannot know when edges were written without timestamps |
+| Split error types for graph vs LLM | `DREGraphUnavailableError`, `DRELLMUnavailableError` | Single `DREUnavailableError` | Callers need to distinguish: graph failure means no retrieval possible; LLM failure means graph-only retrieval may still be attempted |
 
 ## Open Questions & Future Decisions
 
 ### Deferred
 
-1. **Weighted scoring** — match count is the v1 signal. If retrieval quality needs improvement, per-anchor-type weights (error signature > feature > environment) are the natural next step. Match count becomes the base; weights are multipliers.
-2. **Recency boost** — `Fix` nodes carry no timestamp in v1. A recency signal (days since fix) requires either a timestamp field on `Fix` or a linked `ResolutionEvent`. Deferred until `ResolutionEvent` ingestion is built.
-3. **Vector index recall** — design review §4.4 defers vector index until graph-only retrieval is proven. When added, vector candidates would be injected into the traversal results before match-count sorting.
-4. **`relevant_tests`** — add when `Test` node type and `HAS_TEST` edges are introduced in the ingestion pipeline.
-5. **Anchor caching** — re-parsing raw text via LLM on every `retrieve()` call is correct but slow. Caching parsed anchors on the `CustomerIssue` node (as a property or linked node) would eliminate the LLM call for repeat retrievals. Deferred until latency is measured as a problem.
+1. **Weighted scoring** — match count is the v1 signal. Per-anchor-type weights (error signature > feature) are the natural next step if retrieval quality needs improvement.
+2. **Recency boost** — `Fix` nodes carry no timestamp in v1. Requires a timestamp field on `Fix` or a linked `ResolutionEvent` with a `resolved_at` field. Deferred until `ResolutionEvent` ingestion is built.
+3. **Vector index recall** — deferred per design review §4.4 until graph-only retrieval is proven. When added, vector candidates would be injected into traversal results before match-count sorting.
+4. **`relevant_tests`** — add when a `Test` node type and `HAS_TEST` edges are introduced in the ingestion pipeline.
+5. **Anchor caching** — `parse_ticket` in the fallback path re-parses raw text on every call. Caching parsed anchors as graph edges (written back to Quine after LLM extraction) would eliminate repeat LLM calls. Deferred until latency is measured as a problem.
+6. **Configurable result caps** — current caps (10/10/20) are hardcoded. If callers need different limits, a `max_results` parameter can be added without changing the core logic.
+7. **`ResolutionEvent` in fix retrieval** — if showing only general `Fix` nodes proves insufficient (e.g., callers need to know which fixes were applied to real tickets), traverse `ResolutionEvent` as a secondary fix source.
 
 ## References
 
 - `docs/high-level-design.md §System Design` — DRE role and debug packet concept
-- `docs/llds/llm-gateway.md` — `parse_ticket` interface
-- `docs/llds/quine-client.md` — `query()` and `get_node()` interfaces
-- `docs/llds/static-ingestion.md` — upstream pipeline that creates `CustomerIssue` nodes
+- `docs/llds/llm-gateway.md` — `parse_ticket` interface and error types
+- `docs/llds/quine-client.md` — `query()` and `get_node()` interfaces; `replace_edges` for ingestion-side edge reconciliation
+- `docs/llds/static-ingestion.md` — upstream pipeline that creates `CustomerIssue` nodes and writes `AFFECTS` / `HAS_ERROR` edges
