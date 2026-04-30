@@ -28,7 +28,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [ ] **DRE-ANCH-001** [U]: When the `CustomerIssue` node has outbound `AFFECTS` edges to `Feature` nodes in the same project, the system shall use those feature slugs as anchors and shall not call the LLM gateway.
 - [ ] **DRE-ANCH-002** [U]: When the `CustomerIssue` node has outbound `HAS_ERROR` edges to `ErrorSignature` nodes in the same project, the system shall use those normalized error strings as anchors and shall not call the LLM gateway.
-- [ ] **DRE-ANCH-003** [U]: When graph anchors are found (at least one feature slug or one error signature), the LLM fallback shall be skipped entirely, regardless of the `backend` parameter.
+- [ ] **DRE-ANCH-003** [U]: When graph anchors are found — at least one feature slug or one error signature after project-scoped filtering — the LLM fallback shall be skipped entirely, regardless of the `backend` parameter. Edges that exist but point to nodes in a different project do not count toward sufficiency.
 - [ ] **DRE-ANCH-004** [U]: When no graph anchors are found and `CustomerIssue.raw_text` is present, the system shall call `gateway.parse_ticket(raw_text, project_slug, backend=backend)` and use the returned `feature_slug` and `error_signatures` as anchors.
 - [ ] **DRE-ANCH-005** [U]: When no graph anchors are found and `CustomerIssue.raw_text` is `None`, the system shall raise `DREAnchorError`.
 - [ ] **DRE-ANCH-006** [U]: When `parse_ticket` raises `LLMResponseError`, the system shall raise `DREAnchorError`.
@@ -55,13 +55,14 @@ See `docs/testing-standard.md` for full definitions.
 - [ ] **DRE-SCORE-003** [U]: After all traversals complete, each result list shall be sorted descending by `match_count`. Items with equal `match_count` shall preserve insertion order (first-found).
 - [ ] **DRE-SCORE-004** [U]: `known_issues` shall be capped at 10 items after sorting. `recent_fixes` shall be capped at 10 items. `relevant_files` shall be capped at 20 items. Caps are applied after sorting so the highest-scoring items are retained.
 - [ ] **DRE-SCORE-005** [P]: For any two result items A and B where A was matched by more anchors than B, A shall appear before B in its result list.
+- [ ] **DRE-SCORE-006** [U]: `Fix` nodes shall have their `match_count` incremented once per `KnownIssue -[:RESOLVED_BY]-> Fix` hop that fires during traversal, regardless of how many anchors reached that `KnownIssue`. `match_count` accumulates across all traversal sources with no upper bound other than the result cap.
 
 ---
 
 ## Confidence
 
 - [ ] **DRE-CONF-001** [U]: `confidence` shall be computed as the number of anchor instances that produced at least one result divided by the total number of anchor instances. Each feature slug counts as one instance; each error signature string counts as one instance.
-- [ ] **DRE-CONF-002** [U]: When no anchors were extracted, `confidence` shall be `0.0`.
+- [ ] **DRE-CONF-002** [U]: When the total number of anchor instances is zero — whether because no anchors were extracted or because anchor extraction succeeded but returned no feature slugs and no error signatures — `confidence` shall be `0.0`.
 - [ ] **DRE-CONF-003** [U]: `confidence` shall be a float in the range `[0.0, 1.0]`.
 
 ---
