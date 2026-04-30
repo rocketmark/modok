@@ -6,7 +6,12 @@
 
 MODOK gives AI agents a *running start* when debugging software issues.
 
-Instead of rediscovering context from scratch, MODOK returns a focused **debug packet**: the exact docs, code, tests, known issues, and prior fixes that matter for a given problem.
+Instead of rediscovering context from scratch, MODOK returns a focused **debug packet**: 
+- the exact docs
+- code
+- tests
+- known issues
+- and prior fixes that matter for a given problem.
 
 <br clear="right"/>
 
@@ -22,10 +27,7 @@ Diagnosing a software issue is mostly **orientation**:
 - Has this happened before?
 - What fixed it last time?
 
-Humans rebuild this context manually.  
-Agents rebuild it every session.
-
-It’s slow, repetitive, and lossy.
+Humans rebuild this context manually. Agents rebuild it every session. It’s slow, repetitive, expensive, and lossy.
 
 ---
 
