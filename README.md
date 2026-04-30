@@ -30,6 +30,14 @@ Diagnosing a software issue is mostly **orientation**:
 
 Humans rebuild this context manually. Agents rebuild it every session. It’s slow, repetitive, expensive, and lossy.
 
+## Why I built this
+
+At AWS, my team built an internal tool called Hyperion that helped oncall engineers quickly understand high-severity incidents by automatically pulling together relevant context like recent commits, ongoing large-scale events, related tickets, and impacted customers. It let us answer “what is the state of the system?” within minutes and start debugging with the right information already in hand. 
+
+MODOK is a continuation of that idea, but focused on building a persistent memory of how a system is structured and how it fails — linking features, code, tests, known issues, and prior fixes — so that agents (and I) can move from a new issue to the right place to look without redoing the same orientation work every time. 
+
+I’m building this because I expect to operate a system largely on my own, and I need that kind of mechanical support to debug effectively and consistently.
+
 ---
 
 ## What MODOK does
