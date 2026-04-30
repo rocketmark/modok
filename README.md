@@ -1,4 +1,4 @@
-# MODOK
+# M.O.D.O.K
 
 **Mechanized Oracle Designed Only for Knowledge**
 
