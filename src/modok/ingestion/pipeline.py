@@ -5,6 +5,7 @@ from typing import Any
 
 import yaml
 
+from modok.ingestion.confidence import confidence_band
 from modok.ingestion.errors import (
     InvalidSlugReferenceError,
     MissingCommitShaError,
@@ -15,6 +16,7 @@ from modok.ingestion.parser import (
     get_commit_sha,
     is_working_tree_dirty,
     parse_frontmatter,
+    parse_headings,
     parse_modok_blocks,
 )
 from modok.ingestion.registry import Registry
@@ -61,6 +63,42 @@ class IngestionContext:
     @property
     def pending_count(self) -> int:
         return len(self._pending)
+
+
+_VERIFIED_THRESHOLD = 0.90
+_STRONG_THRESHOLD = 0.75
+
+
+def route_fact(
+    value: Any,
+    score: float,
+    ctx: IngestionContext,
+    client: Any,
+    source: str = "prose",
+) -> None:
+    """Route a scored fact through the confidence model.
+
+    - score >= 0.90: write immediately via upsert_node
+    - 0.75 <= score < 0.90: write with confidence_low/confidence_high properties
+    - score < 0.75: add to pending; do not write
+    """
+    band = confidence_band(base=score)
+
+    if band.score >= _VERIFIED_THRESHOLD:
+        node: dict[str, Any] = {"value": value, "source": source}
+        client.upsert_node(node)
+        ctx.nodes_written += 1
+    elif band.score >= _STRONG_THRESHOLD:
+        node = {
+            "value": value,
+            "source": source,
+            "confidence_low": band.low,
+            "confidence_high": band.high,
+        }
+        client.upsert_node(node)
+        ctx.nodes_written += 1
+    else:
+        ctx.add_pending_fact(value=value, score=band.score, evidence=source)
 
 
 def check_required_fields(
@@ -196,13 +234,48 @@ def ingest_doc(
     client: Any,
     project_slug: str,
     repo_root: Path,
+    ctx: IngestionContext | None = None,
 ) -> None:
     """Ingest a single markdown/yaml doc into the graph."""
+    if ctx is None:
+        ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root)
+
     fm = parse_frontmatter(path)
     if fm is None:
         return
 
     validate_references(fm, registry)
+
+    content = path.read_text(encoding="utf-8", errors="replace")
+
+    # MODOK block facts — always confidence 1.00, bypass scoring (SI-BLOCK-002)
+    blocks = parse_modok_blocks(content)
+    valid_blocks, block_warnings, _ = process_modok_blocks(blocks)
+    for block in valid_blocks:
+        route_fact(value=block, score=1.00, ctx=ctx, client=client, source="modok_block")
+
+    # Heading extraction → DocSection nodes and DESCRIBED_BY edges (SI-HEAD-001, SI-HEAD-002)
+    feature_slug = fm.get("feature", "")
+    headings = parse_headings(content)
+    if feature_slug and headings:
+        edges = build_doc_edges(feature_slug, project_slug, path, headings)
+        for edge in edges:
+            client.write_edge(*edge)
+
+    # File reference validation — missing file applies −0.15 confidence penalty (SI-REF-004)
+    file_warnings, _ = validate_file_references(fm, repo_root)
+    base_score = 0.88  # markdown_link base
+    for warning in file_warnings:
+        route_fact(
+            value=warning,
+            score=confidence_band(base=base_score, penalties=[0.15]).score,
+            ctx=ctx,
+            client=client,
+            source="file_ref",
+        )
+
+    # Commit SHA for this doc node (SI-SHA-001)
+    sha = get_commit_sha(path)
 
 
 def apply_llm_proposals(

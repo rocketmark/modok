@@ -418,6 +418,19 @@ def test_parse_modok_blocks_returns_empty_when_none_present():
 # SI-BLOCK-002 — MODOK block facts always confidence 1.00
 # ---------------------------------------------------------------------------
 
+# @spec SI-BLOCK-002
+def test_block_facts_always_verified(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    # MODOK block facts are passed with score=1.00 and bypass the confidence model
+    route_fact(value="some-node", score=1.00, ctx=ctx, client=client, source="modok_block")
+
+    # Must be written immediately, never added to pending
+    assert ctx.pending_count == 0
+    client.upsert_node.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +610,77 @@ def test_confidence_band_only_for_prose_extraction(base):
 # SI-CONF-002 — computed score ≥ 0.90 → write automatically
 # ---------------------------------------------------------------------------
 
+# @spec SI-CONF-002
+def test_high_confidence_fact_written_immediately(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    route_fact(value="some-node", score=0.95, ctx=ctx, client=client, source="prose")
+
+    client.upsert_node.assert_called_once()
+    assert ctx.pending_count == 0
+
+
+# @spec SI-CONF-002
+def test_score_at_threshold_writes_immediately(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    route_fact(value="some-node", score=0.90, ctx=ctx, client=client, source="prose")
+
+    client.upsert_node.assert_called_once()
+    assert ctx.pending_count == 0
+
+
+# ---------------------------------------------------------------------------
+# SI-CONF-003 — strong band (0.75–0.89) written with confidence properties
+# ---------------------------------------------------------------------------
+
+# @spec SI-CONF-003
+def test_strong_band_fact_written_with_confidence_properties(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    route_fact(value="some-node", score=0.82, ctx=ctx, client=client, source="prose")
+
+    client.upsert_node.assert_called_once()
+    call_kwargs = client.upsert_node.call_args
+    node_data = call_kwargs[0][0] if call_kwargs[0] else call_kwargs[1].get("node")
+    assert "confidence_low" in node_data
+    assert "confidence_high" in node_data
+    assert ctx.pending_count == 0
+
+
+# @spec SI-CONF-003
+def test_strong_band_lower_bound(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    route_fact(value="some-node", score=0.75, ctx=ctx, client=client, source="prose")
+
+    client.upsert_node.assert_called_once()
+    assert ctx.pending_count == 0
+
+
+# @spec SI-CONF-003
+def test_below_strong_band_goes_to_pending(tmp_path):
+    from modok.ingestion.pipeline import IngestionContext, route_fact
+
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = MagicMock()
+
+    route_fact(value="some-node", score=0.74, ctx=ctx, client=client, source="prose")
+
+    client.upsert_node.assert_not_called()
+    assert ctx.pending_count == 1
 
 
 # @spec SI-CONF-004

@@ -51,8 +51,16 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
+## Doc Section Extraction
+
+- [ ] **SI-HEAD-001** [U]: The system shall extract H2 and H3 headings from each ingested doc body and represent each as a `DocSection` node carrying the heading text, a slugified identifier, and the line range (line_start, line_end) within the doc. H1 headings shall not be extracted as `DocSection` nodes.
+- [ ] **SI-HEAD-002** [U]: For each `DocSection` extracted from a doc, the system shall write a `DESCRIBED_BY` edge from the doc's associated `Feature` node to the `DocSection` node.
+
+---
+
 ## Commit SHA
 
+- [ ] **SI-SHA-001** [U]: The system shall call `git log --format=%H -1 -- <file_path>` to obtain the most recent commit SHA for each `Doc` and `DocSection` node, and store it on the node. When the file has no git history (e.g. untracked), the SHA field shall be `null`. The system shall not call `get_commit_sha` for `Fix` or `ResolutionEvent` nodes — their SHA must be declared explicitly in the source YAML.
 - [ ] **SI-SHA-002** [U]: When ingesting a `Fix` or `ResolutionEvent` YAML file that does not contain a `commit_sha` field, the system shall emit a structured error and halt ingestion for that file. The system shall not attempt to derive a SHA from git log for these node types — the SHA must be explicitly declared in the source YAML.
 - [ ] **SI-SHA-003** [U]: When the working tree is dirty at the time of manual ingestion, the system shall emit a visible warning stating that commit SHAs reflect the last commit rather than the current working tree state, and shall complete ingestion normally.
 
