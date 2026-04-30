@@ -67,35 +67,45 @@ def _check_remote_config(cfg: dict) -> tuple[str, str, str]:
 # ---------------------------------------------------------------------------
 
 def _extract_json(raw: str) -> dict | None:
-    """Attempt to extract a JSON object from raw text using bracket counting."""
-    start = raw.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_string = False
-    escape = False
-    for i, ch in enumerate(raw[start:], start):
-        if escape:
-            escape = False
+    """Attempt to extract a JSON object from raw text using bracket counting.
+
+    Tries each '{' in the string as a candidate start, advancing past failures.
+    """
+    search_from = 0
+    while True:
+        start = raw.find("{", search_from)
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escape = False
+        end = None
+        for i, ch in enumerate(raw[start:], start):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is None:
+            search_from = start + 1
             continue
-        if ch == "\\" and in_string:
-            escape = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(raw[start : i + 1])
-                except json.JSONDecodeError:
-                    return None
-    return None
+        try:
+            return json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            search_from = start + 1
 
 
 # ---------------------------------------------------------------------------
