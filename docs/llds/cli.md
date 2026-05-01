@@ -168,6 +168,7 @@ modok = "modok.cli.main:cli"
 | `recall` on unknown feature slug | Exit `0` with empty results | Exit `1` | "No results" is a valid graph query answer. Agents can handle empty JSON; they can't easily distinguish a real error from a missing feature if both return non-zero. |
 | `init` on non-git directory | Exit `1` immediately | Skip hook, warn, continue | The hook is a core deliverable of `init`. A missing `.git/` is almost certainly a wrong path; a silent skip would leave the project half-initialized with no visible signal. |
 | JAR path validation on `quine start` | Check before forking, exit `1` with clear message | Let JVM error surface | JVM errors for missing JARs are unactionable. A path check before fork gives an operator-readable error. |
+| `quine stop` when process already dead | Exit `2` with crash message, leave PID file | Treat as success (delete PID, exit `0`) | Crashes should be visible. Silently cleaning up a dead-process PID file hides the fact that Quine crashed between start and stop. The operator needs to check logs. |
 
 ## Open Questions & Future Decisions
 

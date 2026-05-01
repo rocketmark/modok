@@ -39,6 +39,7 @@ See `docs/testing-standard.md` for full definitions.
 - [ ] **CLI-INIT-004** [U]: When the project slug is already present in `~/.modok/config.toml`, `modok init` shall not add a duplicate `[[projects]]` entry.
 - [ ] **CLI-INIT-005** [U]: When the project slug is not present in `~/.modok/config.toml`, `modok init` shall append a `[[projects]]` entry with the supplied slug and repo path.
 - [ ] **CLI-INIT-006** [U]: `modok init` shall not call `QuineClient.ping()` and shall not require Quine to be running.
+- [ ] **CLI-INIT-007** [U]: When `~/.modok/config.toml` does not exist, `modok init` shall create it with a minimal valid structure before appending the `[[projects]]` entry.
 
 ---
 
@@ -56,9 +57,9 @@ See `docs/testing-standard.md` for full definitions.
 
 - [ ] **CLI-RET-001** [U]: When `--source <system>` and `--ticket <id>` are supplied, `modok retrieve` shall compute the Quine node ID via `idFrom("customer-issue", project_slug, source_system, ticket_id)` and call `retrieve(node_id, project_slug, client)`.
 - [ ] **CLI-RET-002** [U]: When `--node-id <int>` is supplied, `modok retrieve` shall call `retrieve(node_id, project_slug, client)` directly without computing an ID.
-- [ ] **CLI-RET-003** [U]: When `--source` is supplied without `--ticket`, or `--ticket` is supplied without `--source`, `modok retrieve` shall exit `1` with a usage error before performing any graph operation.
-- [ ] **CLI-RET-004** [U]: When both `--source`/`--ticket` and `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error before performing any graph operation.
-- [ ] **CLI-RET-005** [U]: When neither `--source`/`--ticket` nor `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error.
+- [ ] **CLI-RET-003** [U]: When both `--source`/`--ticket` and `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error before any other validation or graph operation.
+- [ ] **CLI-RET-004** [U]: When neither `--source`/`--ticket` nor `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error.
+- [ ] **CLI-RET-005** [U]: When `--source` is supplied without `--ticket`, or `--ticket` is supplied without `--source`, `modok retrieve` shall exit `1` with a usage error before performing any graph operation.
 - [ ] **CLI-RET-006** [U]: When `retrieve` raises `DRENotFoundError`, `modok retrieve` shall exit `1` with the message "issue not found in project `<slug>`".
 - [ ] **CLI-RET-007** [U]: When `retrieve` raises `DREGraphUnavailableError`, `modok retrieve` shall exit `2`.
 - [ ] **CLI-RET-008** [U]: When `retrieve` raises `DRELLMUnavailableError`, `modok retrieve` shall exit `2`.
@@ -89,8 +90,9 @@ See `docs/testing-standard.md` for full definitions.
 ## `modok quine stop`
 
 - [ ] **CLI-QSTOP-001** [U]: When `~/.modok/quine.pid` does not exist, `modok quine stop` shall exit `1` with the message "Quine is not running (no PID file found)".
-- [ ] **CLI-QSTOP-002** [U]: When the process exits within 10 seconds of receiving SIGTERM, `modok quine stop` shall remove `~/.modok/quine.pid` and exit `0`.
-- [ ] **CLI-QSTOP-003** [U]: When the process does not exit within 10 seconds of receiving SIGTERM, `modok quine stop` shall exit `2` with the message "Quine did not stop within 10s — PID file left in place".
+- [ ] **CLI-QSTOP-002** [U]: When the PID file exists but the process is not running (ESRCH — process already dead), `modok quine stop` shall exit `2` with the message "process `<pid>` not found — Quine may have crashed; check `~/.modok/quine.log`" and leave the PID file in place.
+- [ ] **CLI-QSTOP-003** [U]: When the process exits within 10 seconds of receiving SIGTERM, `modok quine stop` shall remove `~/.modok/quine.pid` and exit `0`.
+- [ ] **CLI-QSTOP-004** [U]: When the process does not exit within 10 seconds of receiving SIGTERM, `modok quine stop` shall exit `2` with the message "Quine did not stop within 10s — PID file left in place".
 
 ---
 
