@@ -210,20 +210,23 @@ This:
 ## Step 9 — Run first ingestion
 
 ```bash
-modok ingest-docs --project stagehand ~/github/stagehand/docs
-modok ingest-code-map --project stagehand ~/github/stagehand/src ~/github/stagehand/tests
+modok ingest --project stagehand ~/github/stagehand
 ```
 
-You should see a structured report:
+This discovers all markdown and YAML files under the repo root, parses MODOK frontmatter and blocks, and writes nodes and edges to Quine. You should see a structured report:
 
 ```
-Ingestion complete: stagehand
-  Docs processed:   24
-  Nodes written:    312
-  Edges written:    487
-  Warnings:         0
-  Errors:           0
-  Duration:         1.4s
+Ingestion complete
+  Docs processed:  24
+  Nodes written:   312
+  Edges written:   487
+  Warnings:        0
+  Errors:          0
+  LLM proposals:   0
+  Pending items:   0
+  Files ignored:   5
+  Files skipped:   18
+  Duration:        1.4s
 ```
 
 ---
