@@ -231,6 +231,9 @@ class QuineClient:
     # Traversal — returns hydrated nodes (properties included) in one round-trip.
     # Quine's Cypher endpoint returns properties inline; no separate fetch needed.
     async def traverse(self, start_id: QuineNodeId, steps: list[TraversalStep]) -> list[QuineNode]: ...
+    # TraversalStep is (edge_type, direction). No node_type_filter — filtering by node
+    # type is done in the Cypher WHERE clause when needed (retrieval engine uses query()
+    # directly for complex traversals; traverse() handles simple multi-hop patterns).
 
     # Cypher escape hatch (for retrieval engine use only; not exposed via MCP)
     async def query(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]: ...
@@ -239,9 +242,9 @@ class QuineClient:
     async def ping(self) -> bool: ...
 ```
 
-`upsert_node` writes the node if it doesn't exist and does a full property replace if it does — the complete property map from the pydantic model is written, replacing whatever was on the node before. Fields removed from the schema disappear from the node on the next ingest run automatically. It never touches edges; edges are written separately via `write_edge` and are never deleted by `upsert_node`. This makes ingestion idempotent and schema evolution automatic: re-running the ingestor over the same doc reflects the current model with no manual cleanup.
+`upsert_node` writes the node if it doesn't exist and sets all current model properties if it does — using Cypher `SET n.field = $value` for each field in the pydantic model. Properties that were present on a prior write and have since been removed from the schema are **not** deleted; they persist as ghost properties until the node is explicitly replaced. This is accepted in v1 — MODOK schemas are stable and property removal is rare. If ghost properties become a problem, the fix is a fetch-then-replace pattern (MATCH, SET all current fields, REMOVE all others). `upsert_node` never touches edges; edges are written separately via `write_edge` and are never deleted by `upsert_node`.
 
-`traverse` is a structured alternative to raw Cypher for common multi-hop patterns used by the retrieval engine. A `TraversalStep` is `(edge_type, direction, optional_node_type_filter)`.
+`traverse` is a structured alternative to raw Cypher for common multi-hop patterns. A `TraversalStep` is `(edge_type, direction)`. There is no `node_type_filter` parameter — callers that need type-filtered traversals use the `query()` escape hatch with an explicit Cypher WHERE clause.
 
 The raw `query` escape hatch is available for the retrieval engine's complex traversals. It is not exposed via MCP to agents.
 
@@ -285,7 +288,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 | ID derivation | SHA-256, first 8 bytes, signed int64; node type name is always first tuple element | UUID v5 (namespace+name), sequential int, Quine auto-ID | Deterministic, collision-resistant, idempotent ingestion, fits Quine's signed int64 ID space; type-as-first-element guarantees two node types with identical remaining parts never collide — verified by property test |
 | `traverse` return type | Hydrated `list[QuineNode]` | IDs only + per-ID `get_node` fetches | Quine's Cypher endpoint (`POST /api/v1/query/cypher`) returns node properties inline in the same response — no second round-trip needed |
 | No edge properties | Intermediate nodes for metadata | Edge properties in Quine | Quine's edge model does not support rich properties; intermediate nodes (e.g., `SimilarityMatch`) make metadata queryable |
-| Upsert semantics | Full property replace, never touch edges | Merge (leave unknown fields), replace node entirely | Full replace keeps the node in sync with the current schema automatically; merge lets ghost properties accumulate silently which breaks retrieval engine trust |
+| Upsert semantics | SET current fields only, never touch edges | Full node replace (remove old properties too), merge | SET is sufficient for v1 — schemas are stable and property removal is rare. Ghost properties are accepted; the fetch-then-replace pattern is the documented fix if they become a problem. Full node replace would require a MATCH+DELETE+RECREATE sequence, losing edges unless carefully reconstructed. |
 | `get_node` on missing ID | Raise `QuineNodeNotFoundError` | Return `None` | A missing node is almost always a bug in the ingestion pipeline, not a normal condition; `node_exists()` is the opt-in check for callers that expect absence |
 | `write_edge` on duplicate | No-op (idempotent) | Raise on duplicate | Ingestion runs are repeatable by design; raising on duplicate would break every re-ingest |
 | Async client | `httpx.AsyncClient` | `requests` (sync), `aiohttp` | `httpx` supports both sync and async, has a clean test-double story (`httpx.MockTransport`), and is the modern choice for Python async HTTP |
@@ -297,7 +300,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 1. ✅ Multi-project namespace — `project_slug` in every ID tuple from day one.
 2. ✅ `CustomerIssue` ID includes `project_slug` — ingestion always has project context; same `source_system` + `ticket_id` can appear in multiple projects and must be namespaced.
 3. ✅ No edge properties — use intermediate nodes for relationship metadata.
-4. ✅ `upsert_node` does full property replace — schema evolution is automatic, no ghost properties.
+4. ✅ `upsert_node` uses SET for current fields; ghost properties from removed schema fields are accepted in v1. Fetch-then-replace is the documented fix if needed.
 5. ✅ Node type name is always first in `idFrom()` tuple — type collisions impossible by construction, verified by property test.
 6. ✅ `traverse` returns hydrated nodes — Quine's Cypher endpoint returns properties inline, no second round-trip.
 7. ✅ `get_node` on missing ID raises `QuineNodeNotFoundError` — `node_exists()` for opt-in absence checks.

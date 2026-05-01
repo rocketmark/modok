@@ -32,7 +32,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 ## Node Writes
 
 - [x] **QC-NW-001** [U, C]: When `upsert_node` is called for a node that does not exist in Quine, the system shall create the node with all properties from the pydantic model.
-- [x] **QC-NW-002** [P, C]: When `upsert_node` is called for a node that already exists in Quine, the system shall replace all node properties with the current pydantic model's values, removing any properties not present in the current model.
+- [x] **QC-NW-002** [P, C]: When `upsert_node` is called for a node that already exists in Quine, the system shall set all properties present in the current pydantic model to their current values. Properties from prior writes that are no longer in the model are not removed (ghost properties); this is accepted in v1.
 - [x] **QC-NW-003** [P, C]: When `upsert_node` is called, the system shall not modify any edges on the node.
 - [x] **QC-NW-004** [P]: The system shall never infer edge changes from property changes; edge lifecycle is managed exclusively via `write_edge`, regardless of which properties are added, changed, or removed from a node.
 
