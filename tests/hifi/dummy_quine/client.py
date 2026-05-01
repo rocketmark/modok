@@ -8,9 +8,49 @@ from __future__ import annotations
 
 from typing import Any
 
-from modok.quine.client import _node_id_from_model
 from modok.quine.errors import QuineNodeNotFoundError
-from modok.quine.models import QuineNode, _NODE_TYPE_MAP
+from modok.quine.ids import idFrom as _idFrom
+from modok.quine.models import (
+    QuineNode, _NODE_TYPE_MAP,
+    Project, Feature, Module, File, DocSection, ErrorSignature,
+    KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
+    DiagnosticNote,
+)
+
+
+def _node_id_from_model_hifi(node: QuineNode) -> int:
+    """Compute deterministic integer ID for DummyQuine's in-memory store.
+
+    Uses the Python idFrom() helper from modok.quine.ids — this is
+    test-harness-internal. Production MODOK uses Quine's Cypher-native idFrom().
+    """
+    if isinstance(node, Project):
+        return _idFrom("project", node.project_slug)
+    if isinstance(node, Feature):
+        return _idFrom("feature", node.project_slug, node.feature_slug)
+    if isinstance(node, Module):
+        return _idFrom("module", node.project_slug, node.module_slug)
+    if isinstance(node, File):
+        return _idFrom("file", node.project_slug, node.repo_path)
+    if isinstance(node, DocSection):
+        return _idFrom("doc-section", node.project_slug, node.doc_path, node.heading_slug)
+    if isinstance(node, ErrorSignature):
+        return _idFrom("error", node.project_slug, node.normalized_error)
+    if isinstance(node, KnownIssue):
+        return _idFrom("known-issue", node.project_slug, node.issue_id)
+    if isinstance(node, CustomerIssue):
+        return _idFrom("customer-issue", node.project_slug, node.source_system, node.ticket_id)
+    if isinstance(node, SimilarityMatch):
+        return _idFrom("similarity-match", node.project_slug, node.customer_issue_id,
+                       node.known_issue_id, node.method)
+    if isinstance(node, Fix):
+        return _idFrom("fix", node.project_slug, node.fix_id)
+    if isinstance(node, ResolutionEvent):
+        return _idFrom("resolution", node.project_slug, node.source_system,
+                       node.ticket_id, node.fix_id)
+    if isinstance(node, DiagnosticNote):
+        return _idFrom("diagnostic-note", node.project_slug, node.note_id)
+    raise ValueError(f"No ID scheme for node type {type(node).__name__}")
 
 
 class DummyQuine:
@@ -24,7 +64,7 @@ class DummyQuine:
 
     # @spec DQ-NW-001, DQ-NW-002
     async def upsert_node(self, node: QuineNode) -> None:
-        node_id = _node_id_from_model(node)
+        node_id = _node_id_from_model_hifi(node)
         self._nodes[node_id] = node
 
     # ------------------------------------------------------------------

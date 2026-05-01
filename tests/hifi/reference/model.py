@@ -9,8 +9,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from modok.quine.client import _node_id_from_model
 from modok.quine.models import QuineNode
+from tests.hifi.dummy_quine.client import _node_id_from_model_hifi as _node_id_from_model
 from modok.retrieval.errors import DRENotFoundError
 from modok.retrieval.models import (
     AnchorSet,

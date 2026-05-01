@@ -27,14 +27,14 @@ def recall_cmd(project: str, feature: str, as_json: bool) -> None:
     config.project(project)
 
     client = QuineClient(base_url=config.quine.url)
-    if not asyncio.get_event_loop().run_until_complete(client.ping()):
+    if not asyncio.run(client.ping()):
         click.echo(
             f"Quine is not reachable at {config.quine.url} — run `modok quine start` or check your config",
             err=True,
         )
         raise SystemExit(2)
 
-    rows = asyncio.get_event_loop().run_until_complete(
+    rows = asyncio.run(
         client.query(_RECALL_CYPHER, {"project_slug": project, "feature_slug": feature})
     )
 

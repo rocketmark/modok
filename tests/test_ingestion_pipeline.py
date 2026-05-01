@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -419,14 +419,15 @@ def test_parse_modok_blocks_returns_empty_when_none_present():
 # ---------------------------------------------------------------------------
 
 # @spec SI-BLOCK-002
-def test_block_facts_always_verified(tmp_path):
+@pytest.mark.asyncio
+async def test_block_facts_always_verified(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
     # MODOK block facts are passed with score=1.00 and bypass the confidence model
-    route_fact(value="some-node", score=1.00, ctx=ctx, client=client, source="modok_block")
+    await route_fact(value="some-node", score=1.00, ctx=ctx, client=client, source="modok_block")
 
     # Must be written immediately, never added to pending
     assert ctx.pending_count == 0
@@ -611,26 +612,28 @@ def test_confidence_band_only_for_prose_extraction(base):
 # ---------------------------------------------------------------------------
 
 # @spec SI-CONF-002
-def test_high_confidence_fact_written_immediately(tmp_path):
+@pytest.mark.asyncio
+async def test_high_confidence_fact_written_immediately(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
-    route_fact(value="some-node", score=0.95, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-node", score=0.95, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
 
 
 # @spec SI-CONF-002
-def test_score_at_threshold_writes_immediately(tmp_path):
+@pytest.mark.asyncio
+async def test_score_at_threshold_writes_immediately(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
-    route_fact(value="some-node", score=0.90, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-node", score=0.90, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
@@ -641,13 +644,14 @@ def test_score_at_threshold_writes_immediately(tmp_path):
 # ---------------------------------------------------------------------------
 
 # @spec SI-CONF-003
-def test_strong_band_fact_written_with_confidence_properties(tmp_path):
+@pytest.mark.asyncio
+async def test_strong_band_fact_written_with_confidence_properties(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
-    route_fact(value="some-node", score=0.82, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-node", score=0.82, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_called_once()
     call_kwargs = client.upsert_node.call_args
@@ -658,26 +662,28 @@ def test_strong_band_fact_written_with_confidence_properties(tmp_path):
 
 
 # @spec SI-CONF-003
-def test_strong_band_lower_bound(tmp_path):
+@pytest.mark.asyncio
+async def test_strong_band_lower_bound(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
-    route_fact(value="some-node", score=0.75, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-node", score=0.75, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
 
 
 # @spec SI-CONF-003
-def test_below_strong_band_goes_to_pending(tmp_path):
+@pytest.mark.asyncio
+async def test_below_strong_band_goes_to_pending(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
-    client = MagicMock()
+    client = AsyncMock()
 
-    route_fact(value="some-node", score=0.74, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-node", score=0.74, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_not_called()
     assert ctx.pending_count == 1
@@ -741,7 +747,8 @@ def test_node_write_order_is_respected():
 # ---------------------------------------------------------------------------
 
 # @spec SI-WRITE-002
-def test_double_ingest_calls_upsert_not_create(tmp_path):
+@pytest.mark.asyncio
+async def test_double_ingest_calls_upsert_not_create(tmp_path):
     from modok.ingestion.pipeline import ingest_doc
     path = write_file(tmp_path / "doc.md", MINIMAL_FRONTMATTER)
 
@@ -751,17 +758,15 @@ def test_double_ingest_calls_upsert_not_create(tmp_path):
     registry.has_error.return_value = True
     registry.required_fields.return_value = ["feature", "modules", "source_files", "test_files"]
 
-    client = MagicMock()
-    client.upsert_node = MagicMock()
-    client.write_edge = MagicMock()
+    client = AsyncMock()
 
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+        await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
         first_upsert_count = client.upsert_node.call_count
         client.upsert_node.reset_mock()
         client.write_edge.reset_mock()
 
-        ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+        await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
         second_upsert_count = client.upsert_node.call_count
 
     assert first_upsert_count == second_upsert_count
@@ -772,7 +777,8 @@ def test_double_ingest_calls_upsert_not_create(tmp_path):
 # ---------------------------------------------------------------------------
 
 # @spec SI-WRITE-003
-def test_re_ingest_same_doc_twice_does_not_error(tmp_path):
+@pytest.mark.asyncio
+async def test_re_ingest_same_doc_twice_does_not_error(tmp_path):
     from modok.ingestion.pipeline import ingest_doc
     path = write_file(tmp_path / "doc.md", MINIMAL_FRONTMATTER)
 
@@ -781,11 +787,11 @@ def test_re_ingest_same_doc_twice_does_not_error(tmp_path):
     registry.has_module.return_value = True
     registry.has_error.return_value = True
 
-    client = MagicMock()
+    client = AsyncMock()
 
     # Two successive ingests of the same doc must not raise
-    ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
-    ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -973,7 +979,8 @@ def test_report_has_all_required_fields():
 # ---------------------------------------------------------------------------
 
 # @spec SI-RPT-002
-def test_error_in_one_file_does_not_halt_others(tmp_path):
+@pytest.mark.asyncio
+async def test_error_in_one_file_does_not_halt_others(tmp_path):
     from modok.ingestion.pipeline import run_ingestion
 
     good = write_file(tmp_path / "good.md", MINIMAL_FRONTMATTER)
@@ -994,11 +1001,11 @@ def test_error_in_one_file_does_not_halt_others(tmp_path):
     registry.has_error.return_value = True
     registry.required_fields.return_value = ["feature", "modules", "source_files", "test_files"]
 
-    client = MagicMock()
+    client = AsyncMock()
 
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
         with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-            report = run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
+            report = await run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
 
     assert report.errors  # bad.md produced an error
     assert report.docs_processed >= 1  # good.md was processed
@@ -1009,7 +1016,8 @@ def test_error_in_one_file_does_not_halt_others(tmp_path):
 # ---------------------------------------------------------------------------
 
 # @spec LLM-META-004
-def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(tmp_path):
+@pytest.mark.asyncio
+async def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(tmp_path):
     # When propose_metadata raises LLMResponseError, the pipeline must catch it,
     # emit a structured warning, and continue ingesting remaining files.
     from modok.ingestion.pipeline import run_ingestion
@@ -1031,13 +1039,13 @@ modok:
     registry.has_feature.return_value = True
     registry.has_module.return_value = True
     registry.has_error.return_value = True
-    client = MagicMock()
+    client = AsyncMock()
 
     with patch("modok.ingestion.pipeline.invoke_llm_gateway",
                side_effect=LLMResponseError("bad json")):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-                report = run_ingestion(
+                report = await run_ingestion(
                     tmp_path, registry=registry, client=client,
                     project_slug="stagehand", fix_mode=True,
                 )
@@ -1049,7 +1057,8 @@ modok:
 
 
 # @spec LLM-META-004
-def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
+@pytest.mark.asyncio
+async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
     # Same contract as above but for LLMUnavailableError.
     from modok.ingestion.pipeline import run_ingestion
     from modok.llm.errors import LLMUnavailableError
@@ -1069,13 +1078,13 @@ modok:
     registry.has_feature.return_value = True
     registry.has_module.return_value = True
     registry.has_error.return_value = True
-    client = MagicMock()
+    client = AsyncMock()
 
     with patch("modok.ingestion.pipeline.invoke_llm_gateway",
                side_effect=LLMUnavailableError("timeout")):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-                report = run_ingestion(
+                report = await run_ingestion(
                     tmp_path, registry=registry, client=client,
                     project_slug="stagehand", fix_mode=True,
                 )

@@ -85,7 +85,7 @@ Purpose: encode the contract, not the algorithm. If the reference model and real
 
 ### Reference ingest
 
-`ReferenceModok.ingest(doc_path, frontmatter)` stores parsed entities in plain Python dicts. It applies the same ID scheme (`idFrom`) and the same edge rules described in the ingestion LLD, but without registry validation, LLM proposals, or error recovery. It is wrong to be incomplete; it should be right about what it does implement.
+`ReferenceModok.ingest(doc_path, frontmatter)` stores parsed entities in plain Python dicts. It applies the same logical ID scheme (node type + project_slug + type-specific parts) and the same edge rules described in the ingestion LLD, but without registry validation, LLM proposals, or error recovery. The reference model uses a Python `idFrom()` helper that produces deterministic integer keys for its in-memory store — this is test-harness-internal; real MODOK never computes node addresses in Python. It is wrong to be incomplete; it should be right about what it does implement.
 
 ### Reference retrieval
 
@@ -117,7 +117,7 @@ Minimal first set (five scenarios):
 
 Generate random but valid MODOK worlds (N features, M known issues, K docs, P customer issues with edges into the graph) and assert structural invariants:
 
-- Every node written has a stable ID matching `idFrom(...)`.
+- Every node written has a stable ID matching the Python `idFrom(...)` helper (harness-internal; not Quine's UUID idFrom).
 - Re-ingesting the same input produces the same set of `upsert_node` calls.
 - Every node ID in a returned `DebugPacket` exists in DummyQuine's `_nodes`.
 - No cross-project node appears in a packet for a different project.
@@ -200,7 +200,7 @@ expected:
   confidence_positive: true
 ```
 
-Node and edge references use the same `idFrom` tuple form — the harness computes the integer IDs at load time. The harness writes all nodes to DummyQuine before writing any edges, so `get_node` calls during edge setup never fail on missing nodes.
+Node and edge references use the Python `idFrom()` tuple form — the harness computes deterministic integer IDs at load time for its in-memory store. This Python `idFrom()` is test-harness-internal; real MODOK uses Quine's Cypher-native `idFrom()` function instead. The harness writes all nodes to DummyQuine before writing any edges, so `get_node` calls during edge setup never fail on missing nodes.
 
 ## Module Layout
 
@@ -237,7 +237,7 @@ tests/hifi/
 | DummyQuine interface | Duck-type `QuineClient` API, no ABC | `GraphStore` ABC; subclass `QuineClient` | No production refactor required. ABC adds a layer that benefits only HiFi. Subclassing `QuineClient` would inherit HTTP machinery unnecessarily. |
 | `query()` implementation | Fingerprint dispatch to Python traversals | Full Cypher parser; per-test mock returns | Full parser is heavy and fragile. Per-test mocks are what we already have in unit tests — HiFi adds value by exercising the real DRE against a real in-memory graph, not another layer of mocks. Fingerprint dispatch is narrow but covers the actual DRE call set. |
 | Reference model scope | Happy-path graph-anchored retrieval only | Full parity with production MODOK | The reference model encodes the contract, not every edge case. LLM fallback, similarity traversal, and re-ingest semantics are deferred — they can be added as HiFi expands. Full parity defeats the purpose: a complex reference model is as likely to contain bugs as the real code. |
-| Scenario format | YAML with `idFrom` tuple node/edge references | Python fixtures; JSON | YAML is readable and diffable. `idFrom` tuples keep scenarios honest about the ID scheme without hardcoding magic integers. Python fixtures couple scenarios to test framework internals. |
+| Scenario format | YAML with `idFrom` tuple node/edge references (harness-internal Python idFrom, not Quine's UUID idFrom) | Python fixtures; JSON | YAML is readable and diffable. `idFrom` tuples keep scenarios honest about the logical ID scheme without hardcoding magic integers. Python fixtures couple scenarios to test framework internals. |
 | Comparison style | Semantic (`must_include` / `must_not_include`) | Exact byte-for-byte match | Debug packet ordering is not fully deterministic (e.g. two nodes with equal match counts). Semantic comparison catches real bugs without brittleness. |
 | Layer 1 scenario count | 5 golden scenarios for v1 | More coverage up front | Five scenarios prove the harness shape. Property tests provide breadth. Adding golden scenarios is cheap once the harness runs. |
 

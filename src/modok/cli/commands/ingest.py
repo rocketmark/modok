@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -41,18 +42,17 @@ def ingest_cmd(project: str, fix: bool, path: str) -> None:
 
     repo_root = Path(proj.repo)
     registry = Registry(repo_root)
-    report = run_ingestion(
+    report = asyncio.run(run_ingestion(
         repo_root=repo_root,
         registry=registry,
         client=client,
         project_slug=project,
         fix_mode=fix_mode,
-    )
+    ))
     click.echo(str(report))
     if report.errors:
         raise SystemExit(3)
 
 
 def _sync_ping(client: QuineClient) -> bool:
-    import asyncio
-    return asyncio.get_event_loop().run_until_complete(client.ping())
+    return asyncio.run(client.ping())

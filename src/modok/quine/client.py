@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import asyncio
 from typing import Any, Literal, TypeVar
 
@@ -11,7 +10,9 @@ from modok.quine.models import QuineNode, _NODE_TYPE_MAP
 
 T = TypeVar("T", bound=QuineNode)
 
-QuineNodeId = int
+# Quine node IDs are UUIDs returned as strings in Quine query responses.
+# MODOK never computes node addresses in Python — idFrom() is called inside Cypher strings.
+QuineNodeId = str
 
 _RETRY_STATUSES = {500, 502, 503, 504}
 _MAX_RETRIES = 3
@@ -99,12 +100,12 @@ class QuineClient:
     # @spec QC-NW-001, QC-NW-002, QC-NW-003, QC-NW-004
     async def upsert_node(self, node: QuineNode) -> None:
         props = node.model_dump()
-        node_id = _node_id_from_model(node)
-        # MERGE on id, then SET replaces all properties (full replace, not merge).
-        # No relationship clause — edges are never touched here.
+        id_expr, id_params = _idFrom_cypher_args(node)
         set_clause = ", ".join(f"n.{k} = ${k}" for k in props)
-        query = f"MERGE (n) WHERE id(n) = $node_id SET {set_clause}"
-        await self._cypher(query, {"node_id": node_id, **props})
+        # MATCH on idFrom(...) address, SET replaces all properties.
+        # No relationship clause — edges are never touched here.
+        query = f"MATCH (n) WHERE id(n) = idFrom({id_expr}) SET {set_clause}"
+        await self._cypher(query, {**id_params, **props})
 
     # @spec QC-NR-001, QC-NR-002
     async def get_node(self, node_id: QuineNodeId, node_type: type[T]) -> T:
@@ -135,8 +136,8 @@ class QuineClient:
     ) -> None:
         # MERGE on both endpoints and the relationship — idempotent by construction.
         query = (
-            "MERGE (a) WHERE id(a) = $from_id "
-            "MERGE (b) WHERE id(b) = $to_id "
+            "MATCH (a) WHERE id(a) = $from_id "
+            "MATCH (b) WHERE id(b) = $to_id "
             f"MERGE (a)-[:{edge_type}]->(b)"
         )
         await self._cypher(query, {"from_id": from_id, "to_id": to_id})
@@ -145,10 +146,6 @@ class QuineClient:
     async def replace_edges(
         self, from_id: QuineNodeId, edge_type: str, to_ids: list[QuineNodeId]
     ) -> None:
-        """Delete all edges of edge_type from from_id, then recreate for to_ids.
-
-        Use this on re-ingest so stale edges from removed metadata don't persist.
-        """
         await self._cypher(
             f"MATCH (a)-[r:{edge_type}]->() WHERE id(a) = $from_id DELETE r",
             {"from_id": from_id},
@@ -204,37 +201,63 @@ class QuineClient:
             return False
 
 
-def _node_id_from_model(node: QuineNode) -> QuineNodeId:
-    from modok.quine.ids import idFrom
+def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
+    """Return (cypher_idFrom_arg_list, params) for this node's idFrom() address.
+
+    The returned cypher string is the argument list for Quine's idFrom() Cypher function,
+    e.g. "'feature', $idf_project_slug, $idf_feature_slug".
+    Param keys are prefixed with 'idf_' to avoid collision with node property params.
+    """
     from modok.quine.models import (
         Project, Feature, Module, File, DocSection, ErrorSignature,
         KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
         DiagnosticNote,
-    )  # CommitEvent/FileChange removed (deferred)
+    )
     if isinstance(node, Project):
-        return idFrom("project", node.project_slug)
+        return ("'project', $idf_project_slug",
+                {"idf_project_slug": node.project_slug})
     if isinstance(node, Feature):
-        return idFrom("feature", node.project_slug, node.feature_slug)
+        return ("'feature', $idf_project_slug, $idf_feature_slug",
+                {"idf_project_slug": node.project_slug, "idf_feature_slug": node.feature_slug})
     if isinstance(node, Module):
-        return idFrom("module", node.project_slug, node.module_slug)
+        return ("'module', $idf_project_slug, $idf_module_slug",
+                {"idf_project_slug": node.project_slug, "idf_module_slug": node.module_slug})
     if isinstance(node, File):
-        return idFrom("file", node.project_slug, node.repo_path)
+        return ("'file', $idf_project_slug, $idf_repo_path",
+                {"idf_project_slug": node.project_slug, "idf_repo_path": node.repo_path})
     if isinstance(node, DocSection):
-        return idFrom("doc-section", node.project_slug, node.doc_path, node.heading_slug)
+        return ("'doc-section', $idf_project_slug, $idf_doc_path, $idf_heading_slug",
+                {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path,
+                 "idf_heading_slug": node.heading_slug})
     if isinstance(node, ErrorSignature):
-        return idFrom("error", node.project_slug, node.normalized_error)
+        return ("'error', $idf_project_slug, $idf_normalized_error",
+                {"idf_project_slug": node.project_slug,
+                 "idf_normalized_error": node.normalized_error})
     if isinstance(node, KnownIssue):
-        return idFrom("known-issue", node.project_slug, node.issue_id)
+        return ("'known-issue', $idf_project_slug, $idf_issue_id",
+                {"idf_project_slug": node.project_slug, "idf_issue_id": node.issue_id})
     if isinstance(node, CustomerIssue):
-        return idFrom("customer-issue", node.project_slug, node.source_system, node.ticket_id)
+        return ("'customer-issue', $idf_project_slug, $idf_source_system, $idf_ticket_id",
+                {"idf_project_slug": node.project_slug, "idf_source_system": node.source_system,
+                 "idf_ticket_id": node.ticket_id})
     if isinstance(node, SimilarityMatch):
-        return idFrom("similarity-match", node.project_slug, node.customer_issue_id,
-                      node.known_issue_id, node.method)
+        return (
+            "'similarity-match', $idf_project_slug, $idf_customer_issue_id, $idf_known_issue_id, $idf_method",
+            {"idf_project_slug": node.project_slug,
+             "idf_customer_issue_id": node.customer_issue_id,
+             "idf_known_issue_id": node.known_issue_id,
+             "idf_method": node.method},
+        )
     if isinstance(node, Fix):
-        return idFrom("fix", node.project_slug, node.fix_id)
+        return ("'fix', $idf_project_slug, $idf_fix_id",
+                {"idf_project_slug": node.project_slug, "idf_fix_id": node.fix_id})
     if isinstance(node, ResolutionEvent):
-        return idFrom("resolution", node.project_slug, node.source_system,
-                      node.ticket_id, node.fix_id)
+        return (
+            "'resolution', $idf_project_slug, $idf_source_system, $idf_ticket_id, $idf_fix_id",
+            {"idf_project_slug": node.project_slug, "idf_source_system": node.source_system,
+             "idf_ticket_id": node.ticket_id, "idf_fix_id": node.fix_id},
+        )
     if isinstance(node, DiagnosticNote):
-        return idFrom("diagnostic-note", node.project_slug, node.note_id)
-    raise ValueError(f"No ID scheme for node type {type(node).__name__}")
+        return ("'diagnostic-note', $idf_project_slug, $idf_note_id",
+                {"idf_project_slug": node.project_slug, "idf_note_id": node.note_id})
+    raise ValueError(f"No idFrom() scheme for node type {type(node).__name__}")

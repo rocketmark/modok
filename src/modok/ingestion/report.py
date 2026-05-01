@@ -30,5 +30,7 @@ class IngestionReport:
             f"  Duration:        {self.duration_seconds:.1f}s",
         ]
         for w in self.warnings:
-            lines.append(f"    - {w}")
+            lines.append(f"  WARNING: {w}")
+        for e in self.errors:
+            lines.append(f"  ERROR:   {e}")
         return "\n".join(lines)

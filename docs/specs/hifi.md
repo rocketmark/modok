@@ -66,7 +66,7 @@ LLD: `docs/llds/hifi.md`
 - [x] **REF-ING-001** [U]: When `ReferenceModok.ingest(nodes, edges)` is called, the system shall store each node keyed by its `idFrom`-derived ID.
 - [x] **REF-ING-002** [U]: When `ReferenceModok.ingest` is called with the same node twice, the system shall store exactly one entry for that node (idempotent).
 - [x] **REF-ING-003** [U]: When `ReferenceModok.ingest` is called with the same edge twice, the system shall store exactly one entry for that edge (idempotent).
-- [x] **REF-ING-004** [U]: `ReferenceModok.ingest` shall apply the same `idFrom` ID scheme as the production ingestion pipeline for all node types present in HiFi scenarios.
+- [x] **REF-ING-004** [U]: `ReferenceModok.ingest` shall apply the same logical ID scheme (node type prefix + project_slug + type-specific parts) as the production ingestion pipeline for all node types present in HiFi scenarios. The reference model implements this as a Python `idFrom()` helper for its in-memory store; production MODOK uses Quine's Cypher-native `idFrom()` function.
 
 ---
 

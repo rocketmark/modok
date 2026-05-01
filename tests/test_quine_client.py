@@ -79,54 +79,41 @@ def make_feature(project_slug: str = "proj-a", feature_slug: str = "feat-x") -> 
 
 
 # ---------------------------------------------------------------------------
-# QC-ID-001 — idFrom is deterministic, SHA-256, signed int64
+# HiFi harness idFrom helper — determinism and collision properties.
+# These tests verify modok.quine.ids.idFrom, which is used exclusively by
+# the HiFi test harness (DummyQuine, ReferenceModok, scenario loader).
+# Production MODOK uses Quine's Cypher-native idFrom() function instead.
 # ---------------------------------------------------------------------------
 
-# @spec QC-ID-001
 def test_idFrom_is_deterministic():
     assert idFrom("feature", "proj-a", "feat-x") == idFrom("feature", "proj-a", "feat-x")
 
 
-# @spec QC-ID-001
 def test_idFrom_returns_int():
     result = idFrom("feature", "proj-a", "feat-x")
     assert isinstance(result, int)
 
 
-# @spec QC-ID-001
 def test_idFrom_fits_signed_int64():
     result = idFrom("feature", "proj-a", "feat-x")
     assert -(2**63) <= result < 2**63
 
 
-# @spec QC-ID-001
 @given(parts=st.lists(slugs, min_size=1, max_size=5))
 def test_idFrom_always_deterministic(parts):
     assert idFrom(*parts) == idFrom(*parts)
 
 
-# @spec QC-ID-001
 @given(parts=st.lists(slugs, min_size=1, max_size=5))
 def test_idFrom_always_fits_signed_int64(parts):
     result = idFrom(*parts)
     assert -(2**63) <= result < 2**63
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-001 — null-byte separator prevents part-boundary collisions
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-001
 def test_idFrom_null_byte_separator_prevents_collision():
-    # ('a', 'bc') must differ from ('ab', 'c')
     assert idFrom("a", "bc") != idFrom("ab", "c")
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-002 — node type name is always first; different types never collide
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-002
 @given(
     type_a=st.sampled_from(ALL_NODE_TYPE_NAMES),
     type_b=st.sampled_from(ALL_NODE_TYPE_NAMES),
@@ -137,58 +124,36 @@ def test_different_node_types_produce_different_ids(type_a, type_b, rest):
     assert idFrom(type_a, *rest) != idFrom(type_b, *rest)
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-003 — project_slug in every node type
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-003
 @given(slug_a=slugs, slug_b=slugs, rest=st.lists(slugs, min_size=1, max_size=3))
 def test_different_project_slugs_produce_different_ids(slug_a, slug_b, rest):
     assume(slug_a != slug_b)
     assert idFrom("feature", slug_a, *rest) != idFrom("feature", slug_b, *rest)
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-004 — CustomerIssue ID includes project_slug
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-004
 def test_customer_issue_id_is_deterministic():
     id1 = idFrom("customer-issue", "stagehand", "zendesk", "1842")
     id2 = idFrom("customer-issue", "stagehand", "zendesk", "1842")
     assert id1 == id2
 
 
-# @spec QC-ID-004
 def test_customer_issue_id_differs_by_project():
     id_a = idFrom("customer-issue", "stagehand", "zendesk", "1842")
     id_b = idFrom("customer-issue", "other-project", "zendesk", "1842")
     assert id_a != id_b
 
 
-# @spec QC-ID-004
 def test_customer_issue_id_differs_by_source_system():
     id_zendesk = idFrom("customer-issue", "stagehand", "zendesk", "1842")
     id_github = idFrom("customer-issue", "stagehand", "github", "1842")
     assert id_zendesk != id_github
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-005 — ResolutionEvent ID includes source_system
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-005
 def test_resolution_event_id_includes_source_system():
     id_zendesk = idFrom("resolution", "proj-a", "zendesk", "1842", "fix-001")
     id_github = idFrom("resolution", "proj-a", "github", "1842", "fix-001")
     assert id_zendesk != id_github
 
 
-# ---------------------------------------------------------------------------
-# QC-ID-006 — SimilarityMatch ID includes project_slug
-# ---------------------------------------------------------------------------
-
-# @spec QC-ID-006
 @given(slug_a=slugs, slug_b=slugs)
 def test_similarity_match_id_includes_project_slug(slug_a, slug_b):
     assume(slug_a != slug_b)

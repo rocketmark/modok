@@ -14,48 +14,46 @@ Guiding principles:
 
 ## ID Scheme
 
-All Quine node IDs are deterministic, derived by hashing a tuple of typed string components. The `idFrom()` function is the sole ID-generation mechanism in MODOK.
+Quine node IDs are UUIDs. By default Quine uses its UUID ID provider; MODOK does not configure an alternative. Node addresses are never generated as random values — they are always computed deterministically using Quine's built-in `idFrom()` Cypher function.
 
-```python
-def idFrom(*parts: str) -> QuineNodeId:
-    """
-    Compute a deterministic Quine node ID from an ordered tuple of strings.
-    Parts are joined with a null byte separator before hashing to prevent
-    collisions between ('a', 'bc') and ('ab', 'c').
-    """
+`idFrom()` is a Quine Cypher function that accepts one or more string arguments and returns a UUID that is deterministic for those inputs: the same arguments always produce the same UUID, so ingestion is idempotent by construction. It is embedded directly in Cypher query strings — MODOK never computes Quine node addresses in Python.
+
+The node type name is always the first argument to `idFrom()`. This guarantees that two node types with identical remaining parts produce different addresses. The canonical addressing pattern in Cypher is:
+
+```cypher
+MATCH (n) WHERE id(n) = idFrom('feature', $project_slug, $feature_slug)
+SET n += {node_type: 'Feature', project_slug: $project_slug, feature_slug: $feature_slug, name: $name}
 ```
 
-The node type name is always the first element of the tuple. This guarantees that two different node types with identical remaining parts produce different IDs by construction — no runtime check needed. A property test verifies this invariant holds for every registered node type.
+`SimilarityMatch` includes `project_slug` as an `idFrom()` argument despite being a computed node — without it, two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically would silently share a `SimilarityMatch` node across project boundaries, violating isolation.
 
-`SimilarityMatch` includes `project_slug` despite being a computed node — without it, two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically would silently share a `SimilarityMatch` node across project boundaries, violating isolation.
+`idFrom()` arguments by node type (first argument is always the type prefix):
 
-ID tuples by node type:
-
-| Node type | ID tuple |
+| Node type | `idFrom()` arguments |
 |---|---|
-| `Project` | `('project', project_slug)` |
-| `ProductArea` | `('product-area', project_slug, area_slug)` |
-| `Feature` | `('feature', project_slug, feature_slug)` |
-| `Module` | `('module', project_slug, module_slug)` |
-| `File` | `('file', project_slug, repo_path)` |
-| `Doc` | `('doc', project_slug, doc_path)` |
-| `DocSection` | `('doc-section', project_slug, doc_path, heading_slug)` |
-| `TestPlan` | `('test-plan', project_slug, plan_slug)` |
-| `TestCase` | `('test-case', project_slug, plan_slug, case_slug)` |
-| `KnownIssue` | `('known-issue', project_slug, issue_id)` |
-| `CustomerIssue` | `('customer-issue', project_slug, source_system, ticket_id)` |
-| `ErrorSignature` | `('error', project_slug, normalized_error)` |
-| `Fix` | `('fix', project_slug, fix_id)` |
-| `ResolutionEvent` | `('resolution', project_slug, source_system, ticket_id, fix_id)` |
-| `Decision` | `('decision', project_slug, decision_id)` |
-| `Risk` | `('risk', project_slug, risk_id)` |
-| `FailureMode` | `('failure-mode', project_slug, feature_slug, mode_id)` |
-| `ObservationEvent` | `('observation', project_slug, source, event_id)` |
-| `SimilarityMatch` | `('similarity-match', project_slug, customer_issue_id, known_issue_id, method)` |
-| `DiagnosticNote` | `('diagnostic-note', project_slug, note_id)` |
-| `DeploymentEvent` | `('deployment', project_slug, service_name, version, deployed_at)` |
+| `Project` | `'project', project_slug` |
+| `ProductArea` | `'product-area', project_slug, area_slug` |
+| `Feature` | `'feature', project_slug, feature_slug` |
+| `Module` | `'module', project_slug, module_slug` |
+| `File` | `'file', project_slug, repo_path` |
+| `Doc` | `'doc', project_slug, doc_path` |
+| `DocSection` | `'doc-section', project_slug, doc_path, heading_slug` |
+| `TestPlan` | `'test-plan', project_slug, plan_slug` |
+| `TestCase` | `'test-case', project_slug, plan_slug, case_slug` |
+| `KnownIssue` | `'known-issue', project_slug, issue_id` |
+| `CustomerIssue` | `'customer-issue', project_slug, source_system, ticket_id` |
+| `ErrorSignature` | `'error', project_slug, normalized_error` |
+| `Fix` | `'fix', project_slug, fix_id` |
+| `ResolutionEvent` | `'resolution', project_slug, source_system, ticket_id, fix_id` |
+| `Decision` | `'decision', project_slug, decision_id` |
+| `Risk` | `'risk', project_slug, risk_id` |
+| `FailureMode` | `'failure-mode', project_slug, feature_slug, mode_id` |
+| `ObservationEvent` | `'observation', project_slug, source, event_id` |
+| `SimilarityMatch` | `'similarity-match', project_slug, customer_issue_id, known_issue_id, method` |
+| `DiagnosticNote` | `'diagnostic-note', project_slug, note_id` |
+| `DeploymentEvent` | `'deployment', project_slug, service_name, version, deployed_at` |
 
-`CustomerIssue` carries `project_slug` in its ID. Tickets are always ingested in the context of a known project — the ingestion CLI requires `--project`. Cross-project ticket ID collisions (same `source_system` + `ticket_id` in two projects) are therefore possible and must be namespaced by `project_slug`.
+`CustomerIssue` carries `project_slug` in its `idFrom()` arguments. Tickets are always ingested in the context of a known project — the ingestion CLI requires `--project`. Cross-project ticket ID collisions (same `source_system` + `ticket_id` in two projects) are therefore possible and must be namespaced by `project_slug`.
 
 ## Node Schema
 
@@ -250,15 +248,24 @@ The raw `query` escape hatch is available for the retrieval engine's complex tra
 
 ## Wire Format
 
-Quine's HTTP API accepts and returns JSON. Node properties are a flat `{ key: value }` map. Node IDs in MODOK are 64-bit integers derived by taking the first 8 bytes of the SHA-256 hash of the null-byte-joined parts tuple.
+Quine's HTTP API accepts and returns JSON. Node properties are a flat `{ key: value }` map. Node IDs are UUIDs managed by Quine's UUID ID provider.
 
-```python
-def idFrom(*parts: str) -> int:
-    digest = hashlib.sha256("\x00".join(parts).encode()).digest()
-    return int.from_bytes(digest[:8], "big", signed=True)
+Node addressing uses Quine's built-in `idFrom()` Cypher function, which is embedded directly in query strings. MODOK never computes or stores Quine node IDs in Python — all ID resolution happens inside Quine at query execution time.
+
+**Upsert pattern:**
+```cypher
+MATCH (n) WHERE id(n) = idFrom('feature', $project_slug, $feature_slug)
+SET n += {node_type: 'Feature', project_slug: $project_slug, feature_slug: $feature_slug, name: $name}
 ```
 
-Quine uses signed 64-bit integers for node IDs. The conversion uses `signed=True` to stay within Quine's accepted range.
+**Edge write pattern:**
+```cypher
+MATCH (a) WHERE id(a) = idFrom('feature', $project_slug, $feature_slug)
+MATCH (b) WHERE id(b) = idFrom('module', $project_slug, $module_slug)
+MERGE (a)-[:IMPLEMENTED_BY]->(b)
+```
+
+**Query endpoint:** `POST /api/v1/query/cypher` with body `{"text": "<cypher>", "parameters": {...}}`. The field name is `text`, not `query`.
 
 Property serialization: pydantic models are serialized via `.model_dump()`, then the `node_type` field is stored as a Quine property alongside all other fields. On read, `node_type` is used to dispatch to the correct pydantic model for deserialization.
 
@@ -285,7 +292,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| ID derivation | SHA-256, first 8 bytes, signed int64; node type name is always first tuple element | UUID v5 (namespace+name), sequential int, Quine auto-ID | Deterministic, collision-resistant, idempotent ingestion, fits Quine's signed int64 ID space; type-as-first-element guarantees two node types with identical remaining parts never collide — verified by property test |
+| ID derivation | Quine's built-in `idFrom()` Cypher function; node type name is always first argument; embedded inline in Cypher strings; MODOK never computes node addresses in Python | SHA-256 int64 (rejected — wrong ID type; Quine uses UUIDs), UUID v5 in Python (rejected — requires Python UUID generation vs. Quine-native), sequential int, Quine auto-ID (rejected — non-deterministic) | `idFrom()` is deterministic and UUID-native; ingestion is idempotent by construction; no Python-side ID computation means no risk of Python/Quine ID mismatch; type-as-first-argument guarantees two node types with identical remaining parts never collide |
 | `traverse` return type | Hydrated `list[QuineNode]` | IDs only + per-ID `get_node` fetches | Quine's Cypher endpoint (`POST /api/v1/query/cypher`) returns node properties inline in the same response — no second round-trip needed |
 | No edge properties | Intermediate nodes for metadata | Edge properties in Quine | Quine's edge model does not support rich properties; intermediate nodes (e.g., `SimilarityMatch`) make metadata queryable |
 | Upsert semantics | SET current fields only, never touch edges | Full node replace (remove old properties too), merge | SET is sufficient for v1 — schemas are stable and property removal is rare. Ghost properties are accepted; the fetch-then-replace pattern is the documented fix if they become a problem. Full node replace would require a MATCH+DELETE+RECREATE sequence, losing edges unless carefully reconstructed. |
@@ -301,7 +308,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 2. ✅ `CustomerIssue` ID includes `project_slug` — ingestion always has project context; same `source_system` + `ticket_id` can appear in multiple projects and must be namespaced.
 3. ✅ No edge properties — use intermediate nodes for relationship metadata.
 4. ✅ `upsert_node` uses SET for current fields; ghost properties from removed schema fields are accepted in v1. Fetch-then-replace is the documented fix if needed.
-5. ✅ Node type name is always first in `idFrom()` tuple — type collisions impossible by construction, verified by property test.
+5. ✅ Node type name is always first `idFrom()` argument — type collisions impossible by construction.
 6. ✅ `traverse` returns hydrated nodes — Quine's Cypher endpoint returns properties inline, no second round-trip.
 7. ✅ `get_node` on missing ID raises `QuineNodeNotFoundError` — `node_exists()` for opt-in absence checks.
 8. ✅ `write_edge` is idempotent — duplicate writes are always no-ops.
@@ -311,7 +318,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 1. **Quine authentication** — Quine's auth model in production (shared Mac mini). Currently `QuineAuth | None`; implementation deferred until shared deployment.
 2. **Batch write API** — ingestion of large doc trees may benefit from batched node/edge writes. Quine's batch endpoint needs evaluation against the upsert-per-node approach for throughput.
 3. **Standing queries** — Quine supports standing queries for stream-mode event matching. The client interface does not expose these in v1; add when stream mode begins.
-4. **ID collision probability** — 8 bytes of SHA-256 gives a ~50% collision probability at ~4 billion nodes. Fine for MODOK's data volumes; revisit if the graph grows beyond ~10M nodes.
+4. **`idFrom()` collision probability** — Quine's `idFrom()` uses UUID-space (128-bit); collision probability at MODOK's data volumes is negligible. No action required unless Quine changes its ID provider.
 
 ## References
 

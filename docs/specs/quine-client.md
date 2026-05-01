@@ -20,19 +20,19 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 ## ID Scheme
 
-- [x] **QC-ID-001** [P, C]: The system shall compute all Quine node IDs deterministically via `idFrom(*parts)`, where parts are joined with a null-byte separator and hashed with SHA-256, taking the first 8 bytes as a signed int64.
-- [x] **QC-ID-002** [P]: The system shall use the node type name as the first element of every `idFrom()` tuple, such that two node types with identical remaining parts always produce different IDs.
-- [x] **QC-ID-003** [P]: The system shall include `project_slug` as a tuple element in the ID of every node type.
-- [x] **QC-ID-004** [U]: The system shall identify `CustomerIssue` nodes by `('customer-issue', project_slug, source_system, ticket_id)`. project_slug is required to prevent cross-project ID collisions.
-- [x] **QC-ID-005** [U]: The system shall identify `ResolutionEvent` nodes by `('resolution', project_slug, source_system, ticket_id, fix_id)`, including `source_system` to disambiguate ticket IDs that collide across source systems.
-- [x] **QC-ID-006** [P]: The system shall include `project_slug` in the `SimilarityMatch` ID tuple so that two projects whose `CustomerIssue` and `KnownIssue` nodes hash identically cannot share a `SimilarityMatch` node across project boundaries.
+- [x] **QC-ID-001** [C]: The system shall address all Quine nodes using Quine's built-in `idFrom()` Cypher function, embedded directly in Cypher query strings. MODOK shall never compute or store Quine node IDs in Python.
+- [x] **QC-ID-002** [C]: The system shall use the node type name as the first string argument to `idFrom()` in every Cypher pattern, such that two node types with identical remaining arguments always produce different UUIDs.
+- [x] **QC-ID-003** [C]: The system shall include `project_slug` as an `idFrom()` argument for every node type, such that nodes from different projects cannot share a Quine address.
+- [x] **QC-ID-004** [U]: The system shall address `CustomerIssue` nodes with `idFrom('customer-issue', $project_slug, $source_system, $ticket_id)` in Cypher. `project_slug` is required to prevent cross-project ID collisions.
+- [x] **QC-ID-005** [U]: The system shall address `ResolutionEvent` nodes with `idFrom('resolution', $project_slug, $source_system, $ticket_id, $fix_id)` in Cypher, including `source_system` to disambiguate ticket IDs that collide across source systems.
+- [x] **QC-ID-006** [C]: The system shall include `project_slug` as an `idFrom()` argument for `SimilarityMatch` so that two projects whose `CustomerIssue` and `KnownIssue` nodes have identical remaining parts cannot share a `SimilarityMatch` node across project boundaries.
 
 ---
 
 ## Node Writes
 
-- [x] **QC-NW-001** [U, C]: When `upsert_node` is called for a node that does not exist in Quine, the system shall create the node with all properties from the pydantic model.
-- [x] **QC-NW-002** [P, C]: When `upsert_node` is called for a node that already exists in Quine, the system shall set all properties present in the current pydantic model to their current values. Properties from prior writes that are no longer in the model are not removed (ghost properties); this is accepted in v1.
+- [x] **QC-NW-001** [U, C]: When `upsert_node` is called for a node that does not exist in Quine, the system shall create the node with all properties from the pydantic model, using a `MATCH (n) WHERE id(n) = idFrom(...) SET n += {...}` Cypher pattern.
+- [x] **QC-NW-002** [P, C]: When `upsert_node` is called for a node that already exists in Quine, the system shall set all properties present in the current pydantic model to their current values using `SET n += {...}`. Properties from prior writes that are no longer in the model are not removed (ghost properties); this is accepted in v1.
 - [x] **QC-NW-003** [P, C]: When `upsert_node` is called, the system shall not modify any edges on the node.
 - [x] **QC-NW-004** [P]: The system shall never infer edge changes from property changes; edge lifecycle is managed exclusively via `write_edge`, regardless of which properties are added, changed, or removed from a node.
 
@@ -57,7 +57,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 
 ## Traversal
 
-- [x] **QC-TR-001** [U, C]: When `traverse` is called, the system shall execute the traversal as a Cypher query against Quine's `/api/v1/query/cypher` endpoint and return hydrated `QuineNode` instances with all properties populated, without requiring a separate per-node fetch.
+- [x] **QC-TR-001** [U, C]: When `traverse` is called, the system shall execute the traversal as a Cypher query against Quine's `POST /api/v1/query/cypher` endpoint with body `{"text": "<cypher>", "parameters": {...}}` and return hydrated `QuineNode` instances with all properties populated, without requiring a separate per-node fetch.
 - [x] **QC-TR-002** [U]: The system shall provide a raw `query(cypher, params)` escape hatch for complex traversals used internally by the Diagnostic Retrieval Engine; this method shall not be exposed via the MCP server. — *Escape hatch implemented and tested; MCP exclusion half is untestable until the MCP server module exists.*
 - [x] **QC-TR-003** [U]: If a node returned by `traverse` fails deserialization (e.g., missing a required field), the system shall raise `QuineDeserializationError` identifying the malformed node ID rather than returning a partial result list.
 

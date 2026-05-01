@@ -76,9 +76,8 @@ def _build_node(raw: dict[str, Any]) -> tuple[int, QuineNode]:
     fields["node_type"] = node_type
     model_cls = _NODE_TYPE_MAP[node_type]
     node = model_cls(**fields)
-    # Compute the ID using the same dispatch as production
-    from modok.quine.client import _node_id_from_model
-    node_id = _node_id_from_model(node)
+    from tests.hifi.dummy_quine.client import _node_id_from_model_hifi
+    node_id = _node_id_from_model_hifi(node)
     return node_id, node
 
 

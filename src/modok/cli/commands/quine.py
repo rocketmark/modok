@@ -32,7 +32,7 @@ def quine_start() -> None:
     config = ModokConfig.load()
     client = QuineClient(base_url=config.quine.url)
 
-    if asyncio.get_event_loop().run_until_complete(client.ping()):
+    if asyncio.run(client.ping()):
         click.echo(f"Quine is already running at {config.quine.url}", err=True)
         raise SystemExit(0)
 
@@ -55,7 +55,7 @@ def quine_start() -> None:
 
     deadline = time.monotonic() + QUINE_START_TIMEOUT
     while time.monotonic() < deadline:
-        if asyncio.get_event_loop().run_until_complete(client.ping()):
+        if asyncio.run(client.ping()):
             raise SystemExit(0)
         time.sleep(1)
 
@@ -92,7 +92,7 @@ def quine_stop() -> None:
 def quine_status() -> None:
     config = ModokConfig.load()
     client = QuineClient(base_url=config.quine.url)
-    if asyncio.get_event_loop().run_until_complete(client.ping()):
+    if asyncio.run(client.ping()):
         click.echo("running")
     else:
         click.echo("stopped")

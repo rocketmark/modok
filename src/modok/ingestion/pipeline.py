@@ -73,7 +73,7 @@ _VERIFIED_THRESHOLD = 0.90
 _STRONG_THRESHOLD = 0.75
 
 
-def route_fact(
+async def route_fact(
     value: Any,
     score: float,
     ctx: IngestionContext,
@@ -90,7 +90,7 @@ def route_fact(
 
     if band.score >= _VERIFIED_THRESHOLD:
         node: dict[str, Any] = {"value": value, "source": source}
-        client.upsert_node(node)
+        await client.upsert_node(node)
         ctx.nodes_written += 1
     elif band.score >= _STRONG_THRESHOLD:
         node = {
@@ -99,7 +99,7 @@ def route_fact(
             "confidence_low": band.low,
             "confidence_high": band.high,
         }
-        client.upsert_node(node)
+        await client.upsert_node(node)
         ctx.nodes_written += 1
     else:
         ctx.add_pending_fact(value=value, score=band.score, evidence=source)
@@ -238,7 +238,7 @@ def check_working_tree(repo_root: Path) -> list[str]:
     return []
 
 
-def ingest_doc(
+async def ingest_doc(
     path: Path,
     registry: Registry,
     client: Any,
@@ -270,7 +270,7 @@ def ingest_doc(
     blocks = parse_modok_blocks(content)
     valid_blocks, block_warnings, _ = process_modok_blocks(blocks)
     for block in valid_blocks:
-        route_fact(value=block, score=1.00, ctx=ctx, client=client, source="modok_block")
+        await route_fact(value=block, score=1.00, ctx=ctx, client=client, source="modok_block")
 
     # Heading extraction → DocSection nodes and DESCRIBED_BY edges (SI-HEAD-001, SI-HEAD-002)
     feature_slug = fm.get("feature", "")
@@ -278,13 +278,13 @@ def ingest_doc(
     if feature_slug and headings:
         edges = build_doc_edges(feature_slug, project_slug, path, headings)
         for edge in edges:
-            client.write_edge(*edge)
+            await client.write_edge(*edge)
 
     # File reference validation — missing file applies −0.15 confidence penalty (SI-REF-004)
     file_warnings, _ = validate_file_references(fm, repo_root)
     base_score = 0.88  # markdown_link base
     for warning in file_warnings:
-        route_fact(
+        await route_fact(
             value=warning,
             score=confidence_band(base=base_score, penalties=[0.15]).score,
             ctx=ctx,
@@ -294,7 +294,7 @@ def ingest_doc(
 
     # Commit SHA for this doc node (SI-SHA-001)
     sha = get_commit_sha(path)
-    client.upsert_node({"type": "Doc", "path": str(path), "commit_sha": sha})
+    await client.upsert_node({"type": "Doc", "path": str(path), "commit_sha": sha})
     ctx.nodes_written += 1
     return True
 
@@ -381,7 +381,7 @@ class _LLMProposalWarning(Exception):
     """Internal sentinel: LLM proposal failed; treat as warning, not error."""
 
 
-def run_ingestion(
+async def run_ingestion(
     repo_root: Path,
     registry: Registry,
     client: Any,
@@ -402,7 +402,7 @@ def run_ingestion(
 
     for path in files:
         try:
-            processed = ingest_doc(
+            processed = await ingest_doc(
                 path,
                 registry=registry,
                 client=client,
@@ -430,7 +430,7 @@ def run_ingestion(
             print(f"Pending (score={fact['score']:.2f}): {fact['value']} — {fact['evidence']}")
         if user_approves(ctx._pending):
             for fact in ctx._pending:
-                client.upsert_node({"value": fact["value"], "source": "pending_approved"})
+                await client.upsert_node({"value": fact["value"], "source": "pending_approved"})
                 ctx.nodes_written += 1
             report.nodes_written = ctx.nodes_written
             report.pending_items = 0

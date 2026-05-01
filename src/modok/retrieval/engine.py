@@ -4,7 +4,7 @@ from typing import Any
 
 from modok.llm import gateway
 from modok.llm.errors import LLMResponseError, LLMUnavailableError
-from modok.quine.client import QuineClient, QuineNodeId
+from modok.quine.client import QuineClient
 from modok.quine.errors import QuineNodeNotFoundError
 from modok.quine.models import CustomerIssue
 from modok.retrieval.errors import (
@@ -50,7 +50,7 @@ def _accumulate_match_count(counts: dict[str, int], key: str, delta: int) -> Non
 # ---------------------------------------------------------------------------
 
 async def _graph_anchors(
-    issue_id: QuineNodeId,
+    issue_id: str,
     project_slug: str,
     client: QuineClient,
 ) -> tuple[list[str], list[str]]:
@@ -106,7 +106,7 @@ async def _traverse_error_to_known_issues(
     normalized_error: str,
     project_slug: str,
     client: QuineClient,
-) -> list[tuple[QuineNodeId, dict[str, str]]]:
+) -> list[tuple[str, dict[str, str]]]:
     """Return (quine_node_id, props) for each KnownIssue reachable from this error."""
     rows = await client.query(
         "MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error}) "
@@ -123,7 +123,7 @@ async def _traverse_error_to_known_issues(
 
 # @spec DRE-TRAV-005
 async def _traverse_ki_to_fixes(
-    ki_node_id: QuineNodeId,
+    ki_node_id: str,
     project_slug: str,
     client: QuineClient,
 ) -> list[dict[str, str]]:
@@ -142,7 +142,7 @@ async def _traverse_ki_to_fixes(
 
 # @spec DRE-TRAV-005
 async def _traverse_similarity(
-    issue_id: QuineNodeId,
+    issue_id: str,
     project_slug: str,
     client: QuineClient,
 ) -> list[tuple[dict[str, str], str]]:
@@ -171,7 +171,7 @@ async def _traverse_similarity(
 
 # @spec DRE-IFACE-001, DRE-IFACE-002, DRE-IFACE-003
 async def retrieve(
-    issue_id: QuineNodeId,
+    issue_id: str,
     project_slug: str,
     client: QuineClient,
     backend: str = "local",
