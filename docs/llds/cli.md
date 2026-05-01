@@ -18,6 +18,7 @@ Guiding principles:
 ```
 modok --version
 modok --help
+modok --status
 
 modok init     --project <slug> --repo <path>
 modok ingest   --project <slug> [--fix] <path>
@@ -129,6 +130,32 @@ Lifecycle convenience wrapper around the Quine JAR process. Does not require `--
 - **`start`**: pings Quine first; if it responds, prints "Quine is already running at `<url>`" to stderr and exits `0` — no PID file check, no process launch. If not responding, validates the JAR path from config immediately and exits `1` with "Quine JAR not found at `<path>`" if absent. Then launches `java -Dconfig.file=~/.modok/quine.conf -jar ~/.modok/quine.jar` as a background process, writes PID to `~/.modok/quine.pid`, and polls `ping()` until ready (up to 30s). Exits `2` if startup times out.
 - **`stop`**: reads `~/.modok/quine.pid`, sends SIGTERM, waits up to 10s for the process to exit, removes the PID file. Exits `1` if no PID file exists.
 - **`status`**: calls `ping()`; prints `running` or `stopped` to stdout. Always exits `0`.
+
+### `modok --status`
+
+Top-level status flag. Does not require `--project`. Pings Quine and reports:
+
+1. **Quine reachability** — `running at <url>` or `not reachable at <url>`.
+2. **Node count** — total node count from `MATCH (n) RETURN count(n)`, plus a per-type breakdown from `MATCH (n) RETURN DISTINCT n.node_type, count(n)`. Nodes with `null` `node_type` are shown as `(untyped)`. Only emitted when Quine is reachable.
+3. **Projects** — list of configured projects (slug + repo path) from `~/.modok/config.toml`. Emitted regardless of Quine reachability.
+
+Quine version is not reported — Quine does not expose a version endpoint.
+
+Exits `0` whether or not Quine is reachable — "not reachable" is a valid status, not an error.
+
+Example output:
+```
+Quine:    running at http://127.0.0.1:8080
+Nodes:    66 total
+  DocSection    48
+  File          10
+  Module         3
+  Feature        2
+  (untyped)      3
+
+Projects:
+  stagehand     ~/github/stagehand
+```
 
 ## Config Loading
 

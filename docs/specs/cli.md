@@ -16,6 +16,16 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
+## `modok --status`
+
+- [x] **CLI-STAT-001** [U]: When `--status` is passed, the system shall print whether Quine is reachable, including the configured URL.
+- [x] **CLI-STAT-002** [U]: When Quine is reachable, the system shall print the total node count and a per-type breakdown; nodes with a null `node_type` shall be shown as `(untyped)`.
+- [x] **CLI-STAT-003** [U]: When Quine is not reachable, the system shall print "not reachable at `<url>`" and omit the node count section.
+- [x] **CLI-STAT-004** [U]: The system shall print the list of configured projects (slug and repo path) regardless of Quine reachability.
+- [x] **CLI-STAT-005** [U]: `modok --status` shall exit `0` whether or not Quine is reachable.
+
+---
+
 ## Config Loading
 
 - [x] **CLI-CFG-001** [U]: The system shall read config from `~/.modok/config.toml` on every command invocation, expanding `~` in path values via `Path.expanduser()`.
