@@ -34,16 +34,6 @@ Humans rebuild this context manually. Agents rebuild it every session. It’s sl
 
 MODOK shows what changed, what’s affected, where to look, and what worked before.
 
-If I were to write this as a "Job to be Done" it would be: 
-```
-Engineering teams need to resolve production issues quickly,
-but the context needed to debug them is scattered across code,
-docs, tests, tickets, incidents, and prior fixes, so on-call
-engineers reconstruct system context manually under pressure,
-forcing a tradeoff between speed and confidence and increasing
-the risk of slow triage, wrong fixes, and repeated investigations.
-```
-
 ## Why I built this
 
 At AWS, one of my teams built a tool called Hyperion that helped our oncall engineers quickly understand high-severity incidents by automatically pulling together relevant context like recent commits, ongoing large-scale events, related tickets, and impacted customers. It let us answer “what is the state of the system?” within minutes and start debugging with the right information already in hand. 
