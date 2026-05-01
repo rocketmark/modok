@@ -1,15 +1,23 @@
-
 # M.O.D.O.K
 
 <img align="right" width="320" src="docs/assets/modok.png" alt="MODOK"/>
 
 **Mechanized Oracle Designed Only for Knowledge**
 
-MODOK shows engineers and agents what changed, what’s affected, where to look, and what worked before.
+MODOK gives engineers, operators, and AI agents a map of the system before they start debugging.
 
-Support and debugging issues rarely arrive with all the context needed to investigate them. The evidence is scattered across code, docs, tests, tickets, incidents, logs, change history, and prior fixes. MODOK turns that scattered context into a focused **debug packet**: a structured, traceable map from the issue to the operational evidence that matters.
+It shows:
 
-Unlike generic Graph RAG systems that improve retrieval over documents, MODOK is shaped around support and troubleshooting workflows. It maps an issue to connected systems, artifacts, and past resolutions so an engineer, operator, or agent can start from context instead of reconstructing it from scratch.
+- what changed
+- what is affected
+- where to look
+- what tests matter
+- what happened before
+- what fixed similar issues last time
+
+Support and debugging issues rarely arrive with all the context needed to investigate them. The evidence is scattered across code, docs, tests, tickets, incidents, logs, change history, and prior fixes. MODOK turns that scattered context into a focused **debug packet**: a structured, traceable starting point for understanding an issue.
+
+MODOK is not trying to replace source control, observability, tests, or documentation. Those remain the systems of record. MODOK stores the relationships between them so an engineer or agent can follow the trail instead of reconstructing it from scratch every time.
 
 <br clear="right"/>
 
@@ -17,53 +25,86 @@ Unlike generic Graph RAG systems that improve retrieval over documents, MODOK is
 
 ## The problem
 
-Diagnosing a software issue is mostly **orientation**:
+Debugging is mostly **orientation**.
 
-- What feature is this in?
-- Where is the code?
-- What tests cover it?
+Before anyone can fix a problem, they need to answer questions like:
+
+- What feature or subsystem is this in?
+- What code is involved?
+- What tests cover this behavior?
 - Has this happened before?
-- What fixed it last time?
+- What changed recently?
+- What fixed similar issues last time?
+- Which docs, tickets, incidents, or logs are relevant?
 
-Humans rebuild this context manually. Agents rebuild it every session. It’s slow, repetitive, expensive, and lossy.
+Humans rebuild this context manually. Agents rebuild it every session. It is slow, repetitive, expensive, and lossy.
 
-## Why I built this
-
-At AWS, my team built an internal tool called Hyperion to help on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, Hyperion gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system. It helped us move faster because we were no longer starting from a blank page.
-
-MODOK comes from the same belief: debugging is easier when the system can explain where to look first. Instead of rebuilding context from scratch for every issue, MODOK keeps a persistent memory of how a system is structured and how it has failed before, linking features, code, tests, known issues, change history, and prior fixes into a map that engineers and agents can follow.
-
-I’m building it because I expect to operate complex systems largely on my own, and I want the kind of mechanical support that makes debugging faster, more consistent, and less dependent on memory.
-
-This implementation is inspired by and directly builds on [Jess Szmajda’s LID project](https://github.com/jszmajda/lid).
+MODOK exists to make that orientation step explicit, reusable, and inspectable.
 
 ---
 
 ## What MODOK does
 
-MODOK turns a customer issue into a **debug starting point**.
+MODOK turns a support or debugging issue into a **debug starting point**.
 
-```
-Customer issue
+```text
+Issue
    ↓
-MODOK extracts anchors (feature, errors, symptoms)
+Extract anchors
+  - feature names
+  - errors
+  - symptoms
+  - affected systems
+  - customer or environment clues
    ↓
-Graph lookup finds related:
+Traverse the relationship graph
+   ↓
+Find connected:
   - docs
   - code areas
   - tests
+  - tickets
+  - incidents
+  - change history
   - known issues
   - prior fixes
    ↓
-Returns a debug packet
+Return a debug packet
 ```
 
-### Example (simplified)
+The output is not “the answer.”  
+It is the context an engineer, operator, or agent should probably start with.
+
+---
+
+## Example debug packet
+
+Given an issue like:
+
+```text
+Customer reports shtp receiver fails after upgrade with version mismatch error.
+```
+
+MODOK might return:
 
 ```json
 {
-  "feature": "shtp-receiver",
-  "errors": ["shtp-version-mismatch"],
+  "issue": {
+    "summary": "shtp receiver fails after upgrade",
+    "anchors": {
+      "features": ["shtp-receiver"],
+      "errors": ["shtp-version-mismatch"],
+      "symptoms": ["fails after upgrade"]
+    }
+  },
+
+  "affected_areas": [
+    {
+      "type": "feature",
+      "id": "feature:shtp-receiver",
+      "name": "shtp-receiver"
+    }
+  ],
 
   "relevant_files": [
     "agent/src/shtp.c",
@@ -75,11 +116,25 @@ Returns a debug packet
   ],
 
   "known_issues": [
-    "Client misreads version field offset"
+    {
+      "id": "known-issue:shtp-version-offset",
+      "summary": "Client misreads version field offset"
+    }
   ],
 
-  "recent_fixes": [
-    "fix-shtp-version-offset (commit a3f9c12)"
+  "prior_fixes": [
+    {
+      "id": "fix:shtp-version-offset",
+      "commit": "a3f9c12",
+      "summary": "Fix SHTP version offset parsing"
+    }
+  ],
+
+  "next_steps": [
+    "Inspect SHTP receiver parsing code",
+    "Review prior version offset fix",
+    "Run SHTP receiver tests",
+    "Check recent changes touching SHTP protocol handling"
   ]
 }
 ```
@@ -88,55 +143,195 @@ The agent starts here — not from zero.
 
 ---
 
+## Why not just use RAG?
+
+Typical vector-based RAG is useful for finding text that looks semantically related to a question.
+
+That is not the same thing as understanding how a system is connected.
+
+MODOK’s differentiator is not simply that it uses a graph. It is that the graph is shaped around support and troubleshooting workflows. MODOK maps an issue to operational relationships:
+
+```text
+feature → module → file → test → known issue → fix
+```
+
+or:
+
+```text
+incident → affected system → recent change → related ticket → mitigation
+```
+
+Instead of returning a loose pile of similar chunks, MODOK returns a structured path through the things that matter.
+
+---
+
+## Is this just documentation?
+
+No.
+
+Documentation explains things to humans. MODOK stores inspectable relationships between operational artifacts.
+
+For example, a document might say:
+
+```text
+The SHTP receiver validates protocol versions during connection setup.
+```
+
+MODOK stores relationships like:
+
+```text
+feature:shtp-receiver
+  uses file:agent/src/shtp.c
+  covered_by test:agent/tests/test_shtp.c
+  has_known_issue known-issue:shtp-version-offset
+  fixed_by commit:a3f9c12
+```
+
+That structure lets an agent ask:
+
+- What files implement this feature?
+- What tests cover this behavior?
+- What known issues are connected to this error?
+- What fixes resolved this class of problem before?
+
+The point is not to replace docs.  
+The point is to make the relationships docs imply explicit enough to retrieve.
+
+---
+
+## How MODOK avoids becoming a stale second source of truth
+
+This is the main design constraint.
+
+MODOK should not become a parallel universe that competes with source control, logs, docs, tickets, or tests.
+
+Instead:
+
+```text
+Source control is truth for code.
+Tests are truth for behavior.
+Logs and observability are truth for runtime state.
+Tickets and incidents are truth for operational history.
+Docs are truth for human-facing explanation.
+
+MODOK is memory for relationships.
+```
+
+MODOK stores links, identifiers, and metadata that help connect those systems.
+
+It should be possible to trace every useful fact in a debug packet back to a real artifact: a file, test, ticket, incident, commit, doc, or log source.
+
+---
+
+## Accuracy model
+
+MODOK is intentionally conservative about what gets stored.
+
+```text
+Explicit metadata is truth.
+LLM output is a proposal.
+Only validated structure is stored.
+```
+
+LLMs may help parse messy tickets, suggest missing links, or extract candidate anchors.
+
+They do not write directly to the graph.
+
+The graph should be populated from deterministic ingestion, validated metadata, or human-reviewed structure. If MODOK is wrong, the relationship should be inspectable and fixable.
+
+---
+
 ## Core idea
 
 MODOK is a **persistent memory of how your system is structured and how it fails**.
 
-It stores relationships like:
+It remembers relationships like:
 
-```
-feature → module → file → test → known issue → fix
+```text
+feature → module → file → test
+feature → known issue → prior fix
+ticket → symptom → affected system
+incident → change → mitigation
+error → component → runbook
 ```
 
-So instead of searching blindly, agents navigate a **map of the system**.
+So instead of searching blindly, engineers and agents navigate a map of the system.
 
 ---
 
 ## Design principles
 
-```
+```text
 Memory is for orientation.
 Files are for truth.
 Tests are for verification.
 
-Explicit metadata is truth.
+The graph should point to evidence.
+The graph should not replace evidence.
+
 LLM output is a proposal.
-Only validated structure is stored.
+Validated structure is memory.
+
+A debug packet is a starting point.
+It is not a conclusion.
 ```
 
 ---
 
 ## How it works
 
-### 1. Ingestion (mechanical, trusted)
+### 1. Ingestion
 
-Docs, registries, tickets, and resolutions are parsed into structured metadata:
+MODOK ingests structured metadata from sources like:
 
-- features, modules, files
-- error signatures
-- known issues and fixes
+- docs
+- registries
+- tickets
+- incidents
+- resolutions
+- code ownership metadata
+- test metadata
+- change history
 
-No LLM writes to the system of record.
+The ingestion path turns these inputs into typed nodes and edges.
+
+Examples:
+
+```text
+Feature
+Module
+File
+Test
+KnownIssue
+Fix
+Ticket
+Incident
+Change
+```
+
+and:
+
+```text
+IMPLEMENTS
+COVERED_BY
+MENTIONS_ERROR
+AFFECTS
+FIXED_BY
+RELATED_TO
+CHANGED_BY
+```
 
 ---
 
-### 2. Graph (persistent memory)
+### 2. Graph
 
-Relationships are stored in a graph:
+Relationships are stored in a graph with:
 
 - deterministic IDs
-- typed nodes and edges
-- multi-project isolation
+- typed nodes
+- typed edges
+- project isolation
+- traceable links back to source artifacts
 
 MODOK uses **Quine** as the underlying graph store.
 
@@ -144,58 +339,136 @@ MODOK uses **Quine** as the underlying graph store.
 
 ### 3. Retrieval
 
-Given an issue:
+Given an issue, MODOK:
 
-- extract anchors (feature, errors, symptoms)
-- traverse the graph
-- rank relevant nodes
-- assemble a debug packet
+1. extracts anchors from the issue
+2. finds matching graph nodes
+3. traverses relevant relationships
+4. ranks connected artifacts
+5. assembles a debug packet
+
+The result is structured context that can be used by:
+
+- humans
+- agents
+- CLIs
+- MCP tools
+- support workflows
+- incident workflows
 
 ---
 
-### 4. LLM (optional, bounded)
+### 4. LLM usage
 
-LLMs are used only for:
+LLMs are optional and bounded.
+
+They may be used for:
 
 - parsing freeform tickets
+- extracting possible anchors
 - suggesting missing metadata
+- summarizing a debug packet
 
-They **never write directly** to the graph.
+They are not used as the system of record.
+
+They do not directly mutate the graph.
 
 ---
 
-## What MODOK is (and isn’t)
+## What MODOK is — and is not
 
-### ✔️ MODOK is
+### MODOK is
 
 - A **support and troubleshooting context engine**
 - A **persistent map of system relationships**
 - A **debug starting point** for engineers, operators, and agents
 - A way to connect issues to the code, docs, tests, tickets, incidents, changes, and prior fixes that matter
+- A retrieval layer for operational context
 
-### ❌ MODOK is not
+### MODOK is not
 
 - A code search engine
 - A log store or observability platform
-- A replacement for source control, logs, or tests
+- A replacement for source control, logs, docs, tickets, or tests
 - An autonomous debugger
 - A source of truth for live system state
+- A system that magically understands your codebase without metadata
 
 ---
 
-## Current scope (v1)
+## What makes this useful for agents?
 
-- Static ingestion (docs, registries, tickets, resolutions)
-- Deterministic graph of system relationships
-- Debug packet generation from graph traversal
+Agents are good at using context, but bad at knowing which context matters.
+
+Without memory, an agent starts every debugging session by rediscovering the system:
+
+```text
+Search files.
+Read docs.
+Guess ownership.
+Look for tests.
+Search old tickets.
+Infer what changed.
+Maybe find the prior fix.
+Maybe miss it.
+```
+
+MODOK gives the agent a structured starting point:
+
+```text
+This issue mentions this feature.
+This feature maps to these files.
+These tests cover it.
+These known issues are nearby.
+These fixes resolved similar symptoms before.
+These changes may be relevant.
+```
+
+That does not make the agent correct by default.
+
+It makes the agent less blind.
 
 ---
 
-## Future (not in v1)
+## Current scope
 
-- Live event ingestion (logs, deployments)
-- Streaming / standing queries
-- Real-time incident enrichment
+MODOK currently focuses on static, inspectable support/debugging context:
+
+- structured ingestion
+- typed graph relationships
+- deterministic IDs
+- debug packet generation
+- bounded LLM-assisted parsing
+- Quine-backed graph storage
+
+---
+
+## Not in scope yet
+
+These are intentionally not part of the initial version:
+
+- live log ingestion
+- real-time observability storage
+- autonomous remediation
+- automatic code changes
+- production incident orchestration
+- replacing existing monitoring or ticketing systems
+
+---
+
+## Future direction
+
+Potential future work:
+
+- live event ingestion
+- deployment/change correlation
+- standing queries
+- streaming incident enrichment
+- MCP integration
+- richer agent workflows
+- confidence scoring for relationships
+- stale relationship detection
+- source artifact validation
 
 ---
 
@@ -203,13 +476,19 @@ They **never write directly** to the graph.
 
 - Python
 - pydantic v2
-- Quine (graph store)
+- Quine
 
 ---
 
-## Status
+## Project status
 
 Early development.
+
+The goal of the current version is to prove the core idea:
+
+> A support or debugging issue can be mapped to a traceable packet of relevant system context using explicit relationships instead of loose document retrieval.
+
+APIs, schemas, and commands may change.
 
 ---
 
@@ -217,3 +496,15 @@ Early development.
 
 - [High-Level Design](docs/high-level-design.md)
 - [Architecture Brainstorm](docs/modok-setup-brainstorm.md)
+
+---
+
+## Inspiration
+
+At AWS, my team built an internal tool called Hyperion to help on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, Hyperion gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system.
+
+It helped us move faster because we were no longer starting from a blank page.
+
+MODOK comes from the same belief: debugging is easier when the system can explain where to look first.
+
+This implementation is inspired by and directly builds on [Jess Szmajda’s LID project](https://github.com/jszmajda/lid).
