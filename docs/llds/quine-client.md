@@ -236,6 +236,15 @@ class QuineClient:
     # Cypher escape hatch (for retrieval engine use only; not exposed via MCP)
     async def query(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]: ...
 
+    # Ingestion path: write edge by idFrom() argument tuples (no UUID required).
+    # Used when the caller knows the logical parts but has no UUID from a prior query.
+    async def write_edge_by_parts(
+        self,
+        from_parts: tuple[str, ...],
+        edge_type: str,
+        to_parts: tuple[str, ...],
+    ) -> None: ...
+
     # Health
     async def ping(self) -> bool: ...
 ```

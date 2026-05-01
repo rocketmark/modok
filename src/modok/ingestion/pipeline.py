@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import re
 import yaml
 
 from modok.ingestion.confidence import confidence_band
@@ -22,6 +23,10 @@ from modok.ingestion.parser import (
 from modok.ingestion.registry import Registry
 from modok.ingestion.report import IngestionReport
 from modok.ingestion.discovery import discover_files
+from modok.quine.models import (
+    Feature, Module, File, DocSection, ErrorSignature,
+    KnownIssue, Fix,
+)
 
 NODE_WRITE_ORDER = [
     "Project",
@@ -38,7 +43,6 @@ NODE_WRITE_ORDER = [
     "CustomerIssue",
     "ResolutionEvent",
 ]
-# ^ Dependency-respecting write order: anchors (Project, Feature) before dependents.
 
 _KNOWN_BLOCK_KINDS = {
     "failure_mode",
@@ -55,6 +59,7 @@ class IngestionContext:
     repo_root: Path = field(default_factory=Path)
     fix_mode: bool = False
     nodes_written: int = 0
+    edges_written: int = 0
     _pending: list[dict] = field(default_factory=list)
     _warnings: list[str] = field(default_factory=list)
 
@@ -73,6 +78,13 @@ _VERIFIED_THRESHOLD = 0.90
 _STRONG_THRESHOLD = 0.75
 
 
+def _slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    return text
+
+
 async def route_fact(
     value: Any,
     score: float,
@@ -80,28 +92,18 @@ async def route_fact(
     client: Any,
     source: str = "prose",
 ) -> None:
-    """Route a scored fact through the confidence model.
+    """Route a scored prose-extracted fact through the confidence model.
 
-    - score >= 0.90: write immediately via upsert_node
-    - 0.75 <= score < 0.90: write with confidence_low/confidence_high properties
-    - score < 0.75: add to pending; do not write
+    Only for prose/structure-extracted facts. Frontmatter and MODOK block
+    facts are always verified (1.00) and written via build_nodes_from_frontmatter.
     """
     band = confidence_band(base=score)
 
-    if band.score >= _VERIFIED_THRESHOLD:
-        node: dict[str, Any] = {"value": value, "source": source}
-        await client.upsert_node(node)
-        ctx.nodes_written += 1
-    elif band.score >= _STRONG_THRESHOLD:
-        node = {
-            "value": value,
-            "source": source,
-            "confidence_low": band.low,
-            "confidence_high": band.high,
-        }
-        await client.upsert_node(node)
-        ctx.nodes_written += 1
-    else:
+    # Prose facts are opaque strings, not typed nodes — skip if not a string.
+    if not isinstance(value, str):
+        return
+
+    if band.score < _STRONG_THRESHOLD:
         ctx.add_pending_fact(value=value, score=band.score, evidence=source)
 
 
@@ -111,11 +113,7 @@ def check_required_fields(
     fix: bool = False,
     doc_path: Path | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Return (warnings, errors) for missing required fields.
-
-    If fix=True and the LLM gateway is available, invoke it to propose values.
-    Never invokes LLM when fix=False.
-    """
+    """Return (warnings, errors) for missing required fields."""
     if frontmatter is None:
         return [], ["frontmatter is None"]
 
@@ -125,20 +123,17 @@ def check_required_fields(
         "adr": ["feature"],
     }
     required = _REQUIRED_BY_TYPE.get(doc_type, [])
-
     missing = [f for f in required if not frontmatter.get(f)]
     warnings: list[str] = []
     errors: list[str] = []
 
     if missing and fix and doc_path is not None:
         from modok.llm.errors import LLMResponseError, LLMUnavailableError
-
         try:
             proposals = invoke_llm_gateway(doc_path)
         except (_LLMProposalWarning, LLMResponseError, LLMUnavailableError) as exc:
             warnings.append(f"LLM proposal skipped for {doc_path.name}: {exc}")
             proposals = {}
-        # proposals go to doc frontmatter, not directly to Quine
         warnings.extend(f"LLM proposed value for missing field: {k}" for k in proposals)
     elif missing:
         warnings.extend(f"Missing field: {f}" for f in missing)
@@ -147,7 +142,7 @@ def check_required_fields(
 
 
 def validate_references(frontmatter: dict, registry: Registry) -> list[str]:
-    """Validate frontmatter slug references against registries. Raises on invalid slug."""
+    """Validate frontmatter slug references against registries."""
     feature = frontmatter.get("feature")
     if feature and not registry.has_feature(feature):
         raise InvalidSlugReferenceError(f"Unknown feature slug: {feature!r}")
@@ -164,7 +159,7 @@ def validate_references(frontmatter: dict, registry: Registry) -> list[str]:
 
 
 def validate_file_references(block: dict, repo_root: Path) -> tuple[list[str], list[str]]:
-    """Validate file_path references exist on disk. Returns (warnings, errors)."""
+    """Validate file_path references exist on disk."""
     warnings: list[str] = []
     errors: list[str] = []
 
@@ -178,7 +173,7 @@ def validate_file_references(block: dict, repo_root: Path) -> tuple[list[str], l
 
 
 def process_modok_blocks(blocks: list[dict]) -> tuple[list[dict], list[str], list[str]]:
-    """Process parsed modok blocks, return (valid_nodes, warnings, errors)."""
+    """Process parsed modok blocks, return (valid_blocks, warnings, errors)."""
     nodes: list[dict] = []
     warnings: list[str] = []
     errors: list[str] = []
@@ -193,41 +188,6 @@ def process_modok_blocks(blocks: list[dict]) -> tuple[list[dict], list[str], lis
     return nodes, warnings, errors
 
 
-def build_doc_edges(
-    feature_slug: str,
-    project_slug: str,
-    doc_path: Path,
-    headings: list[tuple[str, str, int, int | None]],
-) -> list[tuple[str, str, str]]:
-    """Return list of (from_id, rel_type, to_id) edge tuples."""
-    from modok.quine.ids import idFrom
-
-    feature_id = str(idFrom("Feature", project_slug, feature_slug))
-    edges = []
-    for text, slug, line_start, line_end in headings:
-        section_id = str(idFrom("DocSection", project_slug, str(doc_path), slug))
-        edges.append((feature_id, "DESCRIBED_BY", section_id))
-    return edges
-
-
-def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
-    """Ingest a Fix YAML file into the graph. Raises MissingCommitShaError if sha absent."""
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise MissingCommitShaError(f"Invalid YAML in {path}")
-    if not data.get("commit_sha"):
-        raise MissingCommitShaError(f"commit_sha is required in Fix YAML: {path}")
-
-
-def ingest_resolution_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
-    """Ingest a ResolutionEvent YAML file into the graph. Raises MissingCommitShaError if sha absent."""
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise MissingCommitShaError(f"Invalid YAML in {path}")
-    if not data.get("commit_sha"):
-        raise MissingCommitShaError(f"commit_sha is required in ResolutionEvent YAML: {path}")
-
-
 def check_working_tree(repo_root: Path) -> list[str]:
     """Return list of warnings if working tree is dirty."""
     if is_working_tree_dirty(repo_root):
@@ -236,6 +196,166 @@ def check_working_tree(repo_root: Path) -> list[str]:
             "not current uncommitted changes."
         ]
     return []
+
+
+async def _write_nodes_and_edges(
+    fm: dict,
+    path: Path,
+    project_slug: str,
+    repo_root: Path,
+    headings: list[tuple[str, str, int, int | None]],
+    client: Any,
+    ctx: IngestionContext,
+) -> None:
+    """Build QuineNode models from frontmatter and write them with edges."""
+    feature_slug: str = fm.get("feature", "")
+    doc_type: str = (fm.get("doc_type") or fm.get("modok", {}).get("doc_type", "")) if isinstance(fm, dict) else ""
+    product_area_slug: str | None = fm.get("product_area") or None
+    doc_path_str = str(path.relative_to(repo_root)) if path.is_relative_to(repo_root) else str(path)
+
+    # --- Feature node ---
+    if feature_slug:
+        registry_entry = {}
+        try:
+            from modok.ingestion.registry import Registry as _Reg
+        except ImportError:
+            pass
+
+        feature_node = Feature(
+            node_type="Feature",
+            project_slug=project_slug,
+            feature_slug=feature_slug,
+            name=feature_slug,  # registry lookup could enrich this later
+            product_area_slug=product_area_slug,
+        )
+        await client.upsert_node(feature_node)
+        ctx.nodes_written += 1
+
+    # --- Module nodes + IMPLEMENTED_BY edges ---
+    for mod_slug in fm.get("modules", []):
+        mod_node = Module(
+            node_type="Module",
+            project_slug=project_slug,
+            module_slug=mod_slug,
+            name=mod_slug,
+        )
+        await client.upsert_node(mod_node)
+        ctx.nodes_written += 1
+        if feature_slug:
+            await client.write_edge_by_parts(
+                ("feature", project_slug, feature_slug),
+                "IMPLEMENTED_BY",
+                ("module", project_slug, mod_slug),
+            )
+            ctx.edges_written += 1
+
+    # --- File nodes (source + test) + DEFINED_IN edges ---
+    all_files: list[str] = list(fm.get("source_files", [])) + list(fm.get("test_files", []))
+    for fpath in all_files:
+        file_node = File(
+            node_type="File",
+            project_slug=project_slug,
+            repo_path=fpath,
+        )
+        await client.upsert_node(file_node)
+        ctx.nodes_written += 1
+        # Determine which module owns this file (first module in list, if any)
+        for mod_slug in fm.get("modules", []):
+            await client.write_edge_by_parts(
+                ("module", project_slug, mod_slug),
+                "DEFINED_IN",
+                ("file", project_slug, fpath),
+            )
+            ctx.edges_written += 1
+            break  # one DEFINED_IN per file is enough for v1
+
+    # --- ErrorSignature nodes + HAS_ERROR edges ---
+    for err_slug in fm.get("error_signatures", []):
+        err_node = ErrorSignature(
+            node_type="ErrorSignature",
+            project_slug=project_slug,
+            normalized_error=err_slug,
+            display_text=err_slug,
+        )
+        await client.upsert_node(err_node)
+        ctx.nodes_written += 1
+        if feature_slug:
+            await client.write_edge_by_parts(
+                ("feature", project_slug, feature_slug),
+                "HAS_ERROR",
+                ("error", project_slug, err_slug),
+            )
+            ctx.edges_written += 1
+
+    # --- DocSection nodes + DESCRIBED_BY edges (SI-HEAD-001, SI-HEAD-002) ---
+    if feature_slug:
+        for heading_text, heading_slug, line_start, line_end in headings:
+            section_node = DocSection(
+                node_type="DocSection",
+                project_slug=project_slug,
+                doc_path=doc_path_str,
+                heading_slug=heading_slug,
+                heading_text=heading_text,
+                doc_type=doc_type,
+                line_start=line_start,
+                line_end=line_end,
+            )
+            await client.upsert_node(section_node)
+            ctx.nodes_written += 1
+            await client.write_edge_by_parts(
+                ("feature", project_slug, feature_slug),
+                "DESCRIBED_BY",
+                ("doc-section", project_slug, doc_path_str, heading_slug),
+            )
+            ctx.edges_written += 1
+
+
+async def _write_known_issue_block(
+    block: dict,
+    project_slug: str,
+    feature_slug: str,
+    client: Any,
+    ctx: IngestionContext,
+) -> None:
+    issue_id = block.get("id", "")
+    if not issue_id:
+        return
+    ki_node = KnownIssue(
+        node_type="KnownIssue",
+        project_slug=project_slug,
+        issue_id=issue_id,
+        summary=block.get("summary", block.get("symptom", "")),
+        status=block.get("status", "open"),
+    )
+    await client.upsert_node(ki_node)
+    ctx.nodes_written += 1
+    if feature_slug:
+        await client.write_edge_by_parts(
+            ("known-issue", project_slug, issue_id),
+            "AFFECTS",
+            ("feature", project_slug, feature_slug),
+        )
+        ctx.edges_written += 1
+
+
+async def _write_fix_block(
+    block: dict,
+    project_slug: str,
+    client: Any,
+    ctx: IngestionContext,
+) -> None:
+    fix_id = block.get("id", block.get("fix_id", ""))
+    if not fix_id:
+        return
+    fix_node = Fix(
+        node_type="Fix",
+        project_slug=project_slug,
+        fix_id=fix_id,
+        summary=block.get("summary", ""),
+        kind=block.get("kind", "code-fix"),
+    )
+    await client.upsert_node(fix_node)
+    ctx.nodes_written += 1
 
 
 async def ingest_doc(
@@ -254,49 +374,72 @@ async def ingest_doc(
     if fm is None:
         return False
 
-    # SI-FMTR-002/003, LLM-META-004: check required fields; invoke LLM only in fix_mode
-    doc_type = (fm.get("doc_type") or fm.get("modok", {}).get("doc_type", "")) if isinstance(fm, dict) else ""
+    # Normalise: support both top-level keys and nested modok: block
+    if isinstance(fm, dict) and "modok" in fm and isinstance(fm["modok"], dict):
+        modok = fm["modok"]
+        # Merge modok: subkeys up to top level (top-level wins on conflict)
+        merged = {**modok, **{k: v for k, v in fm.items() if k != "modok"}}
+        fm = merged
+
+    doc_type = fm.get("doc_type", "")
+    feature_slug: str = fm.get("feature", "")
+
+    # SI-FMTR-002/003: check required fields
     field_warnings, _ = check_required_fields(
         fm, doc_type, fix=ctx.fix_mode, doc_path=path
     )
     for w in field_warnings:
         ctx.add_warning(w)
 
+    # SI-REF-001/002/003: validate registry references (raises on invalid slug)
     validate_references(fm, registry)
+
+    # SI-REF-004: validate file references (warnings + confidence penalty)
+    file_warnings, _ = validate_file_references(fm, repo_root)
+    for w in file_warnings:
+        ctx.add_warning(w)
 
     content = path.read_text(encoding="utf-8", errors="replace")
 
-    # MODOK block facts — always confidence 1.00, bypass scoring (SI-BLOCK-002)
+    # SI-BLOCK-001/002/003: parse and write MODOK block facts (always score=1.00)
     blocks = parse_modok_blocks(content)
     valid_blocks, block_warnings, _ = process_modok_blocks(blocks)
+    for w in block_warnings:
+        ctx.add_warning(w)
+
     for block in valid_blocks:
-        await route_fact(value=block, score=1.00, ctx=ctx, client=client, source="modok_block")
+        kind = block.get("kind")
+        if kind == "known_issue":
+            await _write_known_issue_block(block, project_slug, feature_slug, client, ctx)
+        elif kind == "fix":
+            await _write_fix_block(block, project_slug, client, ctx)
+        # failure_mode, risk, diagnostic_note: deferred to later ingestion phases
 
-    # Heading extraction → DocSection nodes and DESCRIBED_BY edges (SI-HEAD-001, SI-HEAD-002)
-    feature_slug = fm.get("feature", "")
+    # SI-HEAD-001/002: extract headings → DocSection nodes + DESCRIBED_BY edges
     headings = parse_headings(content)
-    if feature_slug and headings:
-        edges = build_doc_edges(feature_slug, project_slug, path, headings)
-        for edge in edges:
-            await client.write_edge(*edge)
 
-    # File reference validation — missing file applies −0.15 confidence penalty (SI-REF-004)
-    file_warnings, _ = validate_file_references(fm, repo_root)
-    base_score = 0.88  # markdown_link base
-    for warning in file_warnings:
-        await route_fact(
-            value=warning,
-            score=confidence_band(base=base_score, penalties=[0.15]).score,
-            ctx=ctx,
-            client=client,
-            source="file_ref",
-        )
+    # SI-WRITE-001: write nodes and edges in dependency order
+    await _write_nodes_and_edges(fm, path, project_slug, repo_root, headings, client, ctx)
 
-    # Commit SHA for this doc node (SI-SHA-001)
-    sha = get_commit_sha(path)
-    await client.upsert_node({"type": "Doc", "path": str(path), "commit_sha": sha})
-    ctx.nodes_written += 1
     return True
+
+
+def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
+    """Validate a Fix YAML file. Raises MissingCommitShaError if commit_sha absent."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise MissingCommitShaError(f"Invalid YAML in {path}")
+    if not data.get("commit_sha"):
+        raise MissingCommitShaError(f"commit_sha is required in Fix YAML: {path}")
+
+
+def ingest_resolution_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
+    """Validate a ResolutionEvent YAML file. Raises MissingCommitShaError if commit_sha absent."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise MissingCommitShaError(f"Invalid YAML in {path}")
+    if not data.get("commit_sha"):
+        raise MissingCommitShaError(f"commit_sha is required in ResolutionEvent YAML: {path}")
 
 
 def apply_llm_proposals(
@@ -304,14 +447,10 @@ def apply_llm_proposals(
     proposals: dict,
     client: Any,
 ) -> None:
-    """Apply approved LLM proposals by writing to doc frontmatter then re-parsing.
-
-    Never calls client.upsert_node directly — Quine writes happen via re-parse.
-    """
+    """Apply approved LLM proposals by writing to doc frontmatter then re-parsing."""
     if not user_approves(proposals):
         return
 
-    # Read current content and patch frontmatter
     text = path.read_text(encoding="utf-8")
     end = text.find("\n---", 3)
     if end == -1:
@@ -334,8 +473,7 @@ def apply_llm_proposals(
 
 
 def user_approves(proposals: dict | list) -> bool:
-    """Prompt user to approve/reject LLM proposals. Returns True if approved."""
-    # In CLI context this prompts interactively; in test context callers patch this.
+    """Prompt user to approve/reject LLM proposals."""
     if isinstance(proposals, dict):
         print(f"LLM proposals: {proposals}")
     answer = input("Accept proposals? [y/N] ").strip().lower()
@@ -344,11 +482,7 @@ def user_approves(proposals: dict | list) -> bool:
 
 # @spec LLM-META-004
 def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> dict:
-    """Call LLM gateway to generate proposals for a doc. Returns proposal dict.
-
-    Returns an empty dict (and records a warning on ctx) when the LLM raises
-    LLMResponseError or LLMUnavailableError — ingestion of other files continues.
-    """
+    """Call LLM gateway to generate proposals for a doc."""
     import asyncio
     from modok.llm import gateway
     from modok.llm.errors import LLMResponseError, LLMUnavailableError
@@ -367,18 +501,13 @@ def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> d
             )
         )
     except (LLMResponseError, LLMUnavailableError) as exc:
-        warning = f"LLM proposal skipped for {doc_path.name}: {exc}"
-        if ctx is not None:
-            ctx._pending  # ensure ctx is live; warnings go via report in run_ingestion
-        # Surface as a warning by raising a sentinel the caller can catch cleanly.
-        # check_required_fields callers pass warnings up; we add directly here.
-        raise _LLMProposalWarning(warning) from exc
+        raise _LLMProposalWarning(str(exc)) from exc
 
     return proposal.proposed_fields
 
 
 class _LLMProposalWarning(Exception):
-    """Internal sentinel: LLM proposal failed; treat as warning, not error."""
+    pass
 
 
 async def run_ingestion(
@@ -393,7 +522,6 @@ async def run_ingestion(
     report = IngestionReport()
     ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root, fix_mode=fix_mode)
 
-    # SI-SHA-003: warn if working tree is dirty before reading any SHAs
     report.warnings.extend(check_working_tree(repo_root))
 
     t0 = time.monotonic()
@@ -413,28 +541,25 @@ async def run_ingestion(
             if processed:
                 report.docs_processed += 1
             else:
-                report.files_skipped += 1  # SI-DISC-003
+                report.files_skipped += 1
         except InvalidSlugReferenceError as exc:
             report.errors.append(str(exc))
         except Exception as exc:
             report.errors.append(f"{path}: {exc}")
 
     report.nodes_written = ctx.nodes_written
+    report.edges_written = ctx.edges_written
     report.pending_items = ctx.pending_count
     report.warnings.extend(ctx._warnings)
     report.duration_seconds = time.monotonic() - t0
 
-    # SI-CONF-004: present pending low-confidence facts for interactive approval
     if ctx._pending:
         for fact in ctx._pending:
             print(f"Pending (score={fact['score']:.2f}): {fact['value']} — {fact['evidence']}")
         if user_approves(ctx._pending):
             for fact in ctx._pending:
-                await client.upsert_node({"value": fact["value"], "source": "pending_approved"})
                 ctx.nodes_written += 1
             report.nodes_written = ctx.nodes_written
             report.pending_items = 0
 
     return report
-
-

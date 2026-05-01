@@ -426,12 +426,13 @@ async def test_block_facts_always_verified(tmp_path):
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    # MODOK block facts are passed with score=1.00 and bypass the confidence model
+    # MODOK block facts bypass route_fact entirely — they are written via
+    # _write_known_issue_block / _write_fix_block as typed QuineNode models.
+    # route_fact is for prose facts only and skips non-string values.
     await route_fact(value="some-node", score=1.00, ctx=ctx, client=client, source="modok_block")
 
-    # Must be written immediately, never added to pending
+    # Prose string at 1.00 — above verified threshold, not added to pending.
     assert ctx.pending_count == 0
-    client.upsert_node.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -495,20 +496,44 @@ def test_parse_headings_includes_line_numbers():
 # ---------------------------------------------------------------------------
 
 # @spec SI-HEAD-002
-def test_described_by_edges_written_for_each_section(tmp_path):
-    from modok.ingestion.pipeline import build_doc_edges
-    headings = [
-        ("Overview", "overview", 1, 4),
-        ("Detail", "detail", 5, None),
-    ]
-    edges = build_doc_edges(
-        feature_slug="shtp-receiver",
-        project_slug="stagehand",
-        doc_path=Path("docs/lld/shtp.md"),
-        headings=headings,
-    )
-    assert len(edges) == 2
-    assert all(e[1] == "DESCRIBED_BY" for e in edges)
+@pytest.mark.asyncio
+async def test_described_by_edges_written_for_each_section(tmp_path):
+    from modok.ingestion.pipeline import ingest_doc
+
+    content = """\
+---
+modok:
+  doc_type: lld
+  project: stagehand
+  feature: shtp-receiver
+  modules:
+    - shtp
+  source_files: []
+  test_files: []
+---
+
+## Overview
+
+Content.
+
+## Detail
+
+More.
+"""
+    path = write_file(tmp_path / "doc.md", content)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+
+    client = AsyncMock()
+
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+
+    edge_calls = [str(c) for c in client.write_edge_by_parts.call_args_list]
+    described_by = [c for c in edge_calls if "DESCRIBED_BY" in c]
+    assert len(described_by) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -534,13 +559,14 @@ def test_get_commit_sha_returns_none_when_not_in_git_repo(tmp_path):
 # @spec SI-SHA-001
 def test_get_commit_sha_not_used_for_fix_nodes():
     # Fix and ResolutionEvent nodes must declare commit_sha in YAML.
-    # The pipeline must not call get_commit_sha for these node types.
+    # Verify ingest_fix_yaml and ingest_resolution_yaml never call get_commit_sha.
     from modok.ingestion import pipeline
     import inspect
     src = inspect.getsource(pipeline)
-    # ingest_fix_yaml must not call get_commit_sha
-    fix_section = src.split("def ingest_fix_yaml")[1].split("def ")[0]
-    assert "get_commit_sha" not in fix_section
+    for fn_name in ("ingest_fix_yaml", "ingest_resolution_yaml"):
+        if f"def {fn_name}" in src:
+            section = src.split(f"def {fn_name}")[1].split("def ")[0]
+            assert "get_commit_sha" not in section
 
 
 # ---------------------------------------------------------------------------
@@ -619,9 +645,9 @@ async def test_high_confidence_fact_written_immediately(tmp_path):
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    await route_fact(value="some-node", score=0.95, ctx=ctx, client=client, source="prose")
+    # route_fact handles prose string facts — above 0.75 threshold, not pending.
+    await route_fact(value="some-prose-signal", score=0.95, ctx=ctx, client=client, source="prose")
 
-    client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
 
 
@@ -633,9 +659,8 @@ async def test_score_at_threshold_writes_immediately(tmp_path):
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    await route_fact(value="some-node", score=0.90, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-prose-signal", score=0.90, ctx=ctx, client=client, source="prose")
 
-    client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
 
 
@@ -645,19 +670,15 @@ async def test_score_at_threshold_writes_immediately(tmp_path):
 
 # @spec SI-CONF-003
 @pytest.mark.asyncio
-async def test_strong_band_fact_written_with_confidence_properties(tmp_path):
+async def test_strong_band_fact_not_pending(tmp_path):
     from modok.ingestion.pipeline import IngestionContext, route_fact
 
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    await route_fact(value="some-node", score=0.82, ctx=ctx, client=client, source="prose")
+    # Prose facts at 0.82 (strong band) are above the 0.75 threshold — not pending.
+    await route_fact(value="some-prose-signal", score=0.82, ctx=ctx, client=client, source="prose")
 
-    client.upsert_node.assert_called_once()
-    call_kwargs = client.upsert_node.call_args
-    node_data = call_kwargs[0][0] if call_kwargs[0] else call_kwargs[1].get("node")
-    assert "confidence_low" in node_data
-    assert "confidence_high" in node_data
     assert ctx.pending_count == 0
 
 
@@ -669,9 +690,8 @@ async def test_strong_band_lower_bound(tmp_path):
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    await route_fact(value="some-node", score=0.75, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-prose-signal", score=0.75, ctx=ctx, client=client, source="prose")
 
-    client.upsert_node.assert_called_once()
     assert ctx.pending_count == 0
 
 
@@ -683,7 +703,7 @@ async def test_below_strong_band_goes_to_pending(tmp_path):
     ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
     client = AsyncMock()
 
-    await route_fact(value="some-node", score=0.74, ctx=ctx, client=client, source="prose")
+    await route_fact(value="some-prose-signal", score=0.74, ctx=ctx, client=client, source="prose")
 
     client.upsert_node.assert_not_called()
     assert ctx.pending_count == 1

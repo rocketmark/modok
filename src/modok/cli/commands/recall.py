@@ -12,9 +12,9 @@ from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
 
 _RECALL_CYPHER = """
-MATCH (f:Feature {project_slug: $project_slug, feature_slug: $feature_slug})
+MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug)
 OPTIONAL MATCH (f)-[]->(n)
-RETURN n
+RETURN f, n
 """
 
 
@@ -38,7 +38,17 @@ def recall_cmd(project: str, feature: str, as_json: bool) -> None:
         client.query(_RECALL_CYPHER, {"project_slug": project, "feature_slug": feature})
     )
 
-    nodes = [row[0] for row in rows if row and row[0] is not None]
+    # Row 0 is the Feature node itself; row 1 is each connected node (may be None if no edges).
+    seen = set()
+    nodes = []
+    for row in rows:
+        for item in row:
+            if item is None:
+                continue
+            item_id = item.get("id") if isinstance(item, dict) else None
+            if item_id not in seen:
+                seen.add(item_id)
+                nodes.append(item)
 
     if as_json:
         click.echo(json.dumps({"feature": feature, "project": project, "nodes": nodes}))
