@@ -8,6 +8,7 @@ from modok.cli.commands.init import init_cmd
 from modok.cli.commands.ingest import ingest_cmd
 from modok.cli.commands.retrieve import retrieve_cmd
 from modok.cli.commands.recall import recall_cmd
+from modok.cli.commands.search import search_cmd
 from modok.cli.commands.quine import quine_cmd
 
 
@@ -21,4 +22,5 @@ cli.add_command(init_cmd, name="init")
 cli.add_command(ingest_cmd, name="ingest")
 cli.add_command(retrieve_cmd, name="retrieve")
 cli.add_command(recall_cmd, name="recall")
+cli.add_command(search_cmd, name="search")
 cli.add_command(quine_cmd, name="quine")

@@ -1,5 +1,4 @@
-"""modok recall command."""
-# @spec CLI-REC-001, CLI-REC-002, CLI-REC-003, CLI-REC-004, CLI-REC-005
+"""modok search command — substring search across graph properties."""
 
 from __future__ import annotations
 
@@ -11,33 +10,52 @@ import click
 from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
 
-_FEATURE_CYPHER = """
-MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug)
-OPTIONAL MATCH (f)-[]->(n)
-RETURN f, n
+_HEADING_CYPHER = """
+MATCH (n)
+WHERE n.project_slug = $project_slug
+  AND n.node_type = 'DocSection'
+  AND toLower(n.heading_text) CONTAINS toLower($query)
+RETURN n
+ORDER BY n.doc_path, n.line_start
 """
 
-_MODULE_CYPHER = """
-MATCH (m) WHERE id(m) = idFrom('module', $project_slug, $module_slug)
-OPTIONAL MATCH (f)-[:IMPLEMENTED_BY]->(m)
-OPTIONAL MATCH (m)-[:DEFINED_IN]->(file)
-RETURN m, f, file
+_TEXT_CYPHER = """
+MATCH (n)
+WHERE n.project_slug = $project_slug
+  AND (
+    toLower(coalesce(n.heading_text, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.name, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.summary, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.normalized_error, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.module_slug, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.feature_slug, '')) CONTAINS toLower($query)
+    OR toLower(coalesce(n.repo_path, '')) CONTAINS toLower($query)
+  )
+RETURN n
 """
 
 
-@click.command("recall")
+@click.command("search")
 @click.option("--project", required=True, help="Project slug.")
-@click.option("--feature", default=None, help="Feature slug.")
-@click.option("--module", "module_slug", default=None, help="Module slug.")
+@click.option("--heading", default=None, help="Substring match against section headings.")
+@click.option("--text", "text_query", default=None, help="Substring match across all node properties.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
-def recall_cmd(
+@click.argument("query", required=False, default=None)
+def search_cmd(
     project: str,
-    feature: str | None,
-    module_slug: str | None,
+    heading: str | None,
+    text_query: str | None,
     as_json: bool,
+    query: str | None,
 ) -> None:
-    if not any([feature, module_slug]):
-        raise click.ClickException("Supply at least one of --feature or --module.")
+    """Search the graph by keyword. QUERY argument is shorthand for --text."""
+    if query and text_query:
+        raise click.ClickException("Supply QUERY argument or --text, not both.")
+
+    effective_text = text_query or query
+
+    if not any([heading, effective_text]):
+        raise click.ClickException("Supply a QUERY argument, --heading, or --text.")
 
     config = ModokConfig.load()
     config.project(project)
@@ -52,12 +70,12 @@ def recall_cmd(
 
     nodes = []
 
-    if feature:
-        rows = asyncio.run(client.query(_FEATURE_CYPHER, {"project_slug": project, "feature_slug": feature}))
+    if heading:
+        rows = asyncio.run(client.query(_HEADING_CYPHER, {"project_slug": project, "query": heading}))
         nodes.extend(_collect(rows))
 
-    if module_slug:
-        rows = asyncio.run(client.query(_MODULE_CYPHER, {"project_slug": project, "module_slug": module_slug}))
+    if effective_text:
+        rows = asyncio.run(client.query(_TEXT_CYPHER, {"project_slug": project, "query": effective_text}))
         nodes.extend(_collect(rows))
 
     seen: set[str] = set()
@@ -71,7 +89,7 @@ def recall_cmd(
     if as_json:
         click.echo(json.dumps({"project": project, "nodes": unique}))
     else:
-        _print_tabular(project, unique, feature=feature, module_slug=module_slug)
+        _print_tabular(project, unique, heading=heading, text_query=effective_text)
 
 
 def _collect(rows: list) -> list[dict]:
@@ -87,15 +105,15 @@ def _print_tabular(
     project: str,
     nodes: list,
     *,
-    feature: str | None,
-    module_slug: str | None,
+    heading: str | None,
+    text_query: str | None,
 ) -> None:
     parts = []
-    if feature:
-        parts.append(f"feature={feature}")
-    if module_slug:
-        parts.append(f"module={module_slug}")
-    click.echo(f"Project: {project}  Query: {', '.join(parts)}")
+    if heading:
+        parts.append(f"heading~{heading!r}")
+    if text_query:
+        parts.append(f"text~{text_query!r}")
+    click.echo(f"Project: {project}  Search: {', '.join(parts)}")
 
     if not nodes:
         click.echo("  (no results)")
