@@ -1,0 +1,42 @@
+name: idempotent_reingest
+
+nodes:
+  - type: CustomerIssue
+    project_slug: stagehand
+    source_system: zendesk
+    ticket_id: "GS004"
+    summary: tracker dropout
+    status: open
+
+  - type: ErrorSignature
+    project_slug: stagehand
+    normalized_error: shtp_dropout
+    display_text: shtp_dropout
+
+  - type: KnownIssue
+    project_slug: stagehand
+    issue_id: KI-IDEM
+    summary: Known dropout issue
+    status: open
+
+edges:
+  - from: [CustomerIssue, stagehand, zendesk, "GS004"]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_dropout]
+
+  - from: [KnownIssue, stagehand, KI-IDEM]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_dropout]
+
+query:
+  issue: [CustomerIssue, stagehand, zendesk, "GS004"]
+  project_slug: stagehand
+
+expected:
+  known_issues:
+    must_include:
+      - KI-IDEM
+  recent_fixes:
+    must_include: []
+  relevant_files:
+    must_include: []

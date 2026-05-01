@@ -1,0 +1,49 @@
+name: feature_to_files
+
+nodes:
+  - type: CustomerIssue
+    project_slug: stagehand
+    source_system: zendesk
+    ticket_id: "GS001"
+    summary: SHTP tracker dropout
+    status: open
+
+  - type: Feature
+    project_slug: stagehand
+    feature_slug: shtp
+    name: SHTP
+
+  - type: Module
+    project_slug: stagehand
+    module_slug: shtp-core
+    name: SHTP Core
+
+  - type: File
+    project_slug: stagehand
+    repo_path: agent/src/shtp.c
+
+edges:
+  - from: [CustomerIssue, stagehand, zendesk, "GS001"]
+    type: AFFECTS
+    to: [Feature, stagehand, shtp]
+
+  - from: [Feature, stagehand, shtp]
+    type: IMPLEMENTED_BY
+    to: [Module, stagehand, shtp-core]
+
+  - from: [Module, stagehand, shtp-core]
+    type: DEFINED_IN
+    to: [File, stagehand, "agent/src/shtp.c"]
+
+query:
+  issue: [CustomerIssue, stagehand, zendesk, "GS001"]
+  project_slug: stagehand
+
+expected:
+  known_issues:
+    must_include: []
+  recent_fixes:
+    must_include: []
+  relevant_files:
+    must_include:
+      - agent/src/shtp.c

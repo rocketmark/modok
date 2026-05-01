@@ -1,0 +1,42 @@
+name: error_to_known_issue
+
+nodes:
+  - type: CustomerIssue
+    project_slug: stagehand
+    source_system: zendesk
+    ticket_id: "GS002"
+    summary: SHTP mismatch error
+    status: open
+
+  - type: ErrorSignature
+    project_slug: stagehand
+    normalized_error: shtp_mismatch
+    display_text: shtp_mismatch
+
+  - type: KnownIssue
+    project_slug: stagehand
+    issue_id: KI-001
+    summary: SHTP packet mismatch
+    status: open
+
+edges:
+  - from: [CustomerIssue, stagehand, zendesk, "GS002"]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_mismatch]
+
+  - from: [KnownIssue, stagehand, KI-001]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_mismatch]
+
+query:
+  issue: [CustomerIssue, stagehand, zendesk, "GS002"]
+  project_slug: stagehand
+
+expected:
+  known_issues:
+    must_include:
+      - KI-001
+  recent_fixes:
+    must_include: []
+  relevant_files:
+    must_include: []

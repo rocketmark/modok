@@ -1,0 +1,53 @@
+name: known_issue_to_fix
+
+nodes:
+  - type: CustomerIssue
+    project_slug: stagehand
+    source_system: zendesk
+    ticket_id: "GS003"
+    summary: SHTP mismatch error
+    status: open
+
+  - type: ErrorSignature
+    project_slug: stagehand
+    normalized_error: shtp_mismatch
+    display_text: shtp_mismatch
+
+  - type: KnownIssue
+    project_slug: stagehand
+    issue_id: KI-001
+    summary: SHTP packet mismatch
+    status: open
+
+  - type: Fix
+    project_slug: stagehand
+    fix_id: FIX-001
+    summary: Upgrade SHTP header parsing
+    kind: patch
+
+edges:
+  - from: [CustomerIssue, stagehand, zendesk, "GS003"]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_mismatch]
+
+  - from: [KnownIssue, stagehand, KI-001]
+    type: HAS_ERROR
+    to: [ErrorSignature, stagehand, shtp_mismatch]
+
+  - from: [KnownIssue, stagehand, KI-001]
+    type: RESOLVED_BY
+    to: [Fix, stagehand, FIX-001]
+
+query:
+  issue: [CustomerIssue, stagehand, zendesk, "GS003"]
+  project_slug: stagehand
+
+expected:
+  known_issues:
+    must_include:
+      - KI-001
+  recent_fixes:
+    must_include:
+      - FIX-001
+  relevant_files:
+    must_include: []

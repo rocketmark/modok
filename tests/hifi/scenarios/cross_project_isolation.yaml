@@ -1,0 +1,94 @@
+name: cross_project_isolation
+
+nodes:
+  - type: CustomerIssue
+    project_slug: project-a
+    source_system: zendesk
+    ticket_id: "GS005"
+    summary: cross-project test issue
+    status: open
+
+  - type: Feature
+    project_slug: project-a
+    feature_slug: feat-a
+    name: Feature A
+
+  - type: Module
+    project_slug: project-a
+    module_slug: mod-a
+    name: Module A
+
+  - type: File
+    project_slug: project-a
+    repo_path: project_a/src/file.c
+
+  - type: KnownIssue
+    project_slug: project-a
+    issue_id: KI-PROJECT-A
+    summary: Known issue in project A
+    status: open
+
+  - type: ErrorSignature
+    project_slug: project-a
+    normalized_error: err_shared
+    display_text: err_shared
+
+  # project-b nodes — must be excluded from query results
+  - type: KnownIssue
+    project_slug: project-b
+    issue_id: KI-PROJECT-B
+    summary: Known issue in project B
+    status: open
+
+  - type: ErrorSignature
+    project_slug: project-b
+    normalized_error: err_shared
+    display_text: err_shared
+
+  - type: Feature
+    project_slug: project-b
+    feature_slug: feat-a
+    name: Feature A in project B
+
+  - type: File
+    project_slug: project-b
+    repo_path: project_b/src/file.c
+
+edges:
+  - from: [CustomerIssue, project-a, zendesk, "GS005"]
+    type: AFFECTS
+    to: [Feature, project-a, feat-a]
+
+  - from: [Feature, project-a, feat-a]
+    type: IMPLEMENTED_BY
+    to: [Module, project-a, mod-a]
+
+  - from: [Module, project-a, mod-a]
+    type: DEFINED_IN
+    to: [File, project-a, "project_a/src/file.c"]
+
+  - from: [CustomerIssue, project-a, zendesk, "GS005"]
+    type: HAS_ERROR
+    to: [ErrorSignature, project-a, err_shared]
+
+  - from: [KnownIssue, project-a, KI-PROJECT-A]
+    type: HAS_ERROR
+    to: [ErrorSignature, project-a, err_shared]
+
+  - from: [KnownIssue, project-b, KI-PROJECT-B]
+    type: HAS_ERROR
+    to: [ErrorSignature, project-b, err_shared]
+
+query:
+  issue: [CustomerIssue, project-a, zendesk, "GS005"]
+  project_slug: project-a
+
+expected:
+  known_issues:
+    must_include:
+      - KI-PROJECT-A
+  recent_fixes:
+    must_include: []
+  relevant_files:
+    must_include:
+      - project_a/src/file.c
