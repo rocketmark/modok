@@ -74,6 +74,13 @@ Tests verify the diagnosis.
 │ builds debug packets │        │ parse/validate/write │
 └──────────┬───────────┘        └──────────┬───────────┘
            │                               │
+           │                               ▼
+           │                    ┌──────────────────────┐
+           │                    │ Validation / Review  │
+           │                    │ promotes trusted     │
+           │                    │ structure only       │
+           │                    └──────────┬───────────┘
+           │                               │
            ▼                               ▼
       ┌────────────────────────────────────────┐
       │          Quine Memory Graph            │
@@ -86,10 +93,21 @@ Tests verify the diagnosis.
 │ candidate recall only │
 └───────────────────────┘
 
-LLM Gateway:
-- optional sidecar
-- proposes ticket parsing / metadata / similarity
-- never writes trusted graph facts directly
+
+                    ┌──────────────────────┐
+                    │     LLM Gateway      │
+                    │ optional sidecar     │
+                    │ proposals only       │
+                    └──────────┬───────────┘
+                               │
+        ┌──────────────────────┴──────────────────────┐
+        │                                             │
+        ▼                                             ▼
+Read path assistance                       Write path assistance
+- parse freeform ticket text               - propose missing metadata
+- extract anchors                          - structure untyped docs/tickets
+- summarize / interpret results            - suggest similarity candidates
+- propose similarity candidates            - never writes to Quine directly
 ```
 
 ### Major components
