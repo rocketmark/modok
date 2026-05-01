@@ -4,7 +4,6 @@ All tests written before implementation (Phase 5).
 """
 from __future__ import annotations
 
-import warnings
 
 import pytest
 
@@ -398,13 +397,10 @@ async def test_query_similarity_match_excludes_rejected():
 
 # @spec DQ-QD-007
 @pytest.mark.asyncio
-async def test_query_unrecognized_fingerprint_returns_empty_and_warns():
+async def test_query_unrecognized_fingerprint_raises():
     dq = DummyQuine()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        rows = await dq.query("MATCH (n) RETURN n", {})
-    assert rows == []
-    assert any("unrecognized" in str(w.message).lower() or "MATCH (n) RETURN n" in str(w.message) for w in caught)
+    with pytest.raises(NotImplementedError, match="unrecognized"):
+        await dq.query("MATCH (n) RETURN n", {})
 
 
 # @spec DQ-QD-008

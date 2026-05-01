@@ -6,7 +6,6 @@ by matching Cypher fingerprints to Python traversal functions.
 """
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 from modok.quine.client import _node_id_from_model
@@ -199,11 +198,9 @@ class DummyQuine:
             if fingerprint in cypher:
                 return getattr(self, method_name)(params)
         # @spec DQ-QD-007
-        warnings.warn(
-            f"DummyQuine: unrecognized Cypher fingerprint — returning []. Query: {cypher!r}",
-            stacklevel=2,
+        raise NotImplementedError(
+            f"DummyQuine: unrecognized Cypher fingerprint — add a dispatch handler. Query: {cypher!r}"
         )
-        return []
 
     # ------------------------------------------------------------------
     # Lifecycle

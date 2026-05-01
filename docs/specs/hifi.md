@@ -50,7 +50,7 @@ LLD: `docs/llds/hifi.md`
 - [x] **DQ-QD-004** [U]: When `query` is called with a Cypher string containing `"HAS_ERROR]-(ki:KnownIssue)"`, the system shall return rows for all `KnownIssue` nodes that have an outbound `HAS_ERROR` edge to the named `ErrorSignature` (reverse walk — edges stored as KnownIssue→ErrorSignature).
 - [x] **DQ-QD-005** [U]: When `query` is called with a Cypher string containing `"RESOLVED_BY]->(fix:Fix"`, the system shall return rows for all `Fix` nodes reachable from `ki_node_id` via a `RESOLVED_BY` edge, filtered to `project_slug`.
 - [x] **DQ-QD-006** [U]: When `query` is called with a Cypher string containing `"HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue"`, the system shall return rows for all `KnownIssue` nodes reachable from `issue_id` via `HAS_SIMILARITY_MATCH` then `MATCHES` edges, including the `review_status` of the intermediate `SimilarityMatch` node, filtered to `review_status IN ['candidate', 'confirmed']`.
-- [x] **DQ-QD-007** [U]: When `query` is called with a Cypher string that matches no registered fingerprint, the system shall emit a warning identifying the unrecognized Cypher string and return an empty list in the same call.
+- [x] **DQ-QD-007** [U]: When `query` is called with a Cypher string that matches no registered fingerprint, the system shall raise `NotImplementedError` identifying the unrecognized Cypher string.
 - [x] **DQ-QD-008** [U]: When `query` returns node rows, each row shall be a list containing one dict with keys `"id"` (the integer node ID) and `"properties"` (the node's model fields as a dict).
 
 ---
