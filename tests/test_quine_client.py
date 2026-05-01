@@ -293,7 +293,7 @@ async def test_upsert_node_does_not_send_edge_mutations():
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
-        cypher_bodies.append(json.loads(request.content)["query"])
+        cypher_bodies.append(json.loads(request.content)["text"])
         return quine_upsert_response()
 
     client = make_client(httpx.MockTransport(handler))
@@ -318,7 +318,7 @@ async def test_removing_property_does_not_trigger_edge_change():
     cypher_bodies = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        cypher_bodies.append(json.loads(request.content)["query"])
+        cypher_bodies.append(json.loads(request.content)["text"])
         return quine_upsert_response()
 
     client = make_client(httpx.MockTransport(handler))
@@ -469,7 +469,7 @@ async def test_replace_edges_deletes_then_recreates():
     def handler(request: httpx.Request) -> httpx.Response:
         import json
         body = json.loads(request.content)
-        calls.append(body["query"])
+        calls.append(body["text"])
         return quine_upsert_response()
 
     transport = httpx.MockTransport(handler)
@@ -493,7 +493,7 @@ async def test_replace_edges_with_empty_list_only_deletes():
     def handler(request: httpx.Request) -> httpx.Response:
         import json
         body = json.loads(request.content)
-        calls.append(body["query"])
+        calls.append(body["text"])
         return quine_upsert_response()
 
     transport = httpx.MockTransport(handler)

@@ -52,7 +52,7 @@ class QuineClient:
 
     async def _cypher(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         # @spec QC-CN-001, QC-CN-002, QC-CN-003
-        payload = {"query": query, "parameters": params or {}}
+        payload = {"text": query, "parameters": params or {}}
         last_exc: Exception | None = None
 
         async with self._make_http_client() as http:

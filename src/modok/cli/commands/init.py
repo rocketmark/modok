@@ -15,6 +15,7 @@ _REGISTRY_STUBS = {
     "features.yml": "features: {}\n",
     "modules.yml": "modules: {}\n",
     "errors.yml": "errors: {}\n",
+    "doc-types.yml": "doc_types: {}\n",
 }
 
 
@@ -35,7 +36,7 @@ def init_cmd(project: str, repo: str) -> None:
             fpath.write_text(stub, encoding="utf-8")
             click.echo(f"Created {fpath}")
 
-    install_post_commit_hook(repo_path)
+    install_post_commit_hook(repo_path, project, ["docs", "registries"])
     click.echo(f"Installed post-commit hook in {repo_path}")
 
     ensure_config_exists()

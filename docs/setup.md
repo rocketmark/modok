@@ -23,12 +23,18 @@ MODOK never stores full file contents. It stores pointers and relationships. But
 java -version
 ```
 
-Install via Homebrew if needed:
+Install if needed:
 
+macOS:
 ```bash
 brew install openjdk@21
 echo 'export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+```
+
+Ubuntu/Debian (including WSL):
+```bash
+sudo apt install openjdk-21-jdk
 ```
 
 **Python 3.11+** (for MODOK):
@@ -37,10 +43,16 @@ source ~/.zshrc
 python3 --version
 ```
 
-Install via Homebrew if needed:
+Install if needed:
 
+macOS:
 ```bash
 brew install python@3.12
+```
+
+Ubuntu/Debian (including WSL):
+```bash
+sudo apt install python3 python3-pip python3-full python3.12-venv
 ```
 
 **git** (already present on most machines):
@@ -55,9 +67,23 @@ git --version
 
 ```bash
 git clone https://github.com/marks/modok ~/github/modok
+```
+
+**macOS:**
+```bash
 cd ~/github/modok
 pip install -e ".[dev]"
 ```
+
+**Ubuntu/Debian/WSL** (system Python is externally managed — use a venv):
+```bash
+python3 -m venv ~/.venv/modok
+source ~/.venv/modok/bin/activate
+cd ~/github/modok
+pip install -e ".[dev]"
+```
+
+Add `source ~/.venv/modok/bin/activate` to your `~/.bashrc` so it activates automatically in new shells.
 
 Verify:
 
@@ -180,7 +206,7 @@ Leave this running in a terminal, or background it. Once `modok quine start` is 
 ```bash
 curl -s http://127.0.0.1:8080/api/v1/query/cypher \
   -H "Content-Type: application/json" \
-  -d '{"query": "RETURN 1"}' | python3 -m json.tool
+  -d '{"text": "RETURN 1"}' | python3 -m json.tool
 ```
 
 Expected:
@@ -241,9 +267,11 @@ Returns a summary of what MODOK knows about that feature: docs, modules, files, 
 
 ---
 
-## Mac mini — persistent Quine service
+## Persistent Quine service (macOS only)
 
 On the shared Mac mini, run Quine as a launchd service so it starts on boot and restarts on crash.
+
+On Linux/WSL, use systemd or simply run Quine manually in a terminal for development. WSL does not support launchd.
 
 **Create the plist** (replace `YOURUSER` with `whoami` output):
 
