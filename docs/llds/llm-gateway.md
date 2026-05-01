@@ -177,6 +177,6 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 
 ## References
 
-- `docs/llds/static-ingestion.md` — primary caller for metadata proposal
+- `docs/llds/ingestion-pipeline.md` — primary caller for metadata proposal
 - `docs/llds/quine-client.md` — write primitives (gateway does not use directly)
 - `docs/high-level-design.md §2` — LLM-agnostic gateway decision

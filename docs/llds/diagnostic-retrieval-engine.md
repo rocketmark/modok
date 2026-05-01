@@ -249,4 +249,4 @@ The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `Module`, `File`,
 - `docs/high-level-design.md §System Design` — DRE role and debug packet concept
 - `docs/llds/llm-gateway.md` — `parse_ticket` interface and error types
 - `docs/llds/quine-client.md` — `query()` and `get_node()` interfaces; `replace_edges` for ingestion-side edge reconciliation
-- `docs/llds/static-ingestion.md` — upstream pipeline that creates `CustomerIssue` nodes and writes `AFFECTS` / `HAS_ERROR` edges
+- `docs/llds/ingestion-pipeline.md` — upstream pipeline that creates `CustomerIssue` nodes and writes `AFFECTS` / `HAS_ERROR` edges

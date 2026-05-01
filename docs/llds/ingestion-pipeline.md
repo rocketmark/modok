@@ -1,8 +1,8 @@
-# Static Ingestion
+# Ingestion Pipeline
 
 ## Context and Design Philosophy
 
-The static ingestion layer is MODOK's write path for trusted knowledge. It reads design docs, testing docs, code maps, known issues, resolved tickets, and runbooks, then writes typed, validated nodes and edges into Quine.
+The ingestion pipeline is MODOK's write path for trusted knowledge. It reads design docs, testing docs, code maps, known issues, resolved tickets, and runbooks, then writes typed, validated nodes and edges into Quine.
 
 The core discipline: **the parser is mechanical; the LLM is a proposer.** No LLM output is written to Quine without passing through a validation gate. The graph is only as trustworthy as the ingestion pipeline that feeds it.
 
@@ -378,6 +378,6 @@ Warnings do not halt ingestion. Errors do.
 
 - `docs/llds/quine-client.md` — write primitives used by this layer
 - `docs/llds/llm-gateway.md` — LLM proposal interface; the ingestion pipeline must catch `LLMResponseError` and `LLMUnavailableError` from `propose_metadata` and emit a structured warning rather than halting the run (SI-LLM-003, LLM-META-004)
-- `docs/llds/static-ingestion-notes.md` — pre-draft notes
+- `docs/llds/ingestion-pipeline-notes.md` — pre-draft notes
 - `docs/testing-standard.md` — test level conventions
 - `docs/modok-setup-brainstorm.md` §5 — original parser design

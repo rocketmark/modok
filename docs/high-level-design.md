@@ -98,7 +98,7 @@ LLM Gateway:
 
 **LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates. It never writes to Quine directly.
 
-**Static Ingestion Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
+**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
 
 **Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
 

@@ -1,5 +1,5 @@
 """
-Tests for modok.ingestion — static ingestion pipeline.
+Tests for modok.ingestion — ingestion pipeline.
 All tests written before implementation (Phase 5). Every test cites
 the EARS spec it verifies via @spec annotation.
 """

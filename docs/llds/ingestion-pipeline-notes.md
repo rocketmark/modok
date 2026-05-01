@@ -1,4 +1,4 @@
-# Static Ingestion LLD — Pre-Draft Notes
+# Ingestion Pipeline LLD — Pre-Draft Notes
 
 Notes captured before the LLD is written. Address these in Phase 2 (LLD) for component 2.
 

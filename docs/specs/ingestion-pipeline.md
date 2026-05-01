@@ -1,8 +1,8 @@
-# Static Ingestion Specs
+# Ingestion Pipeline Specs
 
 Specs for `modok.ingestion` — the mechanical pipeline that reads docs, registries, tickets, and resolution records and writes typed, validated nodes and edges into Quine.
 
-LLD: `docs/llds/static-ingestion.md`
+LLD: `docs/llds/ingestion-pipeline.md`
 
 ---
 
