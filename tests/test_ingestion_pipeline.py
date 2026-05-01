@@ -1002,3 +1002,83 @@ def test_error_in_one_file_does_not_halt_others(tmp_path):
 
     assert report.errors  # bad.md produced an error
     assert report.docs_processed >= 1  # good.md was processed
+
+
+# ---------------------------------------------------------------------------
+# LLM-META-004 — propose_metadata errors → warning only, other files continue
+# ---------------------------------------------------------------------------
+
+# @spec LLM-META-004
+def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(tmp_path):
+    # When propose_metadata raises LLMResponseError, the pipeline must catch it,
+    # emit a structured warning, and continue ingesting remaining files.
+    from modok.ingestion.pipeline import run_ingestion
+    from modok.llm.errors import LLMResponseError
+
+    # Two docs: one triggers --fix LLM path (missing fields), one is complete.
+    incomplete = write_file(tmp_path / "incomplete.md", """\
+---
+modok:
+  doc_type: lld
+  project: stagehand
+  feature: shtp-receiver
+---
+# Incomplete doc
+""")
+    complete = write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    client = MagicMock()
+
+    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
+               side_effect=LLMResponseError("bad json")):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+                report = run_ingestion(
+                    tmp_path, registry=registry, client=client,
+                    project_slug="stagehand", fix_mode=True,
+                )
+
+    assert report.docs_processed >= 1, "complete.md must still be ingested"
+    assert any("LLM" in w or "propose" in w.lower() or "missing" in w.lower()
+               for w in report.warnings), "expected a warning for the LLM failure"
+    assert not report.errors, "LLM failure must not count as an ingestion error"
+
+
+# @spec LLM-META-004
+def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
+    # Same contract as above but for LLMUnavailableError.
+    from modok.ingestion.pipeline import run_ingestion
+    from modok.llm.errors import LLMUnavailableError
+
+    write_file(tmp_path / "incomplete.md", """\
+---
+modok:
+  doc_type: lld
+  project: stagehand
+  feature: shtp-receiver
+---
+# Incomplete doc
+""")
+    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    client = MagicMock()
+
+    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
+               side_effect=LLMUnavailableError("timeout")):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+                report = run_ingestion(
+                    tmp_path, registry=registry, client=client,
+                    project_slug="stagehand", fix_mode=True,
+                )
+
+    assert report.docs_processed >= 1, "complete.md must still be ingested"
+    assert not report.errors, "LLM unavailability must not count as an ingestion error"

@@ -61,7 +61,7 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **LLM-META-001** [U]: `propose_metadata` shall send the doc path, current frontmatter, and list of missing field names to the LLM and return a `MetadataProposal` containing `proposed_fields`, `confidence`, `evidence`, and `raw_response`.
 - [x] **LLM-META-002** [U]: `propose_metadata` shall use the frozen system prompt template from `modok.llm.prompts`.
 - [x] **LLM-META-003** [U]: `propose_metadata` shall never write to Quine or to any file; the caller (`apply_llm_proposals` in the ingestion pipeline) owns all writes.
-- [ ] **LLM-META-004** [U]: When `propose_metadata` raises `LLMResponseError` or `LLMUnavailableError`, the ingestion pipeline shall catch the exception, emit a structured warning, and skip writing for that doc — it shall not halt ingestion of other files. — *The ingestion pipeline calls `invoke_llm_gateway` (a `NotImplementedError` stub) rather than `propose_metadata` directly; the pipeline-level error handling for this path is not wired.*
+- [x] **LLM-META-004** [U]: When `propose_metadata` raises `LLMResponseError` or `LLMUnavailableError`, the ingestion pipeline shall catch the exception, emit a structured warning, and skip writing for that doc — it shall not halt ingestion of other files.
 
 ---
 

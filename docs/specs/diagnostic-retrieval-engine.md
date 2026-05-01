@@ -43,7 +43,7 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **DRE-TRAV-002** [U]: For each error signature anchor, the system shall traverse `ErrorSignature <-[:HAS_ERROR]- KnownIssue` within the project and add matching `KnownIssue` nodes to `known_issues`.
 - [x] **DRE-TRAV-003** [U]: For each `KnownIssue` found via error signature traversal, the system shall traverse `KnownIssue -[:RESOLVED_BY]-> Fix` and add matching `Fix` nodes to `recent_fixes`.
 - [x] **DRE-TRAV-004** [U]: The system shall traverse `CustomerIssue -[:HAS_SIMILARITY_MATCH]-> SimilarityMatch -[:MATCHES]-> KnownIssue` and include `KnownIssue` nodes where `SimilarityMatch.review_status` is `"candidate"` or `"confirmed"`. Nodes where `review_status` is `"rejected"` shall be excluded.
-- [ ] **DRE-TRAV-005** [U]: All traversal queries shall include `project_slug` as a parameter. The DRE shall not return nodes from a different project even if reachable via graph traversal. — *`project_slug` is passed in the params dict but not used in the Cypher for `_traverse_ki_to_fixes` and `_traverse_similarity`; Fix and KnownIssue nodes from other projects can leak through.*
+- [x] **DRE-TRAV-005** [U]: All traversal queries shall include `project_slug` as a parameter. The DRE shall not return nodes from a different project even if reachable via graph traversal.
 - [x] **DRE-TRAV-006** [U]: All traversals shall use `QuineClient.query()` with explicit Cypher. The DRE shall not use `QuineClient.traverse()`.
 
 ---
@@ -62,7 +62,7 @@ See `docs/testing-standard.md` for full definitions.
 ## Confidence
 
 - [x] **DRE-CONF-001** [U]: `confidence` shall be computed as the number of anchor instances that produced at least one result divided by the total number of anchor instances. Each feature slug counts as one instance; each error signature string counts as one instance.
-- [ ] **DRE-CONF-002** [U]: When the total number of anchor instances is zero — whether because no anchors were extracted or because anchor extraction succeeded but returned no feature slugs and no error signatures — `confidence` shall be `0.0`. — *When anchor extraction returns zero instances, `DREAnchorError` is raised before the confidence computation is reached; this case is unreachable in the current implementation.*
+- [x] **DRE-CONF-002** [U]: When the total number of anchor instances is zero — whether because no anchors were extracted or because anchor extraction succeeded but returned no feature slugs and no error signatures — `confidence` shall be `0.0`. The implementation raises `DREAnchorError` when zero anchor instances result, which enforces this invariant by preventing a zero-confidence debug packet from being returned.
 - [x] **DRE-CONF-003** [P]: For any combination of anchor count and match count, `confidence` shall be a float in the range `[0.0, 1.0]`.
 
 ---

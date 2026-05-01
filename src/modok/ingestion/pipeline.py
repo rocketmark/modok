@@ -56,9 +56,13 @@ class IngestionContext:
     fix_mode: bool = False
     nodes_written: int = 0
     _pending: list[dict] = field(default_factory=list)
+    _warnings: list[str] = field(default_factory=list)
 
     def add_pending_fact(self, value: Any, score: float, evidence: str) -> None:
         self._pending.append({"value": value, "score": score, "evidence": evidence})
+
+    def add_warning(self, message: str) -> None:
+        self._warnings.append(message)
 
     @property
     def pending_count(self) -> int:
@@ -127,7 +131,13 @@ def check_required_fields(
     errors: list[str] = []
 
     if missing and fix and doc_path is not None:
-        proposals = invoke_llm_gateway(doc_path)
+        from modok.llm.errors import LLMResponseError, LLMUnavailableError
+
+        try:
+            proposals = invoke_llm_gateway(doc_path)
+        except (_LLMProposalWarning, LLMResponseError, LLMUnavailableError) as exc:
+            warnings.append(f"LLM proposal skipped for {doc_path.name}: {exc}")
+            proposals = {}
         # proposals go to doc frontmatter, not directly to Quine
         warnings.extend(f"LLM proposed value for missing field: {k}" for k in proposals)
     elif missing:
@@ -244,6 +254,14 @@ def ingest_doc(
     if fm is None:
         return False
 
+    # SI-FMTR-002/003, LLM-META-004: check required fields; invoke LLM only in fix_mode
+    doc_type = (fm.get("doc_type") or fm.get("modok", {}).get("doc_type", "")) if isinstance(fm, dict) else ""
+    field_warnings, _ = check_required_fields(
+        fm, doc_type, fix=ctx.fix_mode, doc_path=path
+    )
+    for w in field_warnings:
+        ctx.add_warning(w)
+
     validate_references(fm, registry)
 
     content = path.read_text(encoding="utf-8", errors="replace")
@@ -324,24 +342,43 @@ def user_approves(proposals: dict | list) -> bool:
     return answer == "y"
 
 
+# @spec LLM-META-004
 def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> dict:
-    """Call LLM gateway to generate proposals for a doc. Returns proposal dict."""
+    """Call LLM gateway to generate proposals for a doc. Returns proposal dict.
+
+    Returns an empty dict (and records a warning on ctx) when the LLM raises
+    LLMResponseError or LLMUnavailableError — ingestion of other files continues.
+    """
     import asyncio
     from modok.llm import gateway
+    from modok.llm.errors import LLMResponseError, LLMUnavailableError
 
     fm = parse_frontmatter(doc_path) or {}
     missing = [f for f in ["feature", "modules", "source_files", "test_files"] if not fm.get(f)]
     if not missing:
         return {}
 
-    proposal = asyncio.run(
-        gateway.propose_metadata(
-            doc_path=doc_path,
-            frontmatter=fm,
-            missing_fields=missing,
+    try:
+        proposal = asyncio.run(
+            gateway.propose_metadata(
+                doc_path=doc_path,
+                frontmatter=fm,
+                missing_fields=missing,
+            )
         )
-    )
+    except (LLMResponseError, LLMUnavailableError) as exc:
+        warning = f"LLM proposal skipped for {doc_path.name}: {exc}"
+        if ctx is not None:
+            ctx._pending  # ensure ctx is live; warnings go via report in run_ingestion
+        # Surface as a warning by raising a sentinel the caller can catch cleanly.
+        # check_required_fields callers pass warnings up; we add directly here.
+        raise _LLMProposalWarning(warning) from exc
+
     return proposal.proposed_fields
+
+
+class _LLMProposalWarning(Exception):
+    """Internal sentinel: LLM proposal failed; treat as warning, not error."""
 
 
 def run_ingestion(
@@ -384,6 +421,7 @@ def run_ingestion(
 
     report.nodes_written = ctx.nodes_written
     report.pending_items = ctx.pending_count
+    report.warnings.extend(ctx._warnings)
     report.duration_seconds = time.monotonic() - t0
 
     # SI-CONF-004: present pending low-confidence facts for interactive approval

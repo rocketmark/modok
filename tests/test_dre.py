@@ -439,6 +439,92 @@ async def test_all_traversal_queries_include_project_slug():
         )
 
 
+@pytest.mark.asyncio
+async def test_ki_to_fixes_cypher_filters_by_project_slug():
+    # @spec DRE-TRAV-005
+    # Structural: the Cypher for _traverse_ki_to_fixes must use $project_slug
+    # as a property filter on Fix nodes (not just pass it in params unused).
+    from modok.retrieval import engine
+
+    import inspect
+    src = inspect.getsource(engine._traverse_ki_to_fixes)
+    assert "project_slug" in src, "_traverse_ki_to_fixes must reference project_slug in Cypher"
+    # The property filter must appear in the MATCH pattern or WHERE clause on Fix
+    assert (
+        "Fix {project_slug" in src or "fix.project_slug" in src or
+        "Fix{project_slug" in src
+    ), (
+        "_traverse_ki_to_fixes Cypher does not filter Fix by project_slug: "
+        + src
+    )
+
+
+@pytest.mark.asyncio
+async def test_ki_to_fixes_excludes_fixes_from_other_project():
+    # @spec DRE-TRAV-005
+    # Behavioral: _traverse_ki_to_fixes returns empty when Quine (simulated by mock)
+    # finds no Fix matching the requested project_slug — foreign-project Fixes excluded.
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue()
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    # Mock simulates Quine filtering: RESOLVED_BY returns no results when
+    # the Cypher's project_slug filter would exclude the foreign Fix.
+    mock_client.query.side_effect = _make_query_side_effect_cross_project_fix(
+        has_errors=["err-a"],
+        error_known_issues={"err-a": [("KI-001", "Issue A", "open")]},
+        ki_fixes_cross_project={"KI-001": [("FIX-FOREIGN", "Foreign fix", "patch")]},
+    )
+
+    packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+    fix_ids = [f.fix_id for f in packet.recent_fixes]
+    assert "FIX-FOREIGN" not in fix_ids, (
+        "_traverse_ki_to_fixes returned a Fix from a different project"
+    )
+
+
+@pytest.mark.asyncio
+async def test_similarity_cypher_filters_by_project_slug():
+    # @spec DRE-TRAV-005
+    # Structural: the Cypher for _traverse_similarity must use $project_slug
+    # as a property filter on KnownIssue nodes.
+    from modok.retrieval import engine
+
+    import inspect
+    src = inspect.getsource(engine._traverse_similarity)
+    assert "project_slug" in src, "_traverse_similarity must reference project_slug in Cypher"
+    assert (
+        "KnownIssue {project_slug" in src or "ki.project_slug" in src or
+        "KnownIssue{project_slug" in src
+    ), (
+        "_traverse_similarity Cypher does not filter KnownIssue by project_slug: "
+        + src
+    )
+
+
+@pytest.mark.asyncio
+async def test_similarity_excludes_known_issues_from_other_project():
+    # @spec DRE-TRAV-005
+    # Behavioral: _traverse_similarity returns empty when Quine (simulated by mock)
+    # finds no KnownIssue matching the requested project_slug.
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue()
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect_cross_project_similarity(
+        affects_features=["shtp-receiver"],
+        similarity_ki_foreign=[("KI-FOREIGN", "candidate")],
+    )
+
+    packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+    ki_ids = [ki.known_issue_id for ki in packet.known_issues]
+    assert "KI-FOREIGN" not in ki_ids, (
+        "_traverse_similarity returned a KnownIssue from a different project"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Weighted Match Count and Prioritization
 # ---------------------------------------------------------------------------
@@ -941,6 +1027,136 @@ def _make_query_side_effect(
                     {"review_status": status},
                 ]
                 for i, (kid, status) in enumerate(non_rejected)
+            ]
+
+        return []
+
+    return _side_effect
+
+
+def _make_query_side_effect_cross_project_fix(
+    has_errors: list[str],
+    error_known_issues: dict[str, list[tuple[str, str, str]]],
+    ki_fixes_cross_project: dict[str, list[tuple[str, str, str]]],
+):
+    """Side-effect where _traverse_ki_to_fixes returns Fix nodes tagged with a
+    different project_slug — verifying the Cypher WHERE filters them out."""
+    _ki_issue_id_to_node_id: dict[str, int] = {}
+    _ki_node_id_map: dict[int, str] = {}
+    _next_id = 1000
+    for kis in error_known_issues.values():
+        for (kid, _, _) in kis:
+            if kid not in _ki_issue_id_to_node_id:
+                _ki_issue_id_to_node_id[kid] = _next_id
+                _ki_node_id_map[_next_id] = kid
+                _next_id += 1
+
+    def _side_effect(cypher: str, params: dict | None = None):
+        params = params or {}
+        proj = params.get("project_slug", "stagehand")
+
+        if "AFFECTS" in cypher and "Feature" in cypher:
+            return []
+
+        if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
+            return [
+                [{"id": i, "properties": {
+                    "normalized_error": err, "project_slug": proj,
+                    "node_type": "ErrorSignature", "display_text": err,
+                }}]
+                for i, err in enumerate(has_errors)
+            ]
+
+        if "IMPLEMENTED_BY" in cypher:
+            return []
+
+        if "HAS_ERROR" in cypher and "KnownIssue" in cypher:
+            err = params.get("normalized_error", "")
+            kis = error_known_issues.get(err, [])
+            return [
+                [{"id": _ki_issue_id_to_node_id.get(kid, 1000 + i), "properties": {
+                    "issue_id": kid, "summary": summary, "status": status,
+                    "project_slug": proj, "node_type": "KnownIssue",
+                }}]
+                for i, (kid, summary, status) in enumerate(kis)
+            ]
+
+        if "RESOLVED_BY" in cypher:
+            ki_node_id = params.get("ki_node_id")
+            kid = _ki_node_id_map.get(ki_node_id, "")
+            fixes = ki_fixes_cross_project.get(kid, [])
+            # Simulate Quine filtering: Fix nodes belong to OTHER-PROJECT;
+            # with the correct Cypher filter ({project_slug: $project_slug}),
+            # Quine returns nothing. We simulate that by checking the cypher.
+            if "Fix {project_slug" in cypher or "Fix{project_slug" in cypher:
+                return []  # Quine filters out cross-project Fix nodes
+            # Without the filter in Cypher, Quine would return them (the old bug).
+            return [
+                [{"id": i, "properties": {
+                    "fix_id": fid, "summary": summary, "kind": kind,
+                    "project_slug": "OTHER-PROJECT",
+                    "node_type": "Fix",
+                }}]
+                for i, (fid, summary, kind) in enumerate(fixes)
+            ]
+
+        if "HAS_SIMILARITY_MATCH" in cypher:
+            return []
+
+        return []
+
+    return _side_effect
+
+
+def _make_query_side_effect_cross_project_similarity(
+    affects_features: list[str],
+    similarity_ki_foreign: list[tuple[str, str]],
+):
+    """Side-effect where _traverse_similarity returns KnownIssue nodes tagged with
+    a different project_slug — verifying the Cypher WHERE filters them out."""
+
+    def _side_effect(cypher: str, params: dict | None = None):
+        params = params or {}
+        proj = params.get("project_slug", "stagehand")
+
+        if "AFFECTS" in cypher and "Feature" in cypher:
+            return [
+                [{"id": i, "properties": {
+                    "feature_slug": slug, "project_slug": proj,
+                    "node_type": "Feature", "name": slug,
+                }}]
+                for i, slug in enumerate(affects_features)
+            ]
+
+        if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
+            return []
+
+        if "IMPLEMENTED_BY" in cypher:
+            return []
+
+        if "HAS_ERROR" in cypher and "KnownIssue" in cypher:
+            return []
+
+        if "RESOLVED_BY" in cypher:
+            return []
+
+        if "HAS_SIMILARITY_MATCH" in cypher:
+            # Simulate Quine filtering: KI nodes belong to OTHER-PROJECT;
+            # with the correct Cypher filter ({project_slug: $project_slug}),
+            # Quine returns nothing. We simulate that by inspecting the cypher.
+            if "KnownIssue {project_slug" in cypher or "KnownIssue{project_slug" in cypher:
+                return []  # Quine filters out cross-project KnownIssue nodes
+            # Without the filter in Cypher, Quine would return them (the old bug).
+            return [
+                [
+                    {"id": i, "properties": {
+                        "issue_id": kid, "summary": f"Foreign {kid}", "status": "open",
+                        "project_slug": "OTHER-PROJECT",
+                        "node_type": "KnownIssue",
+                    }},
+                    {"review_status": status},
+                ]
+                for i, (kid, status) in enumerate(similarity_ki_foreign)
             ]
 
         return []

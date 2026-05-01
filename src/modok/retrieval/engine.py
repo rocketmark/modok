@@ -121,6 +121,7 @@ async def _traverse_error_to_known_issues(
     ]
 
 
+# @spec DRE-TRAV-005
 async def _traverse_ki_to_fixes(
     ki_node_id: QuineNodeId,
     project_slug: str,
@@ -128,7 +129,7 @@ async def _traverse_ki_to_fixes(
 ) -> list[dict[str, str]]:
     rows = await client.query(
         "MATCH (ki:KnownIssue) WHERE id(ki) = $ki_node_id "
-        "MATCH (ki)-[:RESOLVED_BY]->(fix:Fix) "
+        "MATCH (ki)-[:RESOLVED_BY]->(fix:Fix {project_slug: $project_slug}) "
         "RETURN fix",
         {"project_slug": project_slug, "ki_node_id": ki_node_id},
     )
@@ -139,6 +140,7 @@ async def _traverse_ki_to_fixes(
     ]
 
 
+# @spec DRE-TRAV-005
 async def _traverse_similarity(
     issue_id: QuineNodeId,
     project_slug: str,
@@ -147,7 +149,7 @@ async def _traverse_similarity(
     """Return list of (ki_properties, review_status) for non-rejected similarity matches."""
     rows = await client.query(
         "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue) "
+        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue {project_slug: $project_slug}) "
         "WHERE sm.review_status IN ['candidate', 'confirmed'] "
         "RETURN ki, sm.review_status",
         {"issue_id": issue_id, "project_slug": project_slug},
