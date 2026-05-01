@@ -27,8 +27,6 @@ Diagnosing a software issue is mostly **orientation**:
 
 Humans rebuild this context manually. Agents rebuild it every session. It’s slow, repetitive, expensive, and lossy.
 
-MODOK shows what changed, what’s affected, where to look, and what worked before.
-
 ## Why I built this
 
 At AWS, one of my teams built a tool called Hyperion that helped our oncall engineers quickly understand high-severity incidents by automatically pulling together relevant context like recent commits, ongoing large-scale events, related tickets, and impacted customers. It let us answer “what is the state of the system?” within minutes and start debugging with the right information already in hand. 
