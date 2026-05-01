@@ -168,16 +168,18 @@ They **never write directly** to the graph.
 
 ### ✔️ MODOK is
 
-- A **debug context engine**
-- A **relationship memory for your system**
-- A **tool agents call before debugging**
+- A **support and troubleshooting context engine**
+- A **persistent map of system relationships**
+- A **debug starting point** for engineers, operators, and agents
+- A way to connect issues to the code, docs, tests, tickets, incidents, changes, and prior fixes that matter
 
 ### ❌ MODOK is not
 
 - A code search engine
-- A log storage system
-- A replacement for reading code or running tests
+- A log store or observability platform
+- A replacement for source control, logs, or tests
 - An autonomous debugger
+- A source of truth for live system state
 
 ---
 
