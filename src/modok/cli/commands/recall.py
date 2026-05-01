@@ -65,6 +65,18 @@ def _print_tabular(feature: str, project: str, nodes: list) -> None:
         if isinstance(node, dict):
             props = node.get("properties", node)
             node_type = props.get("node_type", "Node")
-            click.echo(f"  [{node_type}] {props}")
+            if node_type == "DocSection":
+                doc = props.get("doc_path", "")
+                heading = props.get("heading_text", "")
+                line = props.get("line_start", "")
+                click.echo(f"  [DocSection] {doc}:{line}  {heading}")
+            elif node_type == "Module":
+                click.echo(f"  [Module] {props.get('module_slug', '')}  {props.get('name', '')}")
+            elif node_type == "File":
+                click.echo(f"  [File] {props.get('repo_path', '')}")
+            elif node_type == "Feature":
+                click.echo(f"  [Feature] {props.get('feature_slug', '')}  {props.get('name', '')}")
+            else:
+                click.echo(f"  [{node_type}] {props}")
         else:
             click.echo(f"  {node}")
