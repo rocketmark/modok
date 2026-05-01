@@ -29,11 +29,11 @@ Humans rebuild this context manually. Agents rebuild it every session. It’s sl
 
 ## Why I built this
 
-At AWS, one of my teams built a tool called Hyperion that helped our oncall engineers quickly understand high-severity incidents by automatically pulling together relevant context like recent commits, ongoing large-scale events, related tickets, and impacted customers. It let us answer “what is the state of the system?” within minutes and start debugging with the right information already in hand. 
+At AWS, my team built an internal tool called Hyperion to help on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, Hyperion gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system. It helped us move faster because we were no longer starting from a blank page.
 
-MODOK is a continuation of that idea, but focused on building a persistent memory of how a system is structured and how it fails — linking features, code, tests, known issues, and prior fixes — so that I can move from a new issue to the right place without redoing the same orientation work every time. 
+MODOK comes from the same belief: debugging is easier when the system can explain where to look first. Instead of rebuilding context from scratch for every issue, MODOK keeps a persistent memory of how a system is structured and how it has failed before, linking features, code, tests, known issues, change history, and prior fixes into a map that engineers and agents can follow.
 
-I’m building this because I expect to operate a system largely on my own, and I need that kind of mechanical support to debug effectively and consistently. 
+I’m building it because I expect to operate complex systems largely on my own, and I want the kind of mechanical support that makes debugging faster, more consistent, and less dependent on memory.
 
 This implementation is inspired by and directly builds on [Jess Szmajda’s LID project](https://github.com/jszmajda/lid).
 
