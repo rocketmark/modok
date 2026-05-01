@@ -37,13 +37,13 @@ RETURN n
 
 @click.command("search")
 @click.option("--project", required=True, help="Project slug.")
-@click.option("--heading", default=None, help="Substring match against section headings.")
+@click.option("--section", default=None, help="Substring match against doc section headings.")
 @click.option("--text", "text_query", default=None, help="Substring match across all node properties.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
 @click.argument("query", required=False, default=None)
 def search_cmd(
     project: str,
-    heading: str | None,
+    section: str | None,
     text_query: str | None,
     as_json: bool,
     query: str | None,
@@ -54,8 +54,8 @@ def search_cmd(
 
     effective_text = text_query or query
 
-    if not any([heading, effective_text]):
-        raise click.ClickException("Supply a QUERY argument, --heading, or --text.")
+    if not any([section, effective_text]):
+        raise click.ClickException("Supply a QUERY argument, --section, or --text.")
 
     config = ModokConfig.load()
     config.project(project)
@@ -70,8 +70,8 @@ def search_cmd(
 
     nodes = []
 
-    if heading:
-        rows = asyncio.run(client.query(_HEADING_CYPHER, {"project_slug": project, "query": heading}))
+    if section:
+        rows = asyncio.run(client.query(_HEADING_CYPHER, {"project_slug": project, "query": section}))
         nodes.extend(_collect(rows))
 
     if effective_text:
@@ -89,7 +89,7 @@ def search_cmd(
     if as_json:
         click.echo(json.dumps({"project": project, "nodes": unique}))
     else:
-        _print_tabular(project, unique, heading=heading, text_query=effective_text)
+        _print_tabular(project, unique, section=section, text_query=effective_text)
 
 
 def _collect(rows: list) -> list[dict]:
@@ -105,12 +105,12 @@ def _print_tabular(
     project: str,
     nodes: list,
     *,
-    heading: str | None,
+    section: str | None,
     text_query: str | None,
 ) -> None:
     parts = []
-    if heading:
-        parts.append(f"heading~{heading!r}")
+    if section:
+        parts.append(f"section~{section!r}")
     if text_query:
         parts.append(f"text~{text_query!r}")
     click.echo(f"Project: {project}  Search: {', '.join(parts)}")

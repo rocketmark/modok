@@ -27,7 +27,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Quine Startup Check
 
-- [x] **CLI-PING-001** [U]: When any graph-touching command (`ingest`, `retrieve`, `recall`) is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config" without calling any graph operation.
+- [x] **CLI-PING-001** [U]: When any graph-touching command (`ingest`, `retrieve`, `recall`, `search`) is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config" without calling any graph operation.
 
 ---
 
@@ -69,11 +69,14 @@ See `docs/testing-standard.md` for full definitions.
 
 ## `modok recall`
 
-- [x] **CLI-REC-001** [U]: `modok recall` shall print results for the named feature to stdout.
-- [x] **CLI-REC-002** [U]: When the feature slug produces no graph results, `modok recall` shall print an empty result and exit `0`.
-- [x] **CLI-REC-003** [U]: Without `--json`, `modok recall` shall print results in a human-readable tabular format to stdout.
-- [x] **CLI-REC-004** [U]: With `--json`, `modok recall` shall print results as a JSON object to stdout.
-- [x] **CLI-REC-005** [U]: When Quine is unreachable during `modok recall`, the system shall exit `2`.
+- [x] **CLI-REC-001** [U]: When `--feature <slug>` is supplied, `modok recall` shall traverse from the matching Feature node along all outbound edges and include the feature node and all directly connected nodes in the result.
+- [x] **CLI-REC-002** [U]: When `--module <slug>` is supplied, `modok recall` shall traverse from the matching Module node, resolving its implementing feature and source files, and include all returned nodes in the result.
+- [x] **CLI-REC-003** [U]: When neither `--feature` nor `--module` is supplied, `modok recall` shall exit `1` with a usage error before any graph operation.
+- [x] **CLI-REC-004** [U]: When both `--feature` and `--module` are supplied, `modok recall` shall run both traversals and deduplicate results by node ID before printing.
+- [x] **CLI-REC-005** [U]: When a query produces no graph results, `modok recall` shall print an empty result and exit `0`.
+- [x] **CLI-REC-006** [U]: Without `--json`, `modok recall` shall print results in a human-readable tabular format to stdout, formatted per node type.
+- [x] **CLI-REC-007** [U]: With `--json`, `modok recall` shall print results as a JSON object to stdout.
+- [x] **CLI-REC-008** [U]: When Quine is unreachable during `modok recall`, the system shall exit `2`.
 
 ---
 
@@ -100,3 +103,18 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **CLI-QSTAT-001** [U]: When `QuineClient.ping()` returns `True`, `modok quine status` shall print `running` to stdout and exit `0`.
 - [x] **CLI-QSTAT-002** [U]: When `QuineClient.ping()` returns `False`, `modok quine status` shall print `stopped` to stdout and exit `0`.
+
+---
+
+## `modok search`
+
+- [x] **CLI-SRCH-001** [U]: When a bare `QUERY` argument is supplied, `modok search` shall treat it as shorthand for `--text <QUERY>` and perform a full-property substring search.
+- [x] **CLI-SRCH-002** [U]: When both a bare `QUERY` argument and `--text` are supplied, `modok search` shall exit `1` with a usage error before any graph operation.
+- [x] **CLI-SRCH-003** [U]: When neither a bare `QUERY`, `--section`, nor `--text` is supplied, `modok search` shall exit `1` with a usage error.
+- [x] **CLI-SRCH-004** [U]: When `--section <str>` is supplied, `modok search` shall query only `DocSection` nodes whose `heading_text` contains the search string (case-insensitive), ordered by `doc_path` then `line_start`.
+- [x] **CLI-SRCH-005** [U]: When `--text <str>` (or bare `QUERY`) is supplied, `modok search` shall query all node types, matching case-insensitively against `heading_text`, `name`, `summary`, `normalized_error`, `module_slug`, `feature_slug`, and `repo_path`.
+- [x] **CLI-SRCH-006** [U]: When both `--section` and a text query (`--text` or bare `QUERY`) are supplied, `modok search` shall run both queries and deduplicate results by node ID before printing.
+- [x] **CLI-SRCH-007** [U]: When the search produces no results, `modok search` shall print "(no results)" and exit `0`.
+- [x] **CLI-SRCH-008** [U]: Without `--json`, `modok search` shall print results in a human-readable tabular format to stdout, formatted per node type.
+- [x] **CLI-SRCH-009** [U]: With `--json`, `modok search` shall print results as `{"project": "<slug>", "nodes": [...]}` to stdout.
+- [x] **CLI-SRCH-010** [U]: When Quine is unreachable during `modok search`, the system shall exit `2`.

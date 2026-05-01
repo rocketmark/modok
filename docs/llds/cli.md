@@ -23,7 +23,8 @@ modok init     --project <slug> --repo <path>
 modok ingest   --project <slug> [--fix] <path>
 modok retrieve --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
-modok recall   --project <slug> --feature <feature-slug> [--json]
+modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
+modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
 modok quine    (start | stop | status)
 ```
 
@@ -70,13 +71,33 @@ Exit codes: `0` on success, `1` if the issue is not found in the specified proje
 
 ### `modok recall`
 
-Returns everything MODOK knows about a feature slug: associated docs, modules, source files, known issues, and risks. Read-only graph traversal; not tied to a customer issue.
+Returns everything MODOK knows about a feature or module slug. Read-only graph traversal; not tied to a customer issue.
 
-1. Pings Quine; exits `2` if unreachable.
-2. Traverses the graph from `Feature {project_slug, feature_slug}` along outbound edges.
-3. Prints a human-readable tabular summary to stdout by default; `--json` emits JSON.
+Accepts `--feature <slug>` or `--module <slug>` (or both). At least one is required.
 
-Exit codes: `0` on success (including when the feature slug produces no results — empty results are valid, not an error), `1` if the feature slug argument is malformed or the project is not in config, `2` if Quine is unreachable.
+- `--feature`: traverses from `Feature {project_slug, feature_slug}` along all outbound edges and returns the feature node plus all directly connected nodes.
+- `--module`: traverses from `Module {project_slug, module_slug}`, resolves its implementing feature (if any) and its source files.
+
+Results are deduplicated when both flags are supplied. Prints a human-readable tabular summary to stdout by default; `--json` emits JSON.
+
+Exit codes: `0` on success (including empty results), `1` if args are malformed or the project is not in config, `2` if Quine is unreachable.
+
+### `modok search`
+
+Substring search across graph node properties. Does not require a known slug — use this when you have a keyword but not the exact feature or module slug.
+
+Accepts one of:
+- **Bare `QUERY` argument**: shorthand for `--text <QUERY>`.
+- **`--section <str>`**: searches only `DocSection` nodes, matching against `heading_text`. Results are ordered by `doc_path`, `line_start`.
+- **`--text <str>`**: searches all nodes, matching against `heading_text`, `name`, `summary`, `normalized_error`, `module_slug`, `feature_slug`, and `repo_path`.
+
+`QUERY` and `--text` are mutually exclusive. At least one search mode is required. Both `--section` and `--text` (or bare QUERY) may be supplied together; results are deduplicated by node ID.
+
+All string comparisons are case-insensitive (`toLower() CONTAINS`).
+
+Prints tabular output by default; `--json` emits `{"project": "<slug>", "nodes": [...]}`.
+
+Exit codes: `0` on success (including empty results), `1` if args are invalid or the project is not in config, `2` if Quine is unreachable.
 
 ### `modok quine start | stop | status`
 
@@ -140,6 +161,7 @@ src/modok/cli/
         ingest.py
         retrieve.py
         recall.py
+        search.py
         quine.py
     config.py          # ModokConfig pydantic model, load(), path expansion
     output.py          # stdout formatters: json_out(), tabular(), report_out()
