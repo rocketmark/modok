@@ -5,16 +5,11 @@
 
 **Mechanized Oracle Designed Only for Knowledge**
 
-MODOK gives AI agents a *running start* when debugging software issues.
+MODOK shows engineers and agents what changed, what’s affected, where to look, and what worked before.
 
-Instead of rediscovering context from scratch, MODOK returns a focused **debug packet**: 
-- the exact docs
-- code
-- tests
-- known issues
-- and prior fixes that matter for a given problem.
+Support and debugging issues rarely arrive with all the context needed to investigate them. The evidence is scattered across code, docs, tests, tickets, incidents, logs, change history, and prior fixes. MODOK turns that scattered context into a focused **debug packet**: a structured, traceable map from the issue to the operational evidence that matters.
 
-MODOK’s differentiator is not simply that it uses a graph; it’s that the graph is shaped around support and troubleshooting. Unlike generic Graph RAG systems that use graphs to improve document retrieval or answer quality, MODOK is issue-centered: it maps a problem to the operational evidence needed to investigate it, including affected systems, relevant code, docs, tickets, incidents, change history, logs, and prior fixes. The result is a structured, traceable debug packet that an engineer, operator, or agent can follow. Not a loose set of related documents that must be interpreted from scratch.
+Unlike generic Graph RAG systems that improve retrieval over documents, MODOK is shaped around support and troubleshooting workflows. It maps an issue to connected systems, artifacts, and past resolutions so an engineer, operator, or agent can start from context instead of reconstructing it from scratch.
 
 <br clear="right"/>
 
