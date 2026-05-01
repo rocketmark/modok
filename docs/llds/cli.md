@@ -25,6 +25,8 @@ modok retrieve --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
 modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
+modok diagnose --project <slug> --feature <slug>
+               [--error <slug>] [--symptom <str>] [--json]
 modok quine    (start | stop | status)
 ```
 
@@ -99,6 +101,27 @@ Prints tabular output by default; `--json` emits `{"project": "<slug>", "nodes":
 
 Exit codes: `0` on success (including empty results), `1` if args are invalid or the project is not in config, `2` if Quine is unreachable.
 
+### `modok diagnose`
+
+Feature-anchored debug packet assembly. Use when you know the feature slug and optionally have an error or symptom to narrow the results. Does not require a `CustomerIssue` node — intended for interactive/manual debugging.
+
+`--feature <slug>` is required. `--error` and `--symptom` are optional filters.
+
+Traversal, in order:
+
+1. **Files** — `Feature -[:IMPLEMENTED_BY]-> Module -[:DEFINED_IN]-> File`. All files for all modules implementing the feature.
+2. **KnownIssues** — `Feature -[:HAS_KNOWN_ISSUE]-> KnownIssue`. If `--symptom <str>` is given, only `KnownIssue` nodes whose `summary` contains the substring (case-insensitive) are included.
+3. **ErrorSignature → KnownIssues** — `ErrorSignature -[:AFFECTS]-> Feature` where `normalized_error = --error`. If `--error` is given, fetches the matching `ErrorSignature` and traverses back to `KnownIssue` nodes via `HAS_ERROR`. Each `KnownIssue` reached this way that passes the `--symptom` filter (if any) has its `match_count` incremented.
+4. **Fixes** — for each `KnownIssue` found: `KnownIssue -[:RESOLVED_BY]-> Fix`.
+
+Results are deduplicated by node ID. `match_count` accumulates across traversals (a `KnownIssue` reachable via both the feature edge and the error signature gets `match_count = 2`). Each result list is sorted descending by `match_count`.
+
+Output shape reuses `DebugPacket` from the DRE so agents get the same structure regardless of entry point. `anchors.feature_slugs` is set from `--feature`; `anchors.error_signatures` from `--error` if given; `anchors.symptoms` from `--symptom` if given. `issue_summary` is set to `"diagnose: <feature_slug>"`. `confidence` is omitted (set to `1.0`) — no anchor sufficiency concept applies here.
+
+Prints tabular output by default; `--json` emits the `DebugPacket` as JSON.
+
+Exit codes: `0` on success (including empty results), `1` if args are invalid or the project is not in config, `2` if Quine is unreachable.
+
 ### `modok quine start | stop | status`
 
 Lifecycle convenience wrapper around the Quine JAR process. Does not require `--project`.
@@ -162,6 +185,7 @@ src/modok/cli/
         retrieve.py
         recall.py
         search.py
+        diagnose.py
         quine.py
     config.py          # ModokConfig pydantic model, load(), path expansion
     output.py          # stdout formatters: json_out(), tabular(), report_out()

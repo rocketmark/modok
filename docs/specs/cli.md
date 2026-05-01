@@ -27,7 +27,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Quine Startup Check
 
-- [x] **CLI-PING-001** [U]: When any graph-touching command (`ingest`, `retrieve`, `recall`, `search`) is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config" without calling any graph operation.
+- [x] **CLI-PING-001** [U]: When any graph-touching command (`ingest`, `retrieve`, `recall`, `search`, `diagnose`) is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config" without calling any graph operation.
 
 ---
 
@@ -118,3 +118,21 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **CLI-SRCH-008** [U]: Without `--json`, `modok search` shall print results in a human-readable tabular format to stdout, formatted per node type.
 - [x] **CLI-SRCH-009** [U]: With `--json`, `modok search` shall print results as `{"project": "<slug>", "nodes": [...]}` to stdout.
 - [x] **CLI-SRCH-010** [U]: When Quine is unreachable during `modok search`, the system shall exit `2`.
+
+---
+
+## `modok diagnose`
+
+- [x] **CLI-DIAG-001** [U]: When `--feature <slug>` is not supplied, `modok diagnose` shall exit `1` with a usage error before any graph operation.
+- [x] **CLI-DIAG-002** [U]: `modok diagnose` shall traverse `Feature -[:IMPLEMENTED_BY]-> Module -[:DEFINED_IN]-> File` and include all matching `File` nodes in `relevant_files`.
+- [x] **CLI-DIAG-003** [U]: `modok diagnose` shall traverse `Feature -[:HAS_KNOWN_ISSUE]-> KnownIssue` and include matching `KnownIssue` nodes in `known_issues`.
+- [x] **CLI-DIAG-004** [U]: When `--symptom <str>` is supplied, `modok diagnose` shall include only `KnownIssue` nodes whose `summary` contains the substring (case-insensitive); `KnownIssue` nodes that do not match shall be excluded from `known_issues`.
+- [x] **CLI-DIAG-005** [U]: When `--error <slug>` is supplied, `modok diagnose` shall fetch the `ErrorSignature` node with `normalized_error = <slug>` and traverse `KnownIssue -[:HAS_ERROR]-> ErrorSignature` to find additional `KnownIssue` nodes; each found this way that passes the `--symptom` filter (if any) shall have its `match_count` incremented by 1.
+- [x] **CLI-DIAG-006** [U]: For each `KnownIssue` in the result set, `modok diagnose` shall traverse `KnownIssue -[:RESOLVED_BY]-> Fix` and include matching `Fix` nodes in `recent_fixes`.
+- [x] **CLI-DIAG-007** [U]: Results shall be deduplicated by node ID; a `KnownIssue` reachable via both the feature edge and the error signature traversal shall appear once with `match_count = 2`.
+- [x] **CLI-DIAG-008** [U]: Each result list shall be sorted descending by `match_count`.
+- [x] **CLI-DIAG-009** [U]: The output shall use the `DebugPacket` schema: `anchors.feature_slugs` set from `--feature`; `anchors.error_signatures` from `--error` if given; `anchors.symptoms` from `--symptom` if given; `issue_summary` set to `"diagnose: <feature_slug>"`; `confidence` set to `1.0`.
+- [x] **CLI-DIAG-010** [U]: When the traversal produces no results, `modok diagnose` shall print an empty packet and exit `0`.
+- [x] **CLI-DIAG-011** [U]: Without `--json`, `modok diagnose` shall print results in a human-readable tabular format to stdout.
+- [x] **CLI-DIAG-012** [U]: With `--json`, `modok diagnose` shall print the `DebugPacket` serialized as JSON to stdout.
+- [x] **CLI-DIAG-013** [U]: When Quine is unreachable during `modok diagnose`, the system shall exit `2`.
