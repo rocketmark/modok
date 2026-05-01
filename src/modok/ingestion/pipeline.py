@@ -235,14 +235,14 @@ def ingest_doc(
     project_slug: str,
     repo_root: Path,
     ctx: IngestionContext | None = None,
-) -> None:
-    """Ingest a single markdown/yaml doc into the graph."""
+) -> bool:
+    """Ingest a single markdown/yaml doc. Returns False if skipped (no modok: frontmatter)."""
     if ctx is None:
         ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root)
 
     fm = parse_frontmatter(path)
     if fm is None:
-        return
+        return False
 
     validate_references(fm, registry)
 
@@ -276,6 +276,9 @@ def ingest_doc(
 
     # Commit SHA for this doc node (SI-SHA-001)
     sha = get_commit_sha(path)
+    client.upsert_node({"type": "Doc", "path": str(path), "commit_sha": sha})
+    ctx.nodes_written += 1
+    return True
 
 
 def apply_llm_proposals(
@@ -323,8 +326,22 @@ def user_approves(proposals: dict | list) -> bool:
 
 def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> dict:
     """Call LLM gateway to generate proposals for a doc. Returns proposal dict."""
-    # Implemented when LLM Gateway component (component 3) is built.
-    raise NotImplementedError("LLM gateway not yet implemented")
+    import asyncio
+    from modok.llm import gateway
+
+    fm = parse_frontmatter(doc_path) or {}
+    missing = [f for f in ["feature", "modules", "source_files", "test_files"] if not fm.get(f)]
+    if not missing:
+        return {}
+
+    proposal = asyncio.run(
+        gateway.propose_metadata(
+            doc_path=doc_path,
+            frontmatter=fm,
+            missing_fields=missing,
+        )
+    )
+    return proposal.proposed_fields
 
 
 def run_ingestion(
@@ -335,25 +352,50 @@ def run_ingestion(
     fix_mode: bool = False,
 ) -> IngestionReport:
     """Top-level entry point. Discover, parse, ingest all docs under repo_root."""
+    import time
     report = IngestionReport()
+    ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root, fix_mode=fix_mode)
 
+    # SI-SHA-003: warn if working tree is dirty before reading any SHAs
+    report.warnings.extend(check_working_tree(repo_root))
+
+    t0 = time.monotonic()
     files, ignored = discover_files(repo_root)
     report.files_ignored = ignored
 
     for path in files:
         try:
-            ingest_doc(
+            processed = ingest_doc(
                 path,
                 registry=registry,
                 client=client,
                 project_slug=project_slug,
                 repo_root=repo_root,
+                ctx=ctx,
             )
-            report.docs_processed += 1
+            if processed:
+                report.docs_processed += 1
+            else:
+                report.files_skipped += 1  # SI-DISC-003
         except InvalidSlugReferenceError as exc:
             report.errors.append(str(exc))
         except Exception as exc:
             report.errors.append(f"{path}: {exc}")
+
+    report.nodes_written = ctx.nodes_written
+    report.pending_items = ctx.pending_count
+    report.duration_seconds = time.monotonic() - t0
+
+    # SI-CONF-004: present pending low-confidence facts for interactive approval
+    if ctx._pending:
+        for fact in ctx._pending:
+            print(f"Pending (score={fact['score']:.2f}): {fact['value']} — {fact['evidence']}")
+        if user_approves(ctx._pending):
+            for fact in ctx._pending:
+                client.upsert_node({"value": fact["value"], "source": "pending_approved"})
+                ctx.nodes_written += 1
+            report.nodes_written = ctx.nodes_written
+            report.pending_items = 0
 
     return report
 

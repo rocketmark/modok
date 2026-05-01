@@ -16,4 +16,19 @@ class IngestionReport:
     duration_seconds: float = 0.0
 
     def __str__(self) -> str:
-        raise NotImplementedError
+        lines = [
+            f"Ingestion complete",
+            f"  Docs processed:  {self.docs_processed}",
+            f"  Nodes written:   {self.nodes_written}",
+            f"  Edges written:   {self.edges_written}",
+            f"  Warnings:        {len(self.warnings)}",
+            f"  Errors:          {len(self.errors)}",
+            f"  LLM proposals:   {self.llm_proposals}",
+            f"  Pending items:   {self.pending_items}",
+            f"  Files ignored:   {self.files_ignored}",
+            f"  Files skipped:   {self.files_skipped}",
+            f"  Duration:        {self.duration_seconds:.1f}s",
+        ]
+        for w in self.warnings:
+            lines.append(f"    - {w}")
+        return "\n".join(lines)

@@ -217,22 +217,33 @@ For each ingested file the pipeline runs these stages in order. Any stage that f
    └── feature slug exists in feature registry
    └── module slugs exist in module registry
    └── error signature slugs exist in error registry
-   └── source_files and test_files exist on disk
+   └── source_files and test_files exist on disk (missing → warning + confidence penalty)
 
 4. Parse MODOK blocks
    └── extract structured facts from fenced modok blocks in body
+   └── route each block fact at score=1.00 (verified; bypasses confidence model)
 
-5. Compute commit SHA
+5. Extract headings
+   └── parse H2/H3 headings as DocSection nodes
+   └── write DESCRIBED_BY edges from Feature → DocSection
+
+6. Compute commit SHA
    └── git log --format=%H -1 -- <file_path>
+   └── store on Doc node; null when file has no git history
 
-7. LLM proposal pass (optional)
-   └── if required metadata is missing, call LLM gateway for suggestions
-   └── surface proposals for review; do not write to Quine until approved
+7. LLM proposal pass (optional, --fix only)
+   └── if required metadata is missing, call LLM gateway for proposals
+   └── surface proposals for user approval; write approved values to doc frontmatter
+   └── re-run mechanical parser on updated doc before writing to Quine
 
 8. Write to Quine
    └── upsert nodes in dependency order
    └── write edges
-   └── emit structured success/warning report
+   └── collect pending low-confidence facts in IngestionContext
+
+9. End of run
+   └── emit structured ingestion report (nodes written, pending count, duration, etc.)
+   └── present pending low-confidence facts for interactive approval (--fix mode)
 ```
 
 ### Paths to ignore
@@ -325,16 +336,19 @@ The LLM never writes to Quine directly. When `--fix` is used, it writes to the d
 Every ingestion run emits a structured report:
 
 ```
-Ingestion complete: stagehand
-  Docs processed:     24
-  Nodes written:      312
-  Edges written:      487
-  Warnings:           2
-    - docs/lld/shtp.md: source_file 'agent/src/old_shtp.c' not found on disk (confidence: 0.71)
+Ingestion complete
+  Docs processed:  24
+  Nodes written:   312
+  Edges written:   487
+  Warnings:        2
+    - docs/lld/shtp.md: source_file 'agent/src/old_shtp.c' not found on disk
     - docs/lld/shtp.md: feature 'shtp-v1' not in feature registry
-  Errors:             0
-  LLM proposals:      0
-  Duration:           1.3s
+  Errors:          0
+  LLM proposals:   0
+  Pending items:   1
+  Files ignored:   8
+  Files skipped:   3
+  Duration:        1.3s
 ```
 
 Warnings do not halt ingestion. Errors do.

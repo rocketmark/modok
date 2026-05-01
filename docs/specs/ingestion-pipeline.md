@@ -20,7 +20,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **SI-DISC-001** [U]: The system shall discover all `.md`, `.mdx`, `.yaml`, and `.yml` files under the given ingestion path recursively.
 - [x] **SI-DISC-002** [P]: The system shall never ingest files matching any ignore pattern (`.git/**`, `node_modules/**`, `bin/**`, `obj/**`, `dist/**`, `build/**`, `coverage/**`, `.vs/**`, `.env`, `*.key`, `*.pem`, `*.pfx`).
-- [ ] **SI-DISC-003** [U]: When a discovered file has no `modok:` frontmatter block, the system shall skip it without error and include it in a skipped-file count in the ingestion report. — *Skip-without-error works; `run_ingestion` never increments `report.files_skipped`.*
+- [x] **SI-DISC-003** [U]: When a discovered file has no `modok:` frontmatter block, the system shall skip it without error and include it in a skipped-file count in the ingestion report.
 
 ---
 
@@ -28,7 +28,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **SI-FMTR-001** [U]: The system shall parse the `modok:` YAML frontmatter block from each discovered file and validate that all required fields for the declared `doc_type` are present and well-formed. This stage validates schema structure only — it does not validate that slugs exist in registries. Registry reference validation is a separate subsequent stage (SI-REF-001 through SI-REF-005).
 - [x] **SI-FMTR-002** [U]: If a required frontmatter field is missing and `--fix` is not specified, the system shall emit a structured warning and skip writing that doc's nodes to Quine.
-- [ ] **SI-FMTR-003** [U]: If a required frontmatter field is missing and `--fix` is specified, the system shall invoke the LLM gateway for a proposal, present it to the user for approval, write approved values back to the doc file, and re-run the mechanical parser on the updated file. — *`invoke_llm_gateway` raises `NotImplementedError`; structure is in place but gateway not wired.*
+- [x] **SI-FMTR-003** [U]: If a required frontmatter field is missing and `--fix` is specified, the system shall invoke the LLM gateway for a proposal, present it to the user for approval, write approved values back to the doc file, and re-run the mechanical parser on the updated file.
 - [x] **SI-FMTR-004** [U]: The system shall never write LLM proposals directly to Quine; proposals must be written to the doc file first and then pass through the mechanical parser.
 
 ---
@@ -60,9 +60,9 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Commit SHA
 
-- [ ] **SI-SHA-001** [U]: The system shall call `git log --format=%H -1 -- <file_path>` to obtain the most recent commit SHA for each `Doc` and `DocSection` node, and store it on the node. When the file has no git history (e.g. untracked), the SHA field shall be `null`. The system shall not call `get_commit_sha` for `Fix` or `ResolutionEvent` nodes — their SHA must be declared explicitly in the source YAML. — *`get_commit_sha` is called in `ingest_doc` but the returned SHA is never stored on any node.*
+- [x] **SI-SHA-001** [U]: The system shall call `git log --format=%H -1 -- <file_path>` to obtain the most recent commit SHA for each `Doc` and `DocSection` node, and store it on the node. When the file has no git history (e.g. untracked), the SHA field shall be `null`. The system shall not call `get_commit_sha` for `Fix` or `ResolutionEvent` nodes — their SHA must be declared explicitly in the source YAML.
 - [x] **SI-SHA-002** [U]: When ingesting a `Fix` or `ResolutionEvent` YAML file that does not contain a `commit_sha` field, the system shall emit a structured error and halt ingestion for that file. The system shall not attempt to derive a SHA from git log for these node types — the SHA must be explicitly declared in the source YAML.
-- [ ] **SI-SHA-003** [U]: When the working tree is dirty at the time of manual ingestion, the system shall emit a visible warning stating that commit SHAs reflect the last commit rather than the current working tree state, and shall complete ingestion normally. — *`check_working_tree` is implemented but never called in `run_ingestion`.*
+- [x] **SI-SHA-003** [U]: When the working tree is dirty at the time of manual ingestion, the system shall emit a visible warning stating that commit SHAs reflect the last commit rather than the current working tree state, and shall complete ingestion normally.
 
 ---
 
@@ -71,9 +71,9 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **SI-CONF-001** [P]: The system shall assign confidence bands only to facts extracted from prose and markdown structure; facts from frontmatter and MODOK blocks shall always receive a score of 1.00.
 - [x] **SI-CONF-002** [U]: The system shall automatically write prose-extracted facts with a computed confidence score of 0.90 or above to Quine without requiring approval. Frontmatter and MODOK block facts bypass this threshold entirely per SI-CONF-001.
 - [x] **SI-CONF-003** [U]: The system shall write facts with a confidence score between 0.75 and 0.89 to Quine with `confidence_low` and `confidence_high` properties on the node.
-- [ ] **SI-CONF-004** [U]: The system shall not write prose-extracted facts with a confidence score below 0.75 to Quine without explicit user approval. At the end of each ingestion run, all pending low-confidence facts are batched and presented to the user for approval or rejection in a single interactive pass. They are not counted as warnings or errors in the ingestion report; they are counted separately as pending items. — *Facts accumulate in `ctx._pending` but `run_ingestion` never presents them for approval.*
+- [x] **SI-CONF-004** [U]: The system shall not write prose-extracted facts with a confidence score below 0.75 to Quine without explicit user approval. At the end of each ingestion run, all pending low-confidence facts are batched and presented to the user for approval or rejection in a single interactive pass. They are not counted as warnings or errors in the ingestion report; they are counted separately as pending items.
 - [x] **SI-CONF-005** [P]: The system shall never produce a confidence score outside the range [0.0, 1.0].
-- [ ] **SI-CONF-006** [U]: The system shall include a pending items count in the ingestion report when one or more prose-extracted facts have a confidence score below 0.75 and have not yet been approved or rejected. — *`IngestionReport.pending_items` field exists but `run_ingestion` never populates it from `ctx.pending_count`.*
+- [x] **SI-CONF-006** [U]: The system shall include a pending items count in the ingestion report when one or more prose-extracted facts have a confidence score below 0.75 and have not yet been approved or rejected.
 
 ---
 
@@ -103,7 +103,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## LLM Proposal Pass
 
-- [ ] **SI-LLM-001** [U]: When `--fix` is specified and a doc is missing required metadata fields after the mechanical parse completes, the system shall invoke the LLM gateway for proposals. Without `--fix`, the system shall not invoke the LLM gateway at all — missing fields are reported as warnings only. — *`invoke_llm_gateway` raises `NotImplementedError`.*
+- [x] **SI-LLM-001** [U]: When `--fix` is specified and a doc is missing required metadata fields after the mechanical parse completes, the system shall invoke the LLM gateway for proposals. Without `--fix`, the system shall not invoke the LLM gateway at all — missing fields are reported as warnings only.
 - [x] **SI-LLM-002** [U]: When `--fix` is not specified, the system shall not invoke the LLM gateway and shall not modify any source file; missing required fields are emitted as structured warnings.
 - [x] **SI-LLM-003** [U]: When `--fix` is specified, the system shall write approved LLM proposals to the doc's frontmatter and re-run the mechanical parser on the updated file before writing to Quine.
 
@@ -111,5 +111,5 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Ingestion Report
 
-- [ ] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), and files skipped (present but no `modok:` frontmatter — SI-DISC-003). Ignored and skipped are separate counts. — *`IngestionReport` dataclass has all fields; `run_ingestion` only populates `docs_processed`, `files_ignored`, and `errors`.*
+- [x] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), and files skipped (present but no `modok:` frontmatter — SI-DISC-003). Ignored and skipped are separate counts.
 - [x] **SI-RPT-002** [U]: Warnings shall not halt ingestion; errors shall halt ingestion for the affected file and allow ingestion of remaining files to continue.

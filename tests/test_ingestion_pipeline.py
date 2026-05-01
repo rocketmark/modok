@@ -997,7 +997,8 @@ def test_error_in_one_file_does_not_halt_others(tmp_path):
     client = MagicMock()
 
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        report = run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
+        with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+            report = run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
 
     assert report.errors  # bad.md produced an error
     assert report.docs_processed >= 1  # good.md was processed
