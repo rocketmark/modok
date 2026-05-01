@@ -50,6 +50,8 @@ This implementation is inspired by and directly builds on [Jess Szmajda’s LID 
 
 MODOK turns a customer issue into a **debug starting point**.
 
+MODOK’s differentiator is not simply that it uses a graph; it's that the graph is shaped around support and troubleshooting. Unlike generic Graph RAG systems that use graphs to improve document retrieval or answer quality, MODOK is issue-centered: it maps a problem to the operational evidence needed to investigate it, including affected systems, relevant code, docs, tickets, incidents, change history, logs, and prior fixes. The result is a structured, traceable debug packet that an engineer, operator, or agent can follow. Not a loose set of related documents that must be interpreted from scratch.
+
 ```
 Customer issue
    ↓
