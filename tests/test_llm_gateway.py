@@ -106,7 +106,7 @@ async def test_local_backend_uses_local_endpoint():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("ticket text", "stagehand", backend="local")
 
@@ -126,7 +126,7 @@ async def test_local_backend_ignores_remote_when_configured():
         remote_api_key="sk-test",
     )
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("ticket text", "stagehand", backend="local")
 
@@ -178,12 +178,14 @@ async def test_auto_escalates_to_remote_on_local_validation_failure():
     bad_response = '{"not_a_valid_ticket": true}'
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
-            # local returns bad JSON, remote returns good JSON
-            mock_chat.side_effect = [bad_response, VALID_TICKET_RESPONSE]
-            result = await parse_ticket("ticket text", "stagehand", backend="auto")
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_local:
+            mock_local.return_value = bad_response  # local returns bad JSON
+            with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_remote:
+                mock_remote.return_value = VALID_TICKET_RESPONSE  # remote returns good JSON
+                result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
-    assert mock_chat.call_count == 2
+    assert mock_local.call_count == 1
+    assert mock_remote.call_count == 1
     assert isinstance(result, TicketParseResult)
 
 
@@ -205,18 +207,22 @@ def test_auto_escalates_at_most_once(max_retries):
     remote_calls = []
 
     async def run():
-        async def fake_chat(endpoint="", **kwargs):
+        async def fake_chat_remote(endpoint="", **kwargs):
             if "anthropic" in endpoint:
                 remote_calls.append(1)
             return bad_response
 
+        async def fake_chat_local(messages=None, endpoint="", model="", timeout=30):
+            return bad_response
+
         with patch("modok.llm.gateway._load_config", return_value=cfg):
-            with patch("modok.llm.gateway._chat_completion", new=fake_chat):
-                with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
-                    try:
-                        await parse_ticket("text", "stagehand", backend="auto")
-                    except (LLMResponseError, LLMUnavailableError):
-                        pass
+            with patch("modok.llm.gateway._ollama_chat_completion", new=fake_chat_local):
+                with patch("modok.llm.gateway._chat_completion", new=fake_chat_remote):
+                    with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
+                        try:
+                            await parse_ticket("text", "stagehand", backend="auto")
+                        except (LLMResponseError, LLMUnavailableError):
+                            pass
 
     _asyncio.run(run())
     assert len(remote_calls) <= 1
@@ -248,7 +254,7 @@ async def test_auto_does_not_escalate_on_low_confidence():
 """
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = low_conf_response
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
@@ -267,7 +273,7 @@ async def test_auto_without_remote_behaves_as_local():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
@@ -290,7 +296,7 @@ async def test_auto_without_remote_does_not_raise_on_low_confidence():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = low_conf
             # should not raise — no remote to escalate to
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
@@ -371,7 +377,7 @@ async def test_retries_on_timeout_up_to_max():
     cfg = make_config(max_retries=2)
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.side_effect = [
                 asyncio.TimeoutError(),
                 asyncio.TimeoutError(),
@@ -397,7 +403,7 @@ async def test_retry_stays_on_same_backend():
         remote_api_key="sk-test",
     )
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.side_effect = [asyncio.TimeoutError(), VALID_TICKET_RESPONSE]
             with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -417,7 +423,7 @@ async def test_4xx_raises_immediately_without_retry():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=2)):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.side_effect = LLMGatewayError("401 Unauthorized")
             with pytest.raises(LLMGatewayError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -437,7 +443,7 @@ async def test_raises_unavailable_after_all_retries():
 
     cfg = make_config(max_retries=2)
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.side_effect = asyncio.TimeoutError()
             with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
                 with pytest.raises(LLMUnavailableError):
@@ -470,7 +476,7 @@ def test_parse_ticket_uses_per_call_type_timeout(specific_timeout, default_timeo
             return VALID_TICKET_RESPONSE
 
         with patch("modok.llm.gateway._load_config", return_value=cfg):
-            with patch("modok.llm.gateway._chat_completion", new=fake_chat):
+            with patch("modok.llm.gateway._ollama_chat_completion", new=fake_chat):
                 await parse_ticket("text", "stagehand", backend="local")
 
     _asyncio.run(run())
@@ -495,7 +501,7 @@ def test_timeout_falls_back_to_timeout_seconds_when_specific_key_absent(default_
             return VALID_TICKET_RESPONSE
 
         with patch("modok.llm.gateway._load_config", return_value=cfg):
-            with patch("modok.llm.gateway._chat_completion", new=fake_chat):
+            with patch("modok.llm.gateway._ollama_chat_completion", new=fake_chat):
                 await parse_ticket("text", "stagehand", backend="local")
 
     _asyncio.run(run())
@@ -509,7 +515,7 @@ async def test_propose_metadata_uses_metadata_timeout():
 
     cfg = make_config(timeout_seconds=30, timeout_propose_metadata=15)
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"], backend="local")
 
@@ -539,7 +545,7 @@ def test_total_attempts_never_exceeds_max_retries_plus_one(max_retries):
             raise _asyncio.TimeoutError()
 
         with patch("modok.llm.gateway._load_config", return_value=cfg):
-            with patch("modok.llm.gateway._chat_completion", new=fake_chat):
+            with patch("modok.llm.gateway._ollama_chat_completion", new=fake_chat):
                 with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
                     try:
                         await parse_ticket("text", "stagehand", backend="local")
@@ -557,12 +563,18 @@ def test_total_attempts_never_exceeds_max_retries_plus_one(max_retries):
 # @spec LLM-VAL-001
 @pytest.mark.asyncio
 async def test_chat_completion_sets_json_object_format():
+    """Remote (OpenAI-compatible) backend sends response_format=json_object; local uses format:json internally."""
     from modok.llm.gateway import parse_ticket
 
-    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+    cfg = make_config(
+        remote_endpoint="https://api.anthropic.com/v1",
+        remote_model="claude-sonnet-4-6",
+        remote_api_key="sk-test",
+    )
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
         with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
-            await parse_ticket("text", "stagehand", backend="local")
+            await parse_ticket("text", "stagehand", backend="remote")
 
     call_kwargs = mock_chat.call_args.kwargs
     assert call_kwargs.get("response_format") == {"type": "json_object"}
@@ -578,7 +590,7 @@ async def test_valid_json_returns_typed_ticket_parse_result():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -625,7 +637,7 @@ async def test_successful_extraction_does_not_trigger_retry():
     # Model returns text with embedded JSON — not strict json_object
     wrapped = 'Sure! Here you go:\n' + VALID_TICKET_RESPONSE + '\nHope that helps.'
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = wrapped
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -643,7 +655,7 @@ async def test_raises_response_error_when_no_json_extractable():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = "Sorry, I cannot help with that."
             with pytest.raises(LLMResponseError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -656,7 +668,7 @@ async def test_raises_response_error_when_json_fails_schema_validation():
 
     bad_schema = '{"wrong_field": "value"}'
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = bad_schema
             with pytest.raises(LLMResponseError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -672,7 +684,7 @@ async def test_parse_ticket_returns_all_required_fields():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("customer reported pose dropout", "stagehand")
 
@@ -700,7 +712,7 @@ async def test_missing_confidence_defaults_to_zero():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = no_conf
             result = await parse_ticket("text", "stagehand")
 
@@ -718,7 +730,7 @@ async def test_parse_ticket_uses_prompt_from_prompts_module():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("text", "stagehand")
 
@@ -759,7 +771,7 @@ async def test_propose_metadata_returns_all_required_fields():
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             result = await propose_metadata(
                 Path("docs/lld/shtp.md"),
@@ -785,7 +797,7 @@ async def test_propose_metadata_uses_prompt_from_prompts_module():
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"])
 
@@ -846,7 +858,7 @@ async def test_propose_similarity_returns_proposals():
     ]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             result = await propose_similarity(issue, candidates)
 
@@ -877,7 +889,7 @@ async def test_similarity_proposal_has_all_required_fields():
     candidates = [KnownIssueSummary("ki-001", "summary", [])]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             result = await propose_similarity(issue, candidates)
 
@@ -938,7 +950,7 @@ async def test_propose_similarity_uses_prompt_from_prompts_module():
     candidates = [KnownIssueSummary("ki-001", "summary", [])]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             await propose_similarity(issue, candidates)
 
@@ -1001,7 +1013,7 @@ async def test_raw_response_is_in_memory_not_persisted():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("text", "stagehand")
 
@@ -1055,7 +1067,7 @@ async def test_propose_metadata_includes_counterexamples_in_repair_prompt():
         {"field": "feature_slug", "reason": "not in registry", "bad_value": "docs"}
     ]
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(
                 Path("doc.md"), {}, ["feature_slug"],
@@ -1073,7 +1085,7 @@ async def test_propose_metadata_no_counterexample_content_without_repair_context
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"], repair_context=None)
 

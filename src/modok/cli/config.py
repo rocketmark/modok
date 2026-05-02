@@ -37,6 +37,14 @@ class LLMConfig(BaseModel):
     provider: str = "ollama"
     base_url: str = "http://127.0.0.1:11434/v1"
     model: str = "llama3"
+    timeout_seconds: int = 30
+    timeout_propose_registry: int = 60
+    backend: str = "local"
+    local_endpoint: str = "http://localhost:11434"
+    local_model: str = "llama3.2"
+    remote_endpoint: str = ""
+    remote_model: str = ""
+    remote_api_key: str = ""
 
 
 class ProjectConfig(BaseModel):

@@ -394,7 +394,7 @@ def test_enrich_section_uses_timeout_propose_registry(tmp_path):
     cfg_llm.timeout_seconds = 15
     cfg_llm.backend = "local"
 
-    with patch("modok.llm.gateway._ollama_chat_completion") as mock_call:
+    with patch("modok.llm.gateway._ollama_enrich_call") as mock_call:
         mock_call.return_value = {
             "features": [], "modules": [], "error_signatures": [],
             "known_issues": [], "failure_modes": [], "decisions": [],
@@ -421,7 +421,7 @@ def test_enrich_section_falls_back_to_timeout_seconds_when_key_absent(tmp_path):
     cfg_llm.timeout_seconds = 45
     cfg_llm.backend = "local"
 
-    with patch("modok.llm.gateway._ollama_chat_completion") as mock_call:
+    with patch("modok.llm.gateway._ollama_enrich_call") as mock_call:
         mock_call.return_value = {
             "features": [], "modules": [], "error_signatures": [],
             "known_issues": [], "failure_modes": [], "decisions": [],
@@ -468,7 +468,7 @@ def test_enrich_section_uses_frozen_system_prompt(tmp_path):
             "observation_events": [],
         }
 
-    with patch("modok.llm.gateway._ollama_chat_completion", side_effect=capture_call):
+    with patch("modok.llm.gateway._ollama_enrich_call", side_effect=capture_call):
         enrich_section(section, cfg_llm)
 
     system_msgs = [m for m in captured_messages if isinstance(m, dict) and m.get("role") == "system"]
@@ -491,13 +491,13 @@ def test_enrich_section_local_backend_uses_native_ollama_api(tmp_path):
     cfg_llm.timeout_propose_registry = 60
     cfg_llm.backend = "local"
 
-    with patch("modok.llm.gateway._ollama_chat_completion") as mock_local:
+    with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
         mock_local.return_value = {
             "features": [], "modules": [], "error_signatures": [],
             "known_issues": [], "failure_modes": [], "decisions": [],
             "observation_events": [],
         }
-        with patch("modok.llm.gateway._chat_completion") as mock_remote:
+        with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
             enrich_section(section, cfg_llm)
 
     mock_local.assert_called_once()
@@ -515,13 +515,13 @@ def test_enrich_section_remote_backend_uses_openai_compatible_api(tmp_path):
     cfg_llm.timeout_propose_registry = 60
     cfg_llm.backend = "remote"
 
-    with patch("modok.llm.gateway._chat_completion") as mock_remote:
+    with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
         mock_remote.return_value = {
             "features": [], "modules": [], "error_signatures": [],
             "known_issues": [], "failure_modes": [], "decisions": [],
             "observation_events": [],
         }
-        with patch("modok.llm.gateway._ollama_chat_completion") as mock_local:
+        with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
             enrich_section(section, cfg_llm)
 
     mock_remote.assert_called_once()
@@ -539,13 +539,13 @@ def test_enrich_section_defaults_to_local_backend(tmp_path):
     cfg_llm.timeout_propose_registry = 60
     # No backend attribute — should default to local
 
-    with patch("modok.llm.gateway._ollama_chat_completion") as mock_local:
+    with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
         mock_local.return_value = {
             "features": [], "modules": [], "error_signatures": [],
             "known_issues": [], "failure_modes": [], "decisions": [],
             "observation_events": [],
         }
-        with patch("modok.llm.gateway._chat_completion") as mock_remote:
+        with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
             try:
                 enrich_section(section, cfg_llm)
             except AttributeError:
@@ -572,7 +572,7 @@ def test_enrich_section_never_calls_quine(tmp_path):
     cfg_llm.timeout_propose_registry = 60
     cfg_llm.backend = "local"
 
-    with patch("modok.llm.gateway._ollama_chat_completion", return_value={
+    with patch("modok.llm.gateway._ollama_enrich_call", return_value={
         "features": [], "modules": [], "error_signatures": [],
         "known_issues": [], "failure_modes": [], "decisions": [],
         "observation_events": [],
@@ -719,10 +719,10 @@ def test_slug_collision_different_names_uses_dash_2_suffix(capsys):
     from modok.registry.slugify import slugify, resolve_slug_collisions
 
     # "Real-Time Tracking" and "Real Time Tracking" produce the same slug
-    # but differ semantically after lowercasing+stripping (punctuation differs)
+    # but differ after lowercasing+stripping (hyphen vs space)
     entries = [
         {"name": "Real-Time Tracking", "description": "Tracks in real time."},
-        {"name": "Real Time Tracking Alt", "description": "An alternative."},
+        {"name": "Real Time Tracking", "description": "An alternative."},
     ]
 
     resolved = resolve_slug_collisions(entries)

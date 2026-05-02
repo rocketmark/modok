@@ -1070,7 +1070,7 @@ def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
         call_order.append("propose")
         return summary
 
-    def recording_hook(repo_path):
+    def recording_hook(*args, **kwargs):
         call_order.append("hook")
 
     runner = CliRunner(mix_stderr=False)

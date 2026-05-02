@@ -149,7 +149,7 @@ def test_slugify_has_no_side_effects(text):
         max_size=20,
     ).filter(lambda s: s.strip()),
 )
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_slug_collision_identical_names_after_normalise_keeps_longer(base, capsys):
     from modok.registry.slugify import slugify, resolve_slug_collisions
 
@@ -182,7 +182,7 @@ def test_slug_collision_identical_names_after_normalise_keeps_longer(base, capsy
     ).filter(lambda s: s.strip()),
     extra_spaces=st.integers(min_value=1, max_value=5),
 )
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_slug_collision_whitespace_only_difference_merges(name, extra_spaces, capsys):
     from modok.registry.slugify import slugify, resolve_slug_collisions
 

@@ -333,8 +333,185 @@ def _validate_similarity(data: dict, raw: str) -> list[SimilarityProposal]:
 
 
 # ---------------------------------------------------------------------------
+# Synchronous enrich calls (registry proposal — sequential, no asyncio)
+# ---------------------------------------------------------------------------
+
+def _ollama_enrich_call(
+    messages: list[dict],
+    endpoint: str,
+    model: str,
+    timeout: float,
+) -> dict:
+    """Sync Ollama native /api/chat call for section enrichment. Returns parsed JSON dict."""
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+        "format": "json",
+        "options": {"num_ctx": 8192},
+    }
+    try:
+        resp = httpx.post(
+            f"{endpoint.rstrip('/')}/api/chat",
+            headers={"Content-Type": "application/json"},
+            json=body,
+            timeout=timeout,
+        )
+    except httpx.TimeoutException as exc:
+        raise LLMUnavailableError(f"Timeout after {timeout}s") from exc
+    except httpx.RequestError as exc:
+        raise LLMUnavailableError(f"Request failed: {exc}") from exc
+
+    if resp.status_code >= 500:
+        raise LLMUnavailableError(f"Server error {resp.status_code}")
+    if resp.status_code >= 400:
+        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
+
+    content = resp.json()["message"]["content"]
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        parsed = _extract_json(content)
+        if parsed is None:
+            raise LLMResponseError(f"No JSON in response: {content[:200]!r}")
+        return parsed
+
+
+def _openai_enrich_call(
+    messages: list[dict],
+    endpoint: str,
+    model: str,
+    timeout: float,
+    api_key: str = "",
+) -> dict:
+    """Sync OpenAI-compatible call for section enrichment. Returns parsed JSON dict."""
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    body = {
+        "model": model,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        resp = httpx.post(
+            f"{endpoint.rstrip('/')}/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=timeout,
+        )
+    except httpx.TimeoutException as exc:
+        raise LLMUnavailableError(f"Timeout after {timeout}s") from exc
+    except httpx.RequestError as exc:
+        raise LLMUnavailableError(f"Request failed: {exc}") from exc
+
+    if resp.status_code >= 500:
+        raise LLMUnavailableError(f"Server error {resp.status_code}")
+    if resp.status_code >= 400:
+        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
+
+    content = resp.json()["choices"][0]["message"]["content"]
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        parsed = _extract_json(content)
+        if parsed is None:
+            raise LLMResponseError(f"No JSON in response: {content[:200]!r}")
+        return parsed
+
+
+# ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
+
+def enrich_section(section: Any, cfg_llm: Any) -> Any:
+    # @spec RP-ENRICH-001, RP-ENRICH-005, RP-ENRICH-006, RP-ENRICH-007, RP-ENRICH-008
+    from modok.registry.proposal import EnrichSectionResult
+
+    timeout = getattr(cfg_llm, "timeout_propose_registry", None)
+    if timeout is None:
+        timeout = getattr(cfg_llm, "timeout_seconds", 60)
+    timeout = float(timeout)
+
+    backend = getattr(cfg_llm, "backend", "local")
+
+    messages = [
+        {"role": "system", "content": prompts.ENRICH_SECTION_SYSTEM},
+        {"role": "user", "content": f"Section heading: {section.heading}\n\n{section.body}"},
+    ]
+
+    if backend == "remote":
+        endpoint = getattr(cfg_llm, "remote_endpoint", "") or getattr(cfg_llm, "base_url", "")
+        model = getattr(cfg_llm, "remote_model", "") or getattr(cfg_llm, "model", "")
+        api_key = getattr(cfg_llm, "remote_api_key", "")
+        data = _openai_enrich_call(
+            messages=messages,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+        )
+    else:
+        endpoint = getattr(cfg_llm, "local_endpoint", "http://localhost:11434")
+        model = getattr(cfg_llm, "local_model", "llama3.2")
+        data = _ollama_enrich_call(
+            messages=messages,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+        )
+
+    return EnrichSectionResult(
+        features=list(data.get("features", [])),
+        modules=list(data.get("modules", [])),
+        error_signatures=list(data.get("error_signatures", [])),
+        known_issues=list(data.get("known_issues", [])),
+        failure_modes=list(data.get("failure_modes", [])),
+        decisions=list(data.get("decisions", [])),
+        observation_events=list(data.get("observation_events", [])),
+    )
+
+
+def normalise_candidates(candidates: dict, cfg_llm: Any) -> dict:
+    # @spec RP-NORM-002, RP-NORM-004
+    import yaml as _yaml
+
+    timeout = getattr(cfg_llm, "timeout_propose_registry", None)
+    if timeout is None:
+        timeout = getattr(cfg_llm, "timeout_seconds", 60)
+    timeout = float(timeout)
+
+    backend = getattr(cfg_llm, "backend", "local")
+    user_content = _yaml.dump(candidates, default_flow_style=False, allow_unicode=True)
+
+    messages = [
+        {"role": "system", "content": prompts.NORMALISE_REGISTRY_SYSTEM},
+        {"role": "user", "content": user_content},
+    ]
+
+    if backend == "remote":
+        endpoint = getattr(cfg_llm, "remote_endpoint", "") or getattr(cfg_llm, "base_url", "")
+        model = getattr(cfg_llm, "remote_model", "") or getattr(cfg_llm, "model", "")
+        api_key = getattr(cfg_llm, "remote_api_key", "")
+        return _openai_enrich_call(
+            messages=messages,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+        )
+    else:
+        endpoint = getattr(cfg_llm, "local_endpoint", "http://localhost:11434")
+        model = getattr(cfg_llm, "local_model", "llama3.2")
+        return _ollama_enrich_call(
+            messages=messages,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+        )
+
 
 async def parse_ticket(
     raw_text: str,
