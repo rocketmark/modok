@@ -193,8 +193,7 @@ That structure lets an agent ask:
 - What known issues are connected to this error?
 - What fixes resolved this class of problem before?
 
-The point is not to replace docs.  
-The point is to make the relationships docs imply explicit enough to retrieve.
+The point is not to replace docs. It's to make the relationships the docs imply explicit enough to retrieve.
 
 ---
 
