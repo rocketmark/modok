@@ -109,8 +109,41 @@ def _extract_json(raw: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Core HTTP call
+# Core HTTP calls
 # ---------------------------------------------------------------------------
+
+async def _ollama_chat_completion(
+    messages: list[dict],
+    endpoint: str,
+    model: str,
+    timeout: float,
+) -> str:
+    """Native Ollama API — disables thinking, requests JSON output."""
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+        "format": "json",
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            resp = await client.post(
+                f"{endpoint.rstrip('/')}/api/chat",
+                headers={"Content-Type": "application/json"},
+                json=body,
+            )
+        except httpx.TimeoutException as exc:
+            raise asyncio.TimeoutError(str(exc)) from exc
+
+    if resp.status_code >= 500:
+        raise LLMUnavailableError(f"Server error {resp.status_code}")
+    if resp.status_code >= 400:
+        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
+
+    data = resp.json()
+    return data["message"]["content"]
+
 
 async def _chat_completion(
     messages: list[dict],
@@ -120,6 +153,7 @@ async def _chat_completion(
     timeout: float,
     api_key: str = "",
 ) -> str:
+    """OpenAI-compatible API — used for remote backends."""
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -128,7 +162,6 @@ async def _chat_completion(
         "model": model,
         "messages": messages,
         "response_format": response_format,
-        "enable_thinking": False,
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -162,10 +195,18 @@ async def _call_with_retry(
     timeout: float,
     api_key: str,
     max_retries: int,
+    native_ollama: bool = False,
 ) -> str:
     last_exc: Exception = LLMUnavailableError("no attempts made")
     for attempt in range(max_retries + 1):
         try:
+            if native_ollama:
+                return await _ollama_chat_completion(
+                    messages=messages,
+                    endpoint=endpoint,
+                    model=model,
+                    timeout=timeout,
+                )
             return await _chat_completion(
                 messages=messages,
                 response_format=response_format,
@@ -208,7 +249,7 @@ async def _call_auto(
     validator,
 ) -> Any:
     """Run local first; escalate to remote on validation failure only."""
-    local_endpoint = cfg.get("local_endpoint", "http://localhost:11434/v1")
+    local_endpoint = cfg.get("local_endpoint", "http://localhost:11434")
     local_model = cfg.get("local_model", "llama3.2")
     max_retries = int(cfg.get("max_retries", 2))
 
@@ -222,6 +263,7 @@ async def _call_auto(
         timeout=timeout,
         api_key="",
         max_retries=max_retries,
+        native_ollama=True,
     )
 
     if has_remote:
@@ -239,6 +281,7 @@ async def _call_auto(
             timeout=timeout,
             api_key=r_key,
             max_retries=max_retries,
+            native_ollama=False,
         )
 
     return _parse_and_validate(raw, validator)
@@ -312,20 +355,29 @@ async def parse_ticket(
 
     if backend == "remote":
         endpoint, model, api_key = _check_remote_config(cfg)
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+            max_retries=max_retries,
+            native_ollama=False,
+        )
     else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434/v1")
+        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
         model = cfg.get("local_model", "llama3.2")
-        api_key = ""
-
-    raw = await _call_with_retry(
-        messages=messages,
-        response_format=response_format,
-        endpoint=endpoint,
-        model=model,
-        timeout=timeout,
-        api_key=api_key,
-        max_retries=max_retries,
-    )
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key="",
+            max_retries=max_retries,
+            native_ollama=True,
+        )
     return _parse_and_validate(raw, _validate_ticket)
 
 
@@ -360,20 +412,29 @@ async def propose_metadata(
 
     if backend == "remote":
         endpoint, model, api_key = _check_remote_config(cfg)
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+            max_retries=max_retries,
+            native_ollama=False,
+        )
     else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434/v1")
+        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
         model = cfg.get("local_model", "llama3.2")
-        api_key = ""
-
-    raw = await _call_with_retry(
-        messages=messages,
-        response_format=response_format,
-        endpoint=endpoint,
-        model=model,
-        timeout=timeout,
-        api_key=api_key,
-        max_retries=max_retries,
-    )
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key="",
+            max_retries=max_retries,
+            native_ollama=True,
+        )
     return _parse_and_validate(raw, _validate_metadata)
 
 
@@ -408,18 +469,27 @@ async def propose_similarity(
 
     if backend == "remote":
         endpoint, model, api_key = _check_remote_config(cfg)
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+            max_retries=max_retries,
+            native_ollama=False,
+        )
     else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434/v1")
+        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
         model = cfg.get("local_model", "llama3.2")
-        api_key = ""
-
-    raw = await _call_with_retry(
-        messages=messages,
-        response_format=response_format,
-        endpoint=endpoint,
-        model=model,
-        timeout=timeout,
-        api_key=api_key,
-        max_retries=max_retries,
-    )
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key="",
+            max_retries=max_retries,
+            native_ollama=True,
+        )
     return _parse_and_validate(raw, _validate_similarity)
