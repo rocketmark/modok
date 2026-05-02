@@ -128,6 +128,7 @@ async def _chat_completion(
         "model": model,
         "messages": messages,
         "response_format": response_format,
+        "enable_thinking": False,
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
