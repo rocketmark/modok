@@ -37,7 +37,7 @@ Before anyone can fix a problem, they need to answer questions like:
 - What fixed similar issues last time?
 - Which docs, tickets, incidents, or logs are relevant?
 
-Humans rebuild this context manually. Agents rebuild it every session. It is slow, repetitive, expensive, and lossy.
+Humans rebuild this context manually. Agents rebuild it every session. It's slow, repetitive, expensive, and lossy.
 
 MODOK exists to make that orientation step explicit, reusable, and inspectable.
 
