@@ -4,7 +4,7 @@
 
 **Mechanized Oracle Designed Only for Knowledge**
 
-MODOK gives engineers, operators, and AI agents a map of the system before they start debugging.
+MODOK gives engineers, operators, and AI agents the context to act, not just the text to read.
 
 It shows:
 
