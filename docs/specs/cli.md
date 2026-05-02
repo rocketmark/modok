@@ -60,6 +60,10 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **CLI-INGEST-003** [U]: When the ingestion report contains one or more errors, `modok ingest` shall exit `3`.
 - [x] **CLI-INGEST-004** [U]: When `--fix` is specified and `sys.stdin.isatty()` returns `False` (non-interactive), the system shall pass `fix_mode=False` to `run_ingestion` and emit a warning to stderr stating that LLM proposals were suppressed.
 - [x] **CLI-INGEST-005** [U]: `modok ingest` shall derive `repo_root` from the project's `repo` path in config and load registries from `{repo_root}/registries/`.
+- [x] **CLI-INGEST-006** [U]: When `--fix --strict` is specified, the system shall pass `strict=True` to `run_ingestion`; any doc with a rejected field after repair shall produce zero nodes written and a structured error in the ingestion report.
+- [x] **CLI-INGEST-007** [U]: When `--fix --dry-run` is specified, the system shall pass `dry_run=True` to `run_ingestion`; no files or Quine nodes shall be written and the command shall exit `0`.
+- [x] **CLI-INGEST-008** [U]: When `--fix --emit-counterexamples` is specified, the system shall pass `emit_counterexamples=True` to `run_ingestion`; a YAML counterexample file shall be written to `{repo_root}/tests/fixtures/llm_gateway/` for each doc with rejected fields.
+- [x] **CLI-INGEST-009** [U]: `--strict`, `--dry-run`, and `--emit-counterexamples` shall be valid only when `--fix` is also specified; supplying any of them without `--fix` shall exit `1` with a usage error.
 
 ---
 

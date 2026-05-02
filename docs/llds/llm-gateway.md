@@ -18,7 +18,12 @@ The gateway exposes a single async function per use case:
 
 ```python
 async def parse_ticket(raw_text: str, project_slug: str) -> TicketParseResult
-async def propose_metadata(doc_path: Path, frontmatter: dict, missing_fields: list[str]) -> MetadataProposal
+async def propose_metadata(
+    doc_path: Path,
+    frontmatter: dict,
+    missing_fields: list[str],
+    repair_context: list[dict] | None = None,   # counterexamples from prior failed attempt
+) -> MetadataProposal
 async def propose_similarity(issue: CustomerIssue, candidates: list[KnownIssueSummary]) -> list[SimilarityProposal]
 ```
 
@@ -65,6 +70,9 @@ timeout_parse_ticket    = 30  # background-safe; can be slow
 timeout_propose_metadata = 15 # interactive (--fix workflow); must feel fast
 timeout_propose_similarity = 15  # interactive; surfaced to user
 max_retries     = 2
+cegis_fix_enabled = true
+cegis_max_iterations_propose_metadata = 1   # one repair attempt; total max 2 LLM calls
+counterexample_fixture_dir = ""             # required when using --emit-counterexamples; points to modok's own tests/fixtures/llm_gateway/
 ```
 
 Per-call-type timeouts take precedence over `timeout_seconds`. If a per-call-type key is absent, `timeout_seconds` is used.
@@ -134,6 +142,126 @@ class LLMUnavailableError(LLMGatewayError): pass  # all retries exhausted
 class LLMResponseError(LLMGatewayError): pass     # response failed validation
 ```
 
+## Metadata Proposal Verifier
+
+The verifier is a pure function in `modok/ingestion/verifier.py`. It is called by the ingestion pipeline after receiving a `MetadataProposal` from the gateway. The gateway itself does not verify — it has no registry access.
+
+```python
+@dataclass
+class VerificationResult:
+    valid_fields: dict[str, Any]      # fields that passed all checks
+    rejected_fields: list[RejectedField]  # fields that failed, with reasons
+    is_valid: bool                    # True if rejected_fields is empty
+
+@dataclass
+class RejectedField:
+    field: str
+    bad_value: Any
+    reason: str
+    repair_instruction: str           # included in CEGIS repair prompt
+
+def verify_proposal(
+    proposal: MetadataProposal,
+    missing_fields: list[str],
+    existing_frontmatter: dict,
+    registry: Registry,
+) -> VerificationResult
+```
+
+### Hard checks (all fields)
+
+- `proposed_fields` must be a dict.
+- `confidence` must be a float in [0.0, 1.0].
+- `evidence` must be a non-empty string.
+- Every key in `proposed_fields` must appear in `missing_fields` — extra fields are rejected individually, not as a whole-proposal failure.
+- No key in `proposed_fields` may already exist in `existing_frontmatter` — overwrite attempts are rejected.
+- Every proposed value must have the correct type for its field.
+- Enum fields must use known enum values.
+- Slug fields (`feature_slug`, `module_slug`, error signature slugs) must exist in the registry.
+- List fields must be deduplicated.
+- Empty values are rejected unless the field explicitly allows them.
+
+### Evidence checks (proposal-level)
+
+The `evidence` field is a single string on the whole `MetadataProposal`, not per-field. If evidence fails, all proposed fields are rejected.
+
+Two-tier check:
+- **Hard**: fewer than 15 characters — objectively too short to be useful (catches "N/A", "See above.", blank).
+- **Soft pattern**: matches a hardcoded filler list (strings starting with "The document is about", "This document describes", "Based on the document", "The file mentions"). Not configurable — new patterns become code changes with fixtures.
+
+A short but specific string (e.g. `"shtp.c line 42"` at 14 chars) fails the hard check. This is intentional: if the evidence is that specific, it should be written out as a sentence.
+
+### Safety checks (structural)
+
+These are enforced by the pipeline, not the verifier function, but documented here for completeness:
+- The gateway must not write to the doc file.
+- The gateway must not write to Quine.
+- Invalid proposals must not be partially applied without the caller's explicit field-level decision.
+- `raw_response` must not be persisted by the gateway.
+
+### Verification result handling
+
+**Default mode (`--fix` without `--strict`)**: accept `valid_fields`, skip `rejected_fields`. Each rejected field becomes a structured warning in the ingestion report. The doc is updated with passing fields only; remaining missing fields re-surface on the next ingest run.
+
+**Strict mode (`--fix --strict`)**: if `rejected_fields` is non-empty, write nothing. Emit a structured error per rejected field.
+
+## Bounded CEGIS Repair Loop
+
+When the verifier rejects one or more fields, the ingestion pipeline may attempt one repair. The gateway is not aware of the repair loop — it receives a second `propose_metadata` call with an augmented prompt that includes the counterexamples.
+
+```
+propose_metadata(doc, frontmatter, missing_fields)
+  │
+  ▼
+verify_proposal(...)
+  │
+  ├── all valid → accept valid_fields
+  │
+  └── some rejected
+         │
+         ▼
+     build counterexamples from rejected_fields
+         │
+         ▼
+     propose_metadata(doc, frontmatter, remaining_missing_fields,
+                      repair_context=counterexamples)   ← second call
+         │
+         ▼
+     verify_proposal(...)
+         │
+         ├── valid fields → accept (accumulated with initial valid_fields)
+         └── still rejected → warn, skip those fields
+```
+
+Config:
+```toml
+[llm]
+cegis_fix_enabled = true
+cegis_max_iterations_propose_metadata = 1   # one repair attempt; total max 2 LLM calls per field set
+```
+
+The repair loop runs only when `cegis_fix_enabled = true`. In non-interactive mode (CLI-INGEST-004), both the initial proposal and the repair attempt are suppressed — no LLM calls are made.
+
+### Counterexample format (repair prompt input)
+
+```yaml
+counterexamples:
+  - field: proposed_fields.feature_slug
+    reason: "Proposed slug is not in the known feature registry."
+    bad_value: "docs"
+    allowed_values: [ingestion, retrieval, llm-gateway, quine-client]
+    repair_instruction: "Choose an allowed feature_slug only if supported by the document body. Otherwise omit the field."
+
+  - field: proposed_fields.owner
+    reason: "Field was not requested in missing_fields."
+    bad_value: "platform"
+    repair_instruction: "Only propose fields listed in missing_fields."
+```
+
+### Counterexample file emission (`--emit-counterexamples`)
+
+When `--emit-counterexamples` is passed to `modok ingest --fix`, rejected fields from both the initial proposal and the repair attempt are written as a YAML counterexample file to the path configured in `llm.counterexample_fixture_dir` (pointing to modok's own `tests/fixtures/llm_gateway/`, not the project repo). This feeds the offline CEGIS eval corpus directly. The file is named `{doc_slug}_{iso_timestamp}.yaml` and follows the format above extended with `input`, `expected`, and `actual` sections (see `docs/Offline-cegis-brainstorm.md`). When `counterexample_fixture_dir` is not configured, the command exits `1` with a clear error before making any LLM calls.
+
 ## ID Scheme
 
 The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own node creation.
@@ -154,6 +282,9 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 | `LLMResponseError` is hard exception | Always raise; caller handles degradation | Gateway returns empty/partial result | Caller knows its UX context; swallowing errors in the gateway hides failures |
 | `raw_response` persistence | In-memory only; returned in result struct | Gateway persists to audit log | Persistence is a future audit-log concern; current callers only need it for debug logging |
 | Per-call-type timeouts | 15s interactive (`propose_metadata`, `propose_similarity`), 30s background (`parse_ticket`) | Single global timeout | Interactive paths must feel fast; ticket parsing is background-safe |
+| `repair_context` in `propose_metadata` | Optional parameter; gateway includes counterexamples in repair prompt when present | Separate `repair_metadata` function; always include repair context | Single function keeps the interface simple; `None` repair_context = initial call, non-None = repair call; no behavioral difference from gateway's perspective beyond prompt construction |
+| CEGIS repair iteration cap | 1 (total 2 LLM calls max per field set) | Unlimited; 2 or 3 iterations | One repair is sufficient to distinguish "model can self-correct" from "prompt needs improvement"; more iterations delay interactive `--fix` UX with diminishing returns |
+| Verifier location | `modok/ingestion/verifier.py`; not in gateway | `modok/llm/verifier.py` | Registry access required for slug/enum validation; gateway is stateless and registry-unaware |
 
 ## Open Questions & Future Decisions
 

@@ -33,6 +33,9 @@ class Registry:
     def has_feature(self, slug: str) -> bool:
         return slug in self._features
 
+    def feature_slugs(self) -> list[str]:
+        return list(self._features.keys())
+
     def has_module(self, slug: str) -> bool:
         return slug in self._modules
 

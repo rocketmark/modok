@@ -1040,3 +1040,631 @@ def test_each_call_type_uses_distinct_prompt():
     assert prompts_mod.PARSE_TICKET_SYSTEM != prompts_mod.PROPOSE_METADATA_SYSTEM
     assert prompts_mod.PARSE_TICKET_SYSTEM != prompts_mod.PROPOSE_SIMILARITY_SYSTEM
     assert prompts_mod.PROPOSE_METADATA_SYSTEM != prompts_mod.PROPOSE_SIMILARITY_SYSTEM
+
+
+# ---------------------------------------------------------------------------
+# LLM-META-005/006/007 — repair_context in propose_metadata
+# ---------------------------------------------------------------------------
+
+# @spec LLM-META-005
+@pytest.mark.asyncio
+async def test_propose_metadata_includes_counterexamples_in_repair_prompt():
+    from modok.llm.gateway import propose_metadata
+
+    repair_context = [
+        {"field": "feature_slug", "reason": "not in registry", "bad_value": "docs"}
+    ]
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_METADATA_RESPONSE
+            await propose_metadata(
+                Path("doc.md"), {}, ["feature_slug"],
+                repair_context=repair_context,
+            )
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    user_content = " ".join(m["content"] for m in messages if m.get("role") == "user")
+    assert "not in registry" in user_content or "feature_slug" in user_content
+
+
+# @spec LLM-META-006
+@pytest.mark.asyncio
+async def test_propose_metadata_no_counterexample_content_without_repair_context():
+    from modok.llm.gateway import propose_metadata
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_METADATA_RESPONSE
+            await propose_metadata(Path("doc.md"), {}, ["modules"], repair_context=None)
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    full_content = " ".join(m.get("content", "") for m in messages)
+    assert "counterexample" not in full_content.lower()
+    assert "bad_value" not in full_content
+
+
+# @spec LLM-META-007
+def test_repair_and_initial_prompts_are_distinct_constants():
+    import modok.llm.prompts as prompts_mod
+
+    assert hasattr(prompts_mod, "PROPOSE_METADATA_SYSTEM")
+    assert hasattr(prompts_mod, "PROPOSE_METADATA_REPAIR_SYSTEM")
+    assert prompts_mod.PROPOSE_METADATA_SYSTEM != prompts_mod.PROPOSE_METADATA_REPAIR_SYSTEM
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-001 — reject fields not in missing_fields
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-001
+def test_verifier_rejects_field_not_in_missing_fields():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion", "owner": "platform"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "owner" in rejected_names
+    assert "feature_slug" in result.valid_fields
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-002 — reject fields that overwrite existing frontmatter
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-002
+def test_verifier_rejects_field_that_overwrites_existing_frontmatter():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    existing = {"feature_slug": "retrieval"}
+    registry = MagicMock()
+
+    result = verify_proposal(proposal, ["feature_slug"], existing, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "feature_slug" in rejected_names
+    assert any("overwrite" in r.reason.lower() for r in result.rejected_fields)
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-003 — reject wrong type
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-003
+def test_verifier_rejects_wrong_value_type():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    # modules must be a list, not a string
+    proposal = MetadataProposal(
+        proposed_fields={"modules": "shtp"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+
+    result = verify_proposal(proposal, ["modules"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "modules" in rejected_names
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-004 — reject unknown slug
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-004
+def test_verifier_rejects_feature_slug_not_in_registry():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "nonexistent-feature"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = False
+    registry.feature_slugs.return_value = ["ingestion", "retrieval"]
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "feature_slug" in rejected_names
+    assert any(r.allowed_values for r in result.rejected_fields if r.field == "feature_slug")
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-005 — reject unknown enum value
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-005
+def test_verifier_rejects_unknown_enum_value():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    # doc_type must be one of the known enum values
+    proposal = MetadataProposal(
+        proposed_fields={"doc_type": "superdoc"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+
+    result = verify_proposal(proposal, ["doc_type"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "doc_type" in rejected_names
+    rejected = next(r for r in result.rejected_fields if r.field == "doc_type")
+    assert rejected.allowed_values
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-006 — reject duplicates in list fields
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-006
+def test_verifier_rejects_list_field_with_duplicates():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"modules": ["shtp", "shtp"]},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_module.return_value = True
+
+    result = verify_proposal(proposal, ["modules"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "modules" in rejected_names
+    assert any("duplicate" in r.reason.lower() for r in result.rejected_fields)
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-007 — reject empty values
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-007
+def test_verifier_rejects_empty_string_value():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": ""},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "feature_slug" in rejected_names
+
+
+# @spec LLM-VER-007
+def test_verifier_rejects_empty_list_value():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"modules": []},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+
+    result = verify_proposal(proposal, ["modules"], {}, registry)
+
+    rejected_names = [r.field for r in result.rejected_fields]
+    assert "modules" in rejected_names
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-008 — reject insufficient evidence (two-tier)
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-008
+def test_verifier_rejects_evidence_shorter_than_15_chars():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="See doc.",      # 8 chars — too short
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    assert not result.is_valid
+    assert all("evidence" in r.reason.lower() for r in result.rejected_fields)
+
+
+# @spec LLM-VER-008
+@pytest.mark.parametrize("filler", [
+    "The document is about validation.",
+    "This document describes the feature.",
+    "Based on the document content.",
+    "The file mentions the module.",
+])
+def test_verifier_rejects_known_filler_patterns(filler):
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence=filler,
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    assert not result.is_valid
+    assert all("evidence" in r.reason.lower() for r in result.rejected_fields)
+
+
+# @spec LLM-VER-008
+def test_verifier_accepts_short_but_specific_evidence_fails_hard_check():
+    """A 14-char specific string still fails the hard check — must be written as a sentence."""
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="shtp.c line 42",   # 14 chars, specific but too short
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    assert not result.is_valid
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-009 — verify_proposal is a pure function
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-009
+@given(
+    field=st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("L",))),
+    value=st.text(min_size=1, max_size=20),
+)
+@settings(deadline=None)
+def test_verify_proposal_does_not_mutate_inputs(field, value):
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    original_missing = [field]
+    original_frontmatter = {"existing": "value"}
+    proposed = {field: value}
+
+    proposal = MetadataProposal(
+        proposed_fields=dict(proposed),
+        confidence=0.5,
+        evidence="The document is about validation.",  # filler — will reject
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    verify_proposal(proposal, list(original_missing), dict(original_frontmatter), registry)
+
+    assert original_missing == [field]
+    assert original_frontmatter == {"existing": "value"}
+
+
+# ---------------------------------------------------------------------------
+# LLM-VER-010/011 — is_valid flag and valid_fields / rejected_fields
+# ---------------------------------------------------------------------------
+
+# @spec LLM-VER-010
+def test_verify_proposal_is_valid_true_when_all_fields_pass():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    assert result.is_valid is True
+    assert result.rejected_fields == []
+    assert "feature_slug" in result.valid_fields
+
+
+# @spec LLM-VER-011
+def test_verify_proposal_is_valid_false_with_mixed_fields():
+    from modok.ingestion.verifier import verify_proposal
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion", "owner": "platform"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+
+    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
+
+    assert result.is_valid is False
+    assert "feature_slug" in result.valid_fields
+    assert any(r.field == "owner" for r in result.rejected_fields)
+
+
+# ---------------------------------------------------------------------------
+# LLM-CEGIS-001 — repair attempt called when initial verification fails
+# ---------------------------------------------------------------------------
+
+# @spec LLM-CEGIS-001
+@pytest.mark.asyncio
+async def test_cegis_repair_called_on_initial_verification_failure():
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    cfg = make_config()
+    good_proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    bad_proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},  # will fail registry check
+        confidence=0.6,
+        evidence="The document is about validation.",  # filler evidence
+        raw_response="{}",
+    )
+
+    registry = MagicMock()
+    registry.has_feature.side_effect = lambda slug: slug == "ingestion"
+    registry.feature_slugs.return_value = ["ingestion", "retrieval"]
+
+    propose_calls = []
+
+    async def fake_propose(doc_path, frontmatter, missing_fields, repair_context=None, **kwargs):
+        propose_calls.append(repair_context)
+        return bad_proposal if repair_context is None else good_proposal
+
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._load_llm_config",
+                   return_value={"cegis_fix_enabled": True}):
+            result = await run_llm_proposal_pass(
+                doc_path=Path("doc.md"),
+                frontmatter={"doc_type": "lld"},
+                missing_fields=["feature_slug"],
+                registry=registry,
+                strict=False,
+                dry_run=False,
+            )
+
+    assert len(propose_calls) == 2
+    assert propose_calls[0] is None          # initial call
+    assert propose_calls[1] is not None      # repair call has counterexamples
+
+
+# ---------------------------------------------------------------------------
+# LLM-CEGIS-002 — repair only re-proposes rejected fields; accumulates valid_fields
+# ---------------------------------------------------------------------------
+
+# @spec LLM-CEGIS-002
+@pytest.mark.asyncio
+async def test_cegis_repair_only_proposes_rejected_fields():
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    # Initial: feature_slug passes, modules fails (wrong type)
+    initial = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion", "modules": "shtp"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    repair = MetadataProposal(
+        proposed_fields={"modules": ["shtp"]},
+        confidence=0.85,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+
+    registry = MagicMock()
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+
+    repair_missing: list = []
+
+    async def fake_propose(doc_path, frontmatter, missing_fields, repair_context=None, **kwargs):
+        if repair_context is not None:
+            repair_missing.extend(missing_fields)
+        return initial if repair_context is None else repair
+
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._load_llm_config",
+                   return_value={"cegis_fix_enabled": True}):
+            result = await run_llm_proposal_pass(
+                doc_path=Path("doc.md"),
+                frontmatter={},
+                missing_fields=["feature_slug", "modules"],
+                registry=registry,
+                strict=False,
+                dry_run=False,
+            )
+
+    # Repair should only request the rejected field, not the passing one
+    assert "feature_slug" not in repair_missing
+    assert "modules" in repair_missing
+    # Both passes contribute to valid_fields
+    assert "feature_slug" in result.valid_fields
+    assert "modules" in result.valid_fields
+
+
+# ---------------------------------------------------------------------------
+# LLM-CEGIS-003 — at most one repair attempt
+# ---------------------------------------------------------------------------
+
+# @spec LLM-CEGIS-003
+@pytest.mark.asyncio
+async def test_cegis_makes_at_most_one_repair_attempt():
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    bad = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},
+        confidence=0.5,
+        evidence="The document is about validation.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = False
+    registry.feature_slugs.return_value = ["ingestion"]
+
+    call_count = 0
+
+    async def fake_propose(doc_path, frontmatter, missing_fields, repair_context=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return bad
+
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._load_llm_config",
+                   return_value={"cegis_fix_enabled": True}):
+            await run_llm_proposal_pass(
+                doc_path=Path("doc.md"),
+                frontmatter={},
+                missing_fields=["feature_slug"],
+                registry=registry,
+                strict=False,
+                dry_run=False,
+            )
+
+    assert call_count == 2  # initial + exactly one repair
+
+
+# ---------------------------------------------------------------------------
+# LLM-CEGIS-004 — no repair when cegis_fix_enabled = false
+# ---------------------------------------------------------------------------
+
+# @spec LLM-CEGIS-004
+@pytest.mark.asyncio
+async def test_cegis_disabled_makes_no_repair_attempt():
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    bad = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},
+        confidence=0.5,
+        evidence="The document is about validation.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = False
+    registry.feature_slugs.return_value = ["ingestion"]
+
+    call_count = 0
+
+    async def fake_propose(doc_path, frontmatter, missing_fields, repair_context=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return bad
+
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._load_llm_config",
+                   return_value={"cegis_fix_enabled": False}):
+            await run_llm_proposal_pass(
+                doc_path=Path("doc.md"),
+                frontmatter={},
+                missing_fields=["feature_slug"],
+                registry=registry,
+                strict=False,
+                dry_run=False,
+            )
+
+    assert call_count == 1  # initial only, no repair
+
+
+# ---------------------------------------------------------------------------
+# LLM-CEGIS-005 — total propose_metadata calls never exceed 2
+# ---------------------------------------------------------------------------
+
+# @spec LLM-CEGIS-005
+@given(cegis_enabled=st.booleans())
+@settings(deadline=None)
+def test_total_propose_metadata_calls_never_exceed_two(cegis_enabled):
+    import asyncio as _asyncio
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    bad = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},
+        confidence=0.5,
+        evidence="The document is about validation.",
+        raw_response="{}",
+    )
+    registry = MagicMock()
+    registry.has_feature.return_value = False
+    registry.feature_slugs.return_value = ["ingestion"]
+
+    call_count = 0
+
+    async def fake_propose(doc_path, frontmatter, missing_fields, repair_context=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return bad
+
+    async def run():
+        with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": cegis_enabled}):
+                await run_llm_proposal_pass(
+                    doc_path=Path("doc.md"),
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=False,
+                )
+
+    _asyncio.run(run())
+    assert call_count <= 2

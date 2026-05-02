@@ -28,7 +28,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **SI-FMTR-001** [U]: The system shall parse the `modok:` YAML frontmatter block from each discovered file and validate that all required fields for the declared `doc_type` are present and well-formed. This stage validates schema structure only — it does not validate that slugs exist in registries. Registry reference validation is a separate subsequent stage (SI-REF-001 through SI-REF-005).
 - [x] **SI-FMTR-002** [U]: If a required frontmatter field is missing and `--fix` is not specified, the system shall emit a structured warning and skip writing that doc's nodes to Quine.
-- [x] **SI-FMTR-003** [U]: If a required frontmatter field is missing and `--fix` is specified, the system shall invoke the LLM gateway for a proposal, present it to the user for approval, write approved values back to the doc file, and re-run the mechanical parser on the updated file.
+- [x] **SI-FMTR-003** [U]: If a required frontmatter field is missing and `--fix` is specified, the system shall invoke the LLM gateway for a proposal, run the verifier, apply validated fields to the doc file, and re-run the mechanical parser on the updated file before writing to Quine.
 - [x] **SI-FMTR-004** [U]: The system shall never write LLM proposals directly to Quine; proposals must be written to the doc file first and then pass through the mechanical parser.
 
 ---
@@ -105,7 +105,14 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **SI-LLM-001** [U]: When `--fix` is specified and a doc is missing required metadata fields after the mechanical parse completes, the system shall invoke the LLM gateway for proposals. Without `--fix`, the system shall not invoke the LLM gateway at all — missing fields are reported as warnings only.
 - [x] **SI-LLM-002** [U]: When `--fix` is not specified, the system shall not invoke the LLM gateway and shall not modify any source file; missing required fields are emitted as structured warnings.
-- [x] **SI-LLM-003** [U]: When `--fix` is specified, the system shall write approved LLM proposals to the doc's frontmatter and re-run the mechanical parser on the updated file before writing to Quine.
+- [x] **SI-LLM-003** [U]: When `--fix` is specified, the system shall call `verify_proposal` on the returned `MetadataProposal` before writing anything to the doc file or to Quine.
+- [x] **SI-LLM-004** [U]: When `--fix` is specified without `--strict`, the system shall write only `valid_fields` from the `VerificationResult` to the doc frontmatter; each field in `rejected_fields` shall produce a structured warning in the ingestion report. Ingestion continues for the doc using the partially-updated frontmatter.
+- [x] **SI-LLM-005** [U]: When `--fix --strict` is specified and `VerificationResult.is_valid` is `False` after all repair attempts, the system shall write nothing to the doc file or Quine for that doc and shall emit a structured error per rejected field. The doc's node count contribution to the ingestion report shall be zero.
+- [x] **SI-LLM-006** [U]: When `--fix --dry-run` is specified, the system shall make the LLM proposal call (and repair call if verification fails), print the proposed patch and verification result to stdout, and write nothing to any file or Quine. The command shall exit `0` regardless of whether the proposal passed verification.
+- [x] **SI-LLM-007** [U]: When `--fix --emit-counterexamples` is specified, the system shall write a YAML counterexample file to the path configured in `llm.counterexample_fixture_dir` for every doc where one or more fields were rejected (from either the initial or repair pass). The file shall be named `{doc_slug}_{iso_timestamp}.yaml` and shall contain `case_id`, `input`, `expected`, `actual`, and `counterexamples` sections. When `llm.counterexample_fixture_dir` is not configured, the system shall exit `1` with the message "`--emit-counterexamples` requires `llm.counterexample_fixture_dir` in config".
+- [x] **SI-LLM-008** [U]: When running in non-interactive mode (`sys.stdin.isatty()` returns `False`), the system shall suppress all LLM proposal calls including the repair attempt, emit a single warning to stderr, and continue ingestion without modifying any doc file.
+- [x] **SI-LLM-009** [U]: When `propose_metadata` raises `LLMResponseError` or `LLMUnavailableError`, the system shall catch the exception, emit a structured warning, and skip the LLM proposal pass for that doc — it shall not halt ingestion of other files.
+- [x] **SI-LLM-010** [U]: After writing `valid_fields` to the doc frontmatter, the system shall re-run stages 2–5 of the mechanical parser (frontmatter parse, reference validation, MODOK block parsing, heading extraction) on the updated file before writing any nodes or edges to Quine. Stage 1 (file discovery) and stage 6 (commit SHA) are not re-run.
 
 ---
 

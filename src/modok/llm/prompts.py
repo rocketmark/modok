@@ -21,6 +21,16 @@ Return ONLY a JSON object with:
   evidence: one-sentence rationale for the proposals
 """
 
+PROPOSE_METADATA_REPAIR_SYSTEM = """\
+You are a documentation assistant. A previous attempt to propose metadata values
+was rejected by the verifier. Below are the counterexamples explaining what went
+wrong. Correct only the rejected fields and return a new proposal.
+Return ONLY a JSON object with:
+  proposed_fields: object mapping field names to corrected values
+  confidence: float between 0.0 and 1.0
+  evidence: one-sentence rationale for the corrections
+"""
+
 PROPOSE_SIMILARITY_SYSTEM = """\
 You are a diagnostic assistant. Given a customer issue and a list of known issues,
 identify which known issues are most similar to the customer issue.

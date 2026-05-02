@@ -1111,3 +1111,430 @@ modok:
 
     assert report.docs_processed >= 1, "complete.md must still be ingested"
     assert not report.errors, "LLM unavailability must not count as an ingestion error"
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-003 — verifier is called before any write
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-003
+@pytest.mark.asyncio
+async def test_verifier_called_before_doc_write(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult, RejectedField
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    verify_calls = []
+
+    async def fake_propose(*args, **kwargs):
+        return proposal
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        verify_calls.append(True)
+        return VerificationResult(
+            valid_fields={"feature_slug": "ingestion"},
+            rejected_fields=[],
+            is_valid=True,
+        )
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False}):
+                await run_llm_proposal_pass(
+                    doc_path=tmp_path / "doc.md",
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=False,
+                )
+
+    assert len(verify_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-004 — default mode: write valid_fields, warn per rejected
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-004
+@pytest.mark.asyncio
+async def test_default_mode_writes_valid_fields_warns_on_rejected(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult, RejectedField
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion", "owner": "platform"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+
+    async def fake_propose(*args, **kwargs):
+        return proposal
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        return VerificationResult(
+            valid_fields={"feature_slug": "ingestion"},
+            rejected_fields=[RejectedField(
+                field="owner",
+                bad_value="platform",
+                reason="field was not requested",
+                repair_instruction="Only propose fields in missing_fields.",
+            )],
+            is_valid=False,
+        )
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False}):
+                result = await run_llm_proposal_pass(
+                    doc_path=tmp_path / "doc.md",
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=False,
+                )
+
+    assert "feature_slug" in result.valid_fields
+    assert any(w.field == "owner" for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-005 — strict mode: write nothing if any field rejected after repair
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-005
+@pytest.mark.asyncio
+async def test_strict_mode_writes_nothing_on_any_rejection(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult, RejectedField
+
+    bad = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},
+        confidence=0.5,
+        evidence="The document is about validation.",
+        raw_response="{}",
+    )
+
+    async def fake_propose(*args, **kwargs):
+        return bad
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        return VerificationResult(
+            valid_fields={},
+            rejected_fields=[RejectedField(
+                field="feature_slug",
+                bad_value="docs",
+                reason="not in registry",
+                repair_instruction="Choose an allowed slug.",
+            )],
+            is_valid=False,
+        )
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False}):
+                result = await run_llm_proposal_pass(
+                    doc_path=tmp_path / "doc.md",
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=True,
+                    dry_run=False,
+                )
+
+    assert result.valid_fields == {}
+    assert result.wrote_nothing is True
+    assert result.errors
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-006 — dry-run makes LLM calls but writes nothing
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-006
+@pytest.mark.asyncio
+async def test_dry_run_makes_llm_call_but_writes_nothing(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+    propose_calls = []
+
+    async def fake_propose(*args, **kwargs):
+        propose_calls.append(True)
+        return proposal
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        return VerificationResult(
+            valid_fields={"feature_slug": "ingestion"},
+            rejected_fields=[],
+            is_valid=True,
+        )
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("---\nmodok:\n  doc_type: lld\n---\n")
+    original_mtime = doc.stat().st_mtime
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False}):
+                result = await run_llm_proposal_pass(
+                    doc_path=doc,
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=True,
+                )
+
+    assert len(propose_calls) == 1          # LLM was called
+    assert doc.stat().st_mtime == original_mtime  # file not modified
+    assert result.dry_run is True
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-007 — emit-counterexamples writes fixture file to configured dir
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-007
+@pytest.mark.asyncio
+async def test_emit_counterexamples_writes_fixture_to_configured_dir(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult, RejectedField
+    import yaml
+
+    fixture_dir = tmp_path / "fixtures" / "llm_gateway"
+    fixture_dir.mkdir(parents=True)
+
+    bad = MetadataProposal(
+        proposed_fields={"feature_slug": "docs"},
+        confidence=0.5,
+        evidence="The document is about validation.",
+        raw_response="{}",
+    )
+
+    async def fake_propose(*args, **kwargs):
+        return bad
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        return VerificationResult(
+            valid_fields={},
+            rejected_fields=[RejectedField(
+                field="feature_slug",
+                bad_value="docs",
+                reason="not in registry",
+                repair_instruction="Choose an allowed slug.",
+            )],
+            is_valid=False,
+        )
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False,
+                                     "counterexample_fixture_dir": str(fixture_dir)}):
+                await run_llm_proposal_pass(
+                    doc_path=Path("doc.md"),
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=False,
+                    emit_counterexamples=True,
+                )
+
+    files = list(fixture_dir.glob("*.yaml"))
+    assert len(files) == 1
+    data = yaml.safe_load(files[0].read_text())
+    assert "counterexamples" in data
+    assert "case_id" in data
+
+
+# @spec SI-LLM-007
+@pytest.mark.asyncio
+async def test_emit_counterexamples_exits_1_when_dir_not_configured(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline in detail.",
+        raw_response="{}",
+    )
+
+    async def fake_propose(*args, **kwargs):
+        return proposal
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._load_llm_config",
+                   return_value={"cegis_fix_enabled": False,
+                                 "counterexample_fixture_dir": ""}):
+            with pytest.raises(SystemExit) as exc_info:
+                await run_llm_proposal_pass(
+                    doc_path=Path("doc.md"),
+                    frontmatter={},
+                    missing_fields=["feature_slug"],
+                    registry=registry,
+                    strict=False,
+                    dry_run=False,
+                    emit_counterexamples=True,
+                )
+
+    assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-008 — non-interactive mode suppresses all LLM calls
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-008
+@pytest.mark.asyncio
+async def test_non_interactive_suppresses_llm_proposal_and_repair(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+
+    propose_calls = []
+
+    async def fake_propose(*args, **kwargs):
+        propose_calls.append(True)
+        raise AssertionError("LLM should not be called in non-interactive mode")
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline._is_interactive", return_value=False):
+            result = await run_llm_proposal_pass(
+                doc_path=Path("doc.md"),
+                frontmatter={},
+                missing_fields=["feature_slug"],
+                registry=registry,
+                strict=False,
+                dry_run=False,
+            )
+
+    assert propose_calls == []
+    assert result.suppressed is True
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-009 — LLMResponseError caught, doc skipped, ingestion continues
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-009
+@pytest.mark.asyncio
+async def test_llm_response_error_skips_doc_continues_ingestion(tmp_path):
+    from modok.ingestion.pipeline import run_ingestion
+
+    write_file(tmp_path / "doc_with_missing.md", """\
+---
+modok:
+  doc_type: lld
+  project: stagehand
+  feature: shtp-receiver
+---
+# Missing modules
+""")
+    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    client = AsyncMock()
+
+    from modok.llm.errors import LLMResponseError as LLMRespErr
+
+    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
+               side_effect=LLMRespErr("bad response")):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+                report = await run_ingestion(
+                    tmp_path, registry=registry, client=client,
+                    project_slug="stagehand", fix_mode=True,
+                )
+
+    assert report.docs_processed >= 1
+    assert not report.errors
+
+
+# ---------------------------------------------------------------------------
+# SI-LLM-010 — re-run stages 2-5 after writing valid_fields (not stage 1 or 6)
+# ---------------------------------------------------------------------------
+
+# @spec SI-LLM-010
+@pytest.mark.asyncio
+async def test_reruns_stages_2_to_5_after_patch_not_stage_1_or_6(tmp_path):
+    from modok.ingestion.pipeline import run_llm_proposal_pass
+    from modok.llm.models import MetadataProposal
+    from modok.ingestion.verifier import VerificationResult
+
+    proposal = MetadataProposal(
+        proposed_fields={"feature_slug": "ingestion"},
+        confidence=0.8,
+        evidence="The document describes the ingestion pipeline failing due to missing metadata.",
+        raw_response="{}",
+    )
+
+    async def fake_propose(*args, **kwargs):
+        return proposal
+
+    def fake_verify(proposal, missing_fields, frontmatter, registry):
+        return VerificationResult(
+            valid_fields={"feature_slug": "ingestion"},
+            rejected_fields=[],
+            is_valid=True,
+        )
+
+    discover_calls = []
+    sha_calls = []
+    parse_calls = []
+
+    registry = MagicMock()
+    with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
+        with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
+            with patch("modok.ingestion.pipeline._load_llm_config",
+                       return_value={"cegis_fix_enabled": False}):
+                with patch("modok.ingestion.pipeline.discover_files",
+                           side_effect=lambda *a, **kw: discover_calls.append(1) or []) as _disc:
+                    with patch("modok.ingestion.parser.get_commit_sha",
+                               side_effect=lambda *a: sha_calls.append(1) or "abc") as _sha:
+                        with patch("modok.ingestion.parser.parse_frontmatter",
+                                   side_effect=lambda *a, **kw: parse_calls.append(1) or {}) as _pf:
+                            await run_llm_proposal_pass(
+                                doc_path=tmp_path / "doc.md",
+                                frontmatter={"doc_type": "lld"},
+                                missing_fields=["feature_slug"],
+                                registry=registry,
+                                strict=False,
+                                dry_run=False,
+                            )
+
+    assert len(discover_calls) == 0   # stage 1 not re-run
+    assert len(sha_calls) == 0        # stage 6 not re-run
+    assert len(parse_calls) >= 1      # stage 2 re-run after patch

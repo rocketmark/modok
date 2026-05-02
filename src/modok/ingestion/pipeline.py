@@ -2,8 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
+import os
 import re
+import sys
+import uuid
 import yaml
 
 from modok.ingestion.confidence import confidence_band
@@ -23,6 +25,8 @@ from modok.ingestion.parser import (
 from modok.ingestion.registry import Registry
 from modok.ingestion.report import IngestionReport
 from modok.ingestion.discovery import discover_files
+from modok.llm.gateway import propose_metadata
+from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
     Feature, Module, File, DocSection, ErrorSignature,
     KnownIssue, Fix,
@@ -508,6 +512,151 @@ def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> d
 
 class _LLMProposalWarning(Exception):
     pass
+
+
+def _load_llm_config() -> dict:
+    import tomllib
+    config_path = Path.home() / ".modok" / "config.toml"
+    if not config_path.exists():
+        return {}
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
+    return data.get("llm", {})
+
+
+def _is_interactive() -> bool:
+    """Return False only when MODOK_NON_INTERACTIVE is set; otherwise assume interactive."""
+    return not os.environ.get("MODOK_NON_INTERACTIVE", "")
+
+
+@dataclass
+class LLMProposalResult:
+    valid_fields: dict[str, Any] = field(default_factory=dict)
+    warnings: list[RejectedField] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    wrote_nothing: bool = False
+    dry_run: bool = False
+    suppressed: bool = False
+
+
+# @spec SI-LLM-003, SI-LLM-004, SI-LLM-005, SI-LLM-006, SI-LLM-007,
+#       SI-LLM-008, SI-LLM-010,
+#       LLM-CEGIS-001, LLM-CEGIS-002, LLM-CEGIS-003, LLM-CEGIS-004, LLM-CEGIS-005
+async def run_llm_proposal_pass(
+    doc_path: Path,
+    frontmatter: dict,
+    missing_fields: list[str],
+    registry: Registry,
+    strict: bool = False,
+    dry_run: bool = False,
+    emit_counterexamples: bool = False,
+) -> LLMProposalResult:
+    """Run an LLM metadata proposal + CEGIS repair loop for one document."""
+    # SI-LLM-008: non-interactive suppression
+    if not _is_interactive():
+        return LLMProposalResult(suppressed=True)
+
+    cfg = _load_llm_config()
+
+    # SI-LLM-007: validate counterexample config before any LLM call
+    if emit_counterexamples:
+        fixture_dir_str = cfg.get("counterexample_fixture_dir", "")
+        if not fixture_dir_str:
+            print("counterexample_fixture_dir is not configured in ~/.modok/config.toml [llm]",
+                  file=sys.stderr)
+            sys.exit(1)
+        fixture_dir = Path(fixture_dir_str)
+
+    cegis_enabled = bool(cfg.get("cegis_fix_enabled", False))
+
+    # Initial proposal + verification
+    proposal = await propose_metadata(
+        doc_path=doc_path,
+        frontmatter=frontmatter,
+        missing_fields=missing_fields,
+    )
+    result_v = verify_proposal(proposal, missing_fields, frontmatter, registry)
+    accumulated_valid: dict[str, Any] = dict(result_v.valid_fields)
+    final_rejected: list[RejectedField] = list(result_v.rejected_fields)
+
+    # CEGIS repair pass (at most one)
+    if cegis_enabled and final_rejected:
+        rejected_fields = [r.field for r in final_rejected]
+        repair_context = [
+            {
+                "field": r.field,
+                "bad_value": r.bad_value,
+                "reason": r.reason,
+                "repair_instruction": r.repair_instruction,
+                **({"allowed_values": r.allowed_values} if r.allowed_values else {}),
+            }
+            for r in final_rejected
+        ]
+        repair_proposal = await propose_metadata(
+            doc_path=doc_path,
+            frontmatter=frontmatter,
+            missing_fields=rejected_fields,
+            repair_context=repair_context,
+        )
+        repair_v = verify_proposal(repair_proposal, rejected_fields, frontmatter, registry)
+        accumulated_valid.update(repair_v.valid_fields)
+        final_rejected = repair_v.rejected_fields
+
+    # Emit counterexamples if requested and any fields still rejected
+    if emit_counterexamples and final_rejected:
+        data = {
+            "case_id": str(uuid.uuid4()),
+            "doc_path": str(doc_path),
+            "counterexamples": [
+                {
+                    "field": r.field,
+                    "bad_value": r.bad_value,
+                    "reason": r.reason,
+                    "repair_instruction": r.repair_instruction,
+                }
+                for r in final_rejected
+            ],
+        }
+        fixture_path = fixture_dir / f"{data['case_id']}.yaml"
+        fixture_path.write_text(yaml.dump(data, default_flow_style=False), encoding="utf-8")
+
+    out = LLMProposalResult(dry_run=dry_run)
+
+    if strict and final_rejected:
+        out.wrote_nothing = True
+        out.errors = [f"field '{r.field}' rejected: {r.reason}" for r in final_rejected]
+        return out
+
+    out.valid_fields = accumulated_valid
+    out.warnings = final_rejected
+
+    # SI-LLM-006: dry_run — do not write to disk
+    if dry_run:
+        return out
+
+    # Write valid_fields into doc frontmatter and re-parse (stages 2-5)
+    if accumulated_valid:
+        if doc_path.exists():
+            text = doc_path.read_text(encoding="utf-8")
+            end = text.find("\n---", 3)
+            if end != -1:
+                fm_raw = text[3:end]
+                try:
+                    fm_data = yaml.safe_load(fm_raw) or {}
+                except Exception:
+                    fm_data = {}
+                modok_block = fm_data.get("modok", {}) or {}
+                modok_block.update(accumulated_valid)
+                fm_data["modok"] = modok_block
+                new_fm = yaml.dump(fm_data, default_flow_style=False)
+                new_content = f"---\n{new_fm}---{text[end + 4:]}"
+                doc_path.write_text(new_content, encoding="utf-8")
+
+        # SI-LLM-010: re-run stages 2-5 (parse, validate, check refs) — not discovery or sha
+        import modok.ingestion.parser as _parser
+        _parser.parse_frontmatter(doc_path)
+
+    return out
 
 
 async def run_ingestion(

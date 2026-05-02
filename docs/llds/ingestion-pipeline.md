@@ -232,9 +232,16 @@ For each ingested file the pipeline runs these stages in order. Any stage that f
    └── store on Doc node; null when file has no git history
 
 7. LLM proposal pass (optional, --fix only)
-   └── if required metadata is missing, call LLM gateway for proposals
-   └── surface proposals for user approval; write approved values to doc frontmatter
-   └── re-run mechanical parser on updated doc before writing to Quine
+   └── detect missing required fields from doc type registry
+   └── call LLM gateway propose_metadata(doc_path, frontmatter, missing_fields)
+   └── call verifier: verify_proposal(proposal, missing_fields, frontmatter, registry)
+   └── if any fields rejected and cegis_fix_enabled: one repair attempt (propose_metadata with repair_context)
+   └── verify repaired proposal; accumulate valid_fields from both attempts
+   └── default mode: write valid_fields to frontmatter, warn per rejected field
+   └── --strict mode: if any field rejected after repair, write nothing for this doc
+   └── --emit-counterexamples: write YAML counterexample file to tests/fixtures/llm_gateway/
+   └── --dry-run: print proposed patch, write nothing
+   └── re-run mechanical parser on updated frontmatter before writing to Quine
 
 8. Write to Quine
    └── upsert nodes in dependency order
@@ -322,12 +329,23 @@ def confidence_band(base, boosts=None, penalties=None, uncertainty=0.06):
 
 The LLM gateway is invoked only when a doc is missing required metadata fields after the mechanical parse. It is never the primary parser.
 
-The proposal pass:
-1. Sends the doc's frontmatter and a 500-token summary of the body to the LLM gateway.
-2. Asks the LLM to suggest values for the missing fields.
-3. Returns proposals to the CLI as a structured review prompt — one field at a time, with confidence and evidence.
-4. With `--fix`: writes approved proposals back to the doc as explicit frontmatter, then re-runs the mechanical parser on the updated doc.
-5. Without `--fix` (default): proposals are printed to stdout only. Source files are never mutated. CI runs are always safe to run without `--fix`.
+### Caller responsibilities (ingestion pipeline)
+
+1. Detect missing required fields by comparing present frontmatter keys against the doc type registry.
+2. Call `gateway.propose_metadata(doc_path, frontmatter, missing_fields)`.
+3. Call `verifier.verify_proposal(proposal, missing_fields, frontmatter, registry)` — a pure function in `modok/ingestion/verifier.py`.
+4. If any fields are rejected and `cegis_fix_enabled = true`: build counterexamples from `rejected_fields`, call `gateway.propose_metadata(..., repair_context=counterexamples)` once.
+5. Verify the repaired proposal. Accumulate `valid_fields` from both the initial and repair passes (a field that passed initially stays accepted even if the repair call omits it).
+6. Apply the result per mode:
+   - **Default (`--fix`)**: write `valid_fields` to doc frontmatter. Emit a structured warning per `rejected_field`. Ingestion continues.
+   - **`--fix --strict`**: if any field remains rejected after repair, write nothing for this doc. Emit a structured error. Ingestion continues for other docs (exit `3` at end of run).
+   - **`--fix --dry-run`**: print proposed patch and validation result. Write nothing. Always exits `0`.
+   - **`--fix --emit-counterexamples`**: write a YAML counterexample file to `tests/fixtures/llm_gateway/` for each rejected field (both passes). File named `{doc_slug}_{iso_timestamp}.yaml`.
+7. Re-run the mechanical parser on the updated frontmatter before writing to Quine.
+
+Without `--fix` (default): no LLM calls are made. Missing fields are surfaced as warnings only. Source files are never mutated. CI runs are always safe without `--fix`.
+
+In non-interactive mode (`sys.stdin.isatty()` returns `False`): all LLM proposal passes are suppressed, including the repair attempt. A single warning is emitted to stderr. See CLI-INGEST-004.
 
 The LLM never writes to Quine directly. When `--fix` is used, it writes to the doc file; the mechanical parser then validates and writes to Quine.
 
@@ -363,6 +381,10 @@ Warnings do not halt ingestion. Errors do.
 | Dirty working tree on manual ingest | Warn and complete | Block; silently use stale SHA | SHA is diagnostic metadata not a key; blocking is too disruptive for iterative doc editing |
 | LLM write-back to doc | Opt-in via `--fix`; read-only by default | Always write-back; never write-back | Default read-only keeps CI safe; `--fix` enables the iterative proposal workflow for developers |
 | LLM writes to doc, not Quine | LLM proposes → human approves → doc updated → parser writes Quine | LLM writes Quine directly; human reviews Quine nodes | Keeps Quine's write path mechanical; approved proposals become durable doc metadata that survives re-ingest |
+| Verifier ownership | `modok/ingestion/verifier.py` | `modok/llm/verifier.py` | Verifier needs registry access (slug validation, enum values); gateway is stateless and registry-unaware; putting verifier in ingestion keeps the dependency flow clean |
+| Partial field acceptance | Default: accept valid fields, warn per rejected | All-or-nothing only | All-or-nothing forces manual fix for any rejection; field-level acceptance lets easy fields land while hard ones re-surface naturally on next run; `--strict` preserves all-or-nothing for those who want it |
+| `--strict` mode | Reject entire proposal if any field fails | Always all-or-nothing; always field-level | Gives callers explicit control; default is forgiving for interactive use; strict is appropriate for CI or audited ingestion |
+| Counterexample emission | `--emit-counterexamples` flag writes YAML to `tests/fixtures/llm_gateway/` | Always emit; never emit; separate command | Optional flag keeps normal `--fix` output clean; emitting directly to the fixture path feeds the offline eval corpus without a separate step |
 | Confidence model scope | Prose/structure extraction only; MODOK blocks always verified (1.00) | Apply scoring to all facts including explicit blocks | Explicit hand-authored metadata is always trusted; scoring prose inference is where the model adds value |
 | Fail loudly on invalid references | Error + halt for that file | Warning + continue; auto-create missing registry entries | Dangling references in the graph corrupt retrieval; better to catch at ingest than debug at query time |
 | Confidence threshold for auto-write | 0.90 (verified) | 0.75 (strong); 1.00 (only explicit) | 0.90 catches explicit metadata with minor uncertainty; avoids writing weak inferences as facts |

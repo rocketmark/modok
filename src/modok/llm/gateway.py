@@ -332,8 +332,10 @@ async def propose_metadata(
     doc_path: Path,
     frontmatter: dict,
     missing_fields: list[str],
+    repair_context: list[dict] | None = None,
     backend: str = "local",
 ) -> MetadataProposal:
+    # @spec LLM-META-005, LLM-META-006, LLM-META-007
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_propose_metadata")
     max_retries = int(cfg.get("max_retries", 2))
@@ -342,8 +344,12 @@ async def propose_metadata(
         f"Current frontmatter: {json.dumps(frontmatter)}\n"
         f"Missing fields: {', '.join(missing_fields)}"
     )
+    if repair_context:
+        import yaml as _yaml
+        user_content += f"\n\nCounterexamples from previous attempt:\n{_yaml.dump(repair_context, default_flow_style=False)}"
+    system = prompts.PROPOSE_METADATA_REPAIR_SYSTEM if repair_context else prompts.PROPOSE_METADATA_SYSTEM
     messages = [
-        {"role": "system", "content": prompts.PROPOSE_METADATA_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]
     response_format = {"type": "json_object"}
