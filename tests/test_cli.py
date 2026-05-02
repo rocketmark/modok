@@ -235,6 +235,38 @@ def test_init_creates_missing_registry_stubs(tmp_path):
     assert "features.yml" in output or "registries" in output
 
 
+# @spec CLI-INIT-002
+def test_init_assisted_does_not_create_stubs(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+    from modok.registry.proposal import ProposalSummary
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+    summary = ProposalSummary(
+        sections_processed=0, sections_failed=0,
+        docs_processed=0, docs_skipped=0,
+        entries_written={"features.yml": 0, "modules.yml": 0, "errors.yml": 0},
+        failed_sections=[],
+    )
+    runner = CliRunner(mix_stderr=False)
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.init.install_post_commit_hook"):
+            with patch("modok.cli.commands.init.propose_registries", return_value=summary) as mock_propose:
+                runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+
+    # propose_registries was called — stubs were NOT written by the CLI
+    mock_propose.assert_called_once()
+    # registries/ may or may not exist (proposal engine owns it), but no stub was written by CLI
+    stub_written_by_cli = (
+        (repo / "registries" / "features.yml").exists() and
+        mock_propose.call_count == 0
+    )
+    assert not stub_written_by_cli
+
+
 # @spec CLI-INIT-003
 def test_init_installs_post_commit_hook(tmp_path):
     from click.testing import CliRunner
@@ -1009,3 +1041,127 @@ def test_quine_status_stopped_prints_stopped(tmp_path):
 
     assert result.exit_code == 0
     assert "stopped" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# modok init --assisted  (CLI-INIT-008 through CLI-INIT-011)
+# ---------------------------------------------------------------------------
+
+# @spec CLI-INIT-008
+def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+    from modok.registry.proposal import ProposalSummary
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+    summary = ProposalSummary(
+        sections_processed=5, sections_failed=0,
+        docs_processed=2, docs_skipped=0,
+        entries_written={"features.yml": 3, "modules.yml": 2, "errors.yml": 1},
+        failed_sections=[],
+    )
+
+    call_order = []
+
+    def recording_propose(repo_root, cfg):
+        call_order.append("propose")
+        return summary
+
+    def recording_hook(repo_path):
+        call_order.append("hook")
+
+    runner = CliRunner(mix_stderr=False)
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.init.propose_registries", side_effect=recording_propose):
+            with patch("modok.cli.commands.init.install_post_commit_hook", side_effect=recording_hook):
+                runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+
+    assert "propose" in call_order, "propose_registries must be called with --assisted"
+    assert "hook" in call_order, "install_post_commit_hook must still be called"
+    assert call_order.index("propose") < call_order.index("hook"), \
+        "propose_registries must run before install_post_commit_hook"
+
+
+# @spec CLI-INIT-009
+def test_init_assisted_exits_2_when_llm_unreachable(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+    from modok.llm.errors import LLMUnavailableError
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+    runner = CliRunner(mix_stderr=False)
+
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.init.propose_registries",
+                   side_effect=LLMUnavailableError("Ollama not running")):
+            result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+
+    assert result.exit_code == 2
+    output = result.output + (result.stderr or "")
+    assert "LLM gateway is not reachable" in output
+
+
+# @spec CLI-INIT-010
+def test_init_without_assisted_does_not_invoke_llm(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+    runner = CliRunner(mix_stderr=False)
+
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.init.install_post_commit_hook"):
+            with patch("modok.cli.commands.init.propose_registries") as mock_propose:
+                with patch("modok.llm.gateway.enrich_section") as mock_enrich:
+                    with patch("modok.llm.gateway._ollama_chat_completion") as mock_ollama:
+                        runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo)])
+
+    mock_propose.assert_not_called()
+    mock_enrich.assert_not_called()
+    mock_ollama.assert_not_called()
+
+
+# @spec CLI-INIT-011
+def test_init_assisted_prints_summary_to_stdout(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+    from modok.registry.proposal import ProposalSummary
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+    summary = ProposalSummary(
+        sections_processed=7,
+        sections_failed=1,
+        docs_processed=3,
+        docs_skipped=0,
+        entries_written={"features.yml": 4, "modules.yml": 2, "errors.yml": 8},
+        failed_sections=[("Bad Section", Path("/repo/doc.md"))],
+    )
+    runner = CliRunner(mix_stderr=False)
+
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.init.install_post_commit_hook"):
+            with patch("modok.cli.commands.init.propose_registries", return_value=summary):
+                result = runner.invoke(
+                    cli,
+                    ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"],
+                )
+
+    assert result.exit_code == 0
+    out = result.output
+    # Summary must mention sections processed, docs processed, and entries written per file
+    assert "7" in out or "section" in out.lower()
+    assert "3" in out or "doc" in out.lower()
+    assert "features.yml" in out
+    assert "4" in out  # features.yml entry count

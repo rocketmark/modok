@@ -20,7 +20,7 @@ modok --version
 modok --help
 modok --status
 
-modok init     --project <slug> --repo <path>
+modok init     --project <slug> --repo <path> [--assisted]
 modok ingest   --project <slug> [--fix] <path>
 modok retrieve --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
@@ -35,11 +35,22 @@ modok quine    (start | stop | status)
 
 Initializes a project in MODOK:
 1. Verifies `--repo <path>` contains a `.git/` directory; exits `1` with "not a git repository: `<path>`" if absent. A repo without `.git/` is almost certainly a wrong path — the hook is a core part of init, and silently skipping it would leave the project half-initialized.
-2. Validates `<repo>/registries/features.yml`, `modules.yml`, `errors.yml` exist; creates stubs if missing.
+2. Without `--assisted`: creates stub `features.yml`, `modules.yml`, `errors.yml` in `<repo>/registries/` if missing.
+   With `--assisted`: runs the Registry Proposal Engine (delegates to `modok.registry.proposal`) to discover docs, extract typed nodes, and write proposed registry files. Overwrites stubs if present. Exits `2` if the LLM gateway is unreachable.
 3. Installs a post-commit git hook in the project repo (delegates to `modok.ingestion.hook`).
 4. Registers the project in `~/.modok/config.toml` under `[[projects]]` if not already present.
 
-Does **not** run ingestion. Does **not** require Quine to be running.
+Does **not** run ingestion. Does **not** require Quine to be running (except `--assisted` requires the LLM gateway).
+
+`--assisted` prints progress to stderr as it processes each doc section, and prints a summary to stdout on completion:
+```
+Processed 15 sections across 3 docs.
+Wrote registries/features.yml  (8 features)
+Wrote registries/modules.yml   (5 modules)
+Wrote registries/errors.yml    (16 error signatures)
+```
+
+Exit codes for `modok init`: `0` = success, `1` = bad args or not a git repo, `2` = LLM gateway unreachable (only with `--assisted`).
 
 ### `modok ingest`
 
@@ -240,6 +251,7 @@ modok = "modok.cli.main:cli"
 | `quine start` when already running | Ping first; if up, print and exit `0` | Check PID file; error if no PID | Quine may have been started externally. "It's already running" is success, not an error, regardless of how it started. |
 | `recall` on unknown feature slug | Exit `0` with empty results | Exit `1` | "No results" is a valid graph query answer. Agents can handle empty JSON; they can't easily distinguish a real error from a missing feature if both return non-zero. |
 | `init` on non-git directory | Exit `1` immediately | Skip hook, warn, continue | The hook is a core deliverable of `init`. A missing `.git/` is almost certainly a wrong path; a silent skip would leave the project half-initialized with no visible signal. |
+| `init --assisted` write behaviour | Write files directly; user edits if needed | Interactive review before write | Simpler. Registry files are source-of-truth text files — editing them is the natural correction mechanism. An interactive approval loop adds ceremony with no safety benefit here. |
 | JAR path validation on `quine start` | Check before forking, exit `1` with clear message | Let JVM error surface | JVM errors for missing JARs are unactionable. A path check before fork gives an operator-readable error. |
 | `quine stop` when process already dead | Exit `2` with crash message, leave PID file | Treat as success (delete PID, exit `0`) | Crashes should be visible. Silently cleaning up a dead-process PID file hides the fact that Quine crashed between start and stop. The operator needs to check logs. |
 

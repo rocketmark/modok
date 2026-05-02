@@ -118,6 +118,8 @@ Read path assistance                       Write path assistance
 
 **Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
 
+**Registry Proposal Engine** — an LLM-assisted bootstrapping pass that runs during `modok init --assisted`. Discovers all eligible docs in the project repo, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), runs a normalisation pass to deduplicate and canonicalise the results, and writes `features.yml`, `modules.yml`, and `errors.yml` to `{repo}/registries/`. No Quine interaction — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
+
 **Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
 
 **Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Results are prioritized by anchor match count: items matched by more anchors appear first. No numeric scoring or vector search in v1.
@@ -132,9 +134,9 @@ Quine is chosen because the core problem is storing and traversing relationships
 
 ### 2. LLM-agnostic gateway
 
-The LLM interface is an abstract boundary with local-first defaults. A local model (Ollama) handles ticket parsing and metadata suggestion on the Mac mini without network calls. Claude or GPT-4 are invoked only when configured and when the local model's output fails validation. This makes MODOK usable offline, cost-predictable, and portable to any agent environment.
+The LLM interface is an abstract boundary with local-first defaults. A local model (Ollama) handles ticket parsing, metadata suggestion, and registry proposal on the Mac mini without network calls. Claude or GPT-4 are invoked only when configured and when the local model's output fails validation. This makes MODOK usable offline, cost-predictable, and portable to any agent environment.
 
-No LLM SDK is a hard dependency. The gateway communicates over a common interface (OpenAI-compatible chat completions endpoint, which both Ollama and the major remote providers support).
+No LLM SDK is a hard dependency. For local calls, the gateway uses Ollama's native `/api/chat` endpoint directly (which supports `think: false` and `format: json` natively). For remote calls, the OpenAI-compatible `/v1/chat/completions` endpoint is used.
 
 ### 3. Explicit metadata is truth; LLM output is a proposal
 
@@ -178,7 +180,22 @@ Quine lifecycle is manual: the developer (or launchd on the Mac mini) starts Qui
 
 On the shared Mac mini, a launchd plist keeps Quine running as a persistent background service across reboots.
 
-### 8. Python implementation
+### 8. Registry bootstrapping is a pre-ingestion LLM pass
+
+Registries (`features.yml`, `modules.yml`, `errors.yml`) must exist before ingestion can run — the ingestion pipeline validates all doc frontmatter slugs against them. For a new project, manually authoring these files requires knowing the project's taxonomy upfront.
+
+`modok init --assisted` solves this with a mechanical-first, LLM-enriched bootstrapping pass:
+
+1. **Mechanical section parse** — splits each eligible doc on H2 headings. No LLM involved; deterministic and fast.
+2. **Per-section LLM enrichment** — each section is sent to the LLM gateway independently. The LLM extracts typed node candidates (features, modules, error signatures, failure modes, decisions, known issues, observation events). Smaller context per call means lower timeout risk and more focused output.
+3. **Normalisation pass** — a second LLM call deduplicates and canonicalises the merged raw candidates into a clean, consistent list.
+4. **Write** — registry files are written directly. The user edits them if needed, then runs `modok ingest`.
+
+The more docs the repo contains, the more accurate and complete the output. The registry files are the source of truth after this point — the proposal pass does not re-run automatically.
+
+This is distinct from the `--fix` metadata proposal pass in `modok ingest`, which fills in missing frontmatter fields on individual docs after registries exist. The registry proposal pass runs first and is a prerequisite for ingestion.
+
+### 9. Python implementation
 
 Python is chosen for iteration speed, natural LLM SDK integration, and consistency with the stagehand codebase (the first target project). The modular layout (`modok.core`, `modok.quine`, `modok.ingestion`, `modok.mcp`, `modok.cli`) mirrors the logical component split and allows future replacement of performance-critical pieces without rewriting the whole system. `pydantic` v2 enforces schema correctness at runtime. `ruff` + `mypy` enforce style and types statically.
 

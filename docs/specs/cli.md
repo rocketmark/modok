@@ -44,12 +44,16 @@ See `docs/testing-standard.md` for full definitions.
 ## `modok init`
 
 - [x] **CLI-INIT-001** [U]: When `--repo <path>` does not contain a `.git/` directory, `modok init` shall exit `1` with the message "not a git repository: `<path>`".
-- [x] **CLI-INIT-002** [U]: When `<repo>/registries/features.yml`, `modules.yml`, or `errors.yml` are missing, `modok init` shall create stub files for each missing registry and report each creation to stdout.
+- [x] **CLI-INIT-002** [U]: When `--assisted` is not passed and `<repo>/registries/features.yml`, `modules.yml`, or `errors.yml` are missing, `modok init` shall create stub files for each missing registry and report each creation to stdout. When `--assisted` is passed, `modok init` shall not create stub files — the proposal engine is responsible for writing all registry files.
 - [x] **CLI-INIT-003** [U]: `modok init` shall install a post-commit git hook in the project repo by delegating to `modok.ingestion.hook.install_post_commit_hook`.
 - [x] **CLI-INIT-004** [U]: When the project slug is already present in `~/.modok/config.toml`, `modok init` shall not add a duplicate `[[projects]]` entry.
 - [x] **CLI-INIT-005** [U]: When the project slug is not present in `~/.modok/config.toml`, `modok init` shall append a `[[projects]]` entry with the supplied slug and repo path.
 - [x] **CLI-INIT-006** [U]: `modok init` shall not call `QuineClient.ping()` and shall not require Quine to be running.
 - [x] **CLI-INIT-007** [U]: When `~/.modok/config.toml` does not exist, `modok init` shall create it with a minimal valid structure before appending the `[[projects]]` entry.
+- [ ] **CLI-INIT-008** [U]: When `--assisted` is passed, `modok init` shall delegate to `modok.registry.proposal.propose_registries` after validating the repo path and before installing the git hook.
+- [ ] **CLI-INIT-009** [U]: When `--assisted` is passed and the LLM gateway is unreachable, `modok init` shall exit `2` with the message "LLM gateway is not reachable — start Ollama or check `local_endpoint` in config".
+- [ ] **CLI-INIT-010** [U]: When `--assisted` is not passed, `modok init` shall not invoke the LLM gateway under any circumstance.
+- [ ] **CLI-INIT-011** [U]: When `--assisted` completes successfully, `modok init` shall print a summary to stdout stating the number of sections processed, docs processed, and entries written per registry file.
 
 ---
 
