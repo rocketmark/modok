@@ -1223,12 +1223,18 @@ def test_verifier_rejects_unknown_enum_value():
 # ---------------------------------------------------------------------------
 
 # @spec LLM-VER-006
-def test_verifier_rejects_list_field_with_duplicates():
+@given(
+    items=st.lists(st.text(min_size=1, max_size=15), min_size=2, max_size=10).filter(
+        lambda l: len(l) != len(set(l))
+    ),
+)
+@settings(deadline=None)
+def test_verifier_rejects_list_field_with_duplicates(items):
     from modok.ingestion.verifier import verify_proposal
     from modok.llm.models import MetadataProposal
 
     proposal = MetadataProposal(
-        proposed_fields={"modules": ["shtp", "shtp"]},
+        proposed_fields={"modules": items},
         confidence=0.8,
         evidence="The document describes the ingestion pipeline in detail.",
         raw_response="{}",
@@ -1248,41 +1254,29 @@ def test_verifier_rejects_list_field_with_duplicates():
 # ---------------------------------------------------------------------------
 
 # @spec LLM-VER-007
-def test_verifier_rejects_empty_string_value():
+@given(
+    field=st.sampled_from(["feature_slug", "modules", "tags"]),
+    empty_val=st.one_of(st.none(), st.just(""), st.just([])),
+)
+@settings(deadline=None)
+def test_verifier_rejects_empty_values(field, empty_val):
     from modok.ingestion.verifier import verify_proposal
     from modok.llm.models import MetadataProposal
 
     proposal = MetadataProposal(
-        proposed_fields={"feature_slug": ""},
+        proposed_fields={field: empty_val},
         confidence=0.8,
         evidence="The document describes the ingestion pipeline in detail.",
         raw_response="{}",
     )
     registry = MagicMock()
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
 
-    result = verify_proposal(proposal, ["feature_slug"], {}, registry)
-
-    rejected_names = [r.field for r in result.rejected_fields]
-    assert "feature_slug" in rejected_names
-
-
-# @spec LLM-VER-007
-def test_verifier_rejects_empty_list_value():
-    from modok.ingestion.verifier import verify_proposal
-    from modok.llm.models import MetadataProposal
-
-    proposal = MetadataProposal(
-        proposed_fields={"modules": []},
-        confidence=0.8,
-        evidence="The document describes the ingestion pipeline in detail.",
-        raw_response="{}",
-    )
-    registry = MagicMock()
-
-    result = verify_proposal(proposal, ["modules"], {}, registry)
+    result = verify_proposal(proposal, [field], {}, registry)
 
     rejected_names = [r.field for r in result.rejected_fields]
-    assert "modules" in rejected_names
+    assert field in rejected_names
 
 
 # ---------------------------------------------------------------------------
@@ -1370,22 +1364,26 @@ def test_verify_proposal_does_not_mutate_inputs(field, value):
     from modok.llm.models import MetadataProposal
 
     original_missing = [field]
-    original_frontmatter = {"existing": "value"}
+    original_frontmatter = {"unrelated_key": "existing_value"}
     proposed = {field: value}
 
     proposal = MetadataProposal(
         proposed_fields=dict(proposed),
         confidence=0.5,
-        evidence="The document is about validation.",  # filler — will reject
+        # Valid evidence: long enough, no filler prefix — per-field checks run
+        evidence="Frontmatter block explicitly sets this field to the given value.",
         raw_response="{}",
     )
     registry = MagicMock()
     registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    registry.feature_slugs.return_value = []
 
     verify_proposal(proposal, list(original_missing), dict(original_frontmatter), registry)
 
     assert original_missing == [field]
-    assert original_frontmatter == {"existing": "value"}
+    assert original_frontmatter == {"unrelated_key": "existing_value"}
 
 
 # ---------------------------------------------------------------------------
