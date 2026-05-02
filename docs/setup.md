@@ -154,7 +154,35 @@ Note: Quine does not expand `~` in HOCON paths. The heredoc above uses `$HOME` w
 
 ---
 
-## Step 6 — Create the MODOK config
+## Step 6 — Install Ollama and pull a model
+
+MODOK uses a local LLM for metadata proposals (`--fix`) and ticket classification. Ollama is the supported local backend.
+
+**macOS:**
+```bash
+brew install ollama
+brew services start ollama
+```
+
+**Ubuntu/Debian/WSL:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &   # or configure as a systemd service
+```
+
+Pull a model (gemma4 is a good default; llama3.2 also works):
+```bash
+ollama pull gemma4
+```
+
+Verify:
+```bash
+curl http://localhost:11434/v1/models
+```
+
+---
+
+## Step 7 — Create the MODOK config
 
 ```bash
 cat > ~/.modok/config.toml << 'EOF'
@@ -163,16 +191,21 @@ url = "http://127.0.0.1:8080"
 jar = "~/.modok/quine.jar"
 
 [llm]
-# Local model via Ollama (default). Must be running before ingestion.
-provider = "ollama"
-base_url = "http://127.0.0.1:11434/v1"
-model = "llama3"
+# Local model via Ollama. Must be running before using --fix or ticket parsing.
+local_endpoint = "http://localhost:11434/v1"
+local_model = "gemma4"
 
-# Uncomment to add a remote escalation target.
-# [llm.remote]
-# provider = "anthropic"
-# model = "claude-sonnet-4-6"
-# api_key_env = "ANTHROPIC_API_KEY"
+# Enable the bounded CEGIS repair loop: if the LLM's first proposal fails
+# verification, one repair attempt is made with the counterexamples as context.
+cegis_fix_enabled = true
+
+# Optional: escalate to a remote model when local output fails schema validation.
+# remote_endpoint = "https://api.anthropic.com/v1"
+# remote_model = "claude-sonnet-4-6"
+# remote_api_key = ""   # or set MODOK_LLM_API_KEY env var
+
+# Optional: emit rejected-field counterexamples as YAML fixtures for offline eval.
+# counterexample_fixture_dir = "~/github/modok/tests/fixtures/llm_gateway"
 
 [[projects]]
 slug = "stagehand"
@@ -184,7 +217,7 @@ Add a `[[projects]]` block for each project repo you want MODOK to ingest.
 
 ---
 
-## Step 7 — Start Quine
+## Step 8 — Start Quine
 
 **Dev machine (manual):**
 
@@ -220,7 +253,7 @@ Expected:
 
 ---
 
-## Step 8 — Initialize a project
+## Step 9 — Initialize a project
 
 ```bash
 modok init --project stagehand --repo ~/github/stagehand
@@ -233,7 +266,7 @@ This:
 
 ---
 
-## Step 9 — Run first ingestion
+## Step 10 — Run first ingestion
 
 ```bash
 modok ingest --project stagehand ~/github/stagehand
@@ -255,9 +288,19 @@ Ingestion complete
   Duration:        1.4s
 ```
 
+**To fill in missing frontmatter fields using the local LLM** (requires Ollama running):
+
+```bash
+modok ingest --project stagehand ~/github/stagehand --fix
+```
+
+Docs with missing required fields (`feature`, `modules`, `source_files`, `test_files`) will be sent to the local model for proposals. Each proposal is verified before being written — unknown slugs, wrong types, duplicates, and weak evidence are all rejected. With `cegis_fix_enabled = true`, one repair attempt is made automatically when the first proposal fails.
+
+Add `--strict` to reject the entire doc if any field fails verification after repair. Add `--dry-run` to see what would be proposed without writing anything.
+
 ---
 
-## Step 10 — Verify the graph
+## Step 11 — Verify the graph
 
 ```bash
 modok recall --project stagehand --feature shtp-receiver
