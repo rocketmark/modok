@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _IGNORE_DIR_NAMES = frozenset(
-    [".git", "node_modules", "bin", "obj", "dist", "build", "coverage", ".vs", "registries"]
+    [".git", "node_modules", "bin", "obj", "dist", "build", "coverage", ".vs", "registries", "archived"]
 )
 _IGNORE_SUFFIXES = frozenset([".key", ".pem", ".pfx"])
 _IGNORE_NAMES = frozenset([".env"])

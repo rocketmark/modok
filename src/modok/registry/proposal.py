@@ -82,11 +82,9 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
         timeout = getattr(cfg.llm, "timeout_seconds", 60)
     timeout = float(timeout)
 
-    est_mins = math.ceil(total_sections * timeout / 60) if total_sections else 0
     print(
         f"Found {total_sections} section{'s' if total_sections != 1 else ''} across "
-        f"{total_docs} doc{'s' if total_docs != 1 else ''} "
-        f"(~{est_mins} min at current timeout)",
+        f"{total_docs} doc{'s' if total_docs != 1 else ''}",
         file=sys.stderr,
     )
 
