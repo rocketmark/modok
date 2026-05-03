@@ -51,11 +51,12 @@ Tests verify the diagnosis.
 - MODOK does not produce a diagnosis. It produces a debug packet. The agent reasons.
 - Stream mode (AWS/Kinesis/CloudWatch) is a future vision item, not a v1 requirement. The schema accommodates event nodes but the ingestion pipeline for them is not built in v1.
 - MODOK does not enforce access control in v1. It is a single-user or trusted-team tool.
+- The Demo UI is not a production-grade application. It has no authentication, no persistent database, and no multi-user support.
 
 ## System Design
 
 ```
-                    Agents / CLI / MCP
+             Agents / CLI / MCP / Demo UI
                            │
                            ▼
                   ┌─────────────────┐
@@ -111,6 +112,8 @@ Read path assistance                       Write path assistance
 ```
 
 ### Major components
+
+**Demo UI** — a local-only web console for demonstrating MODOK's core workflow. A Next.js app (`ui/`) that presents a seeded customer ticket inbox, ticket detail view with notes, and a MODOK analysis panel. The UI calls `modok ingest` and `modok retrieve` via `child_process.spawn` from Next.js API routes. Ticket and note state persists in local JSON files under `ui/data/`. A top navigation bar provides MODOK branding and a freeform search that calls `modok search` with a project slug configured in `ui/config.json`. A mock mode (`MODOK_MOCK=1`) returns fixture debug packets when Quine is not running. The Demo UI is not a production surface — it has no auth, no database, and no deployment target. It exists to make MODOK's debug-packet workflow tangible to engineers and stakeholders.
 
 **CLI / MCP server** — two surfaces, one behavior. The CLI is the primary development interface and the MCP server exposes the same operations to agents. Both are thin entry points; logic lives in core.
 
