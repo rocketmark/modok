@@ -8,9 +8,9 @@ The core discipline: **the parser is mechanical; the LLM is a proposer.** No LLM
 
 Three principles govern every decision in this layer:
 
-- **Explicit metadata is truth.** Facts come from frontmatter, MODOK blocks, and registry entries — not from prose inference.
-- **Fail loudly on invalid references.** A doc that references a feature slug that doesn't exist in the feature registry is an error, not a warning. The graph must not contain dangling references.
-- **Idempotent by design.** Running ingestion twice on the same inputs produces the same graph. Re-ingesting after a doc edit updates stale properties; it does not create duplicates.
+- **Convention + registries are truth for structure.** Doc type and feature ownership are inferred from path conventions and the arrow index. Registries supply module, source file, and test file lists. Frontmatter is an override escape hatch, not a requirement.
+- **Fail loudly on invalid references.** A doc that resolves to a feature slug not in the feature registry is an error. The graph must not contain dangling references.
+- **Idempotent by design.** Running ingestion twice on the same inputs produces the same graph. Re-ingesting after a doc or commit edit updates stale properties; it does not create duplicates.
 
 ## Ingestion Trigger Model
 
@@ -52,31 +52,62 @@ When ingestion is run manually with uncommitted changes in the working tree, the
 .md   .mdx   .yaml   .yml
 ```
 
-### Doc frontmatter
+### Doc discovery — three-tier approach
 
-Every ingested doc must carry a `modok:` block in its YAML frontmatter:
+Doc metadata is inferred from conventions and registries. Frontmatter is an override only; no doc requires it.
+
+**Tier 1 — Arrow-index-driven (primary)**
+
+Walk `docs/arrows/index.yaml`. For each arrow entry, discover the associated docs by following the registered paths:
+
+| Arrow field | doc_type assigned |
+|---|---|
+| `arrow_doc` | `hld` |
+| `lld` | `lld` |
+| `specs` | `spec` |
+
+Feature is the arrow's `id`. Modules, source_files, and test_files are looked up from `features.yml` and `modules.yml` — the registries are the source of truth. No frontmatter required for any of these.
+
+**Tier 2 — Path-based inference (secondary)**
+
+After Tier 1, scan `docs/` for any `.md` file not already discovered. Infer `doc_type` from the containing directory and `feature` from the filename stem:
+
+| Directory | Inferred doc_type | Feature inference |
+|---|---|---|
+| `docs/llds/` | `lld` | stem (`pi-agent.md` → `pi-agent`) |
+| `docs/arrows/` | `hld` | stem |
+| `docs/specs/` | `spec` | stem, stripping `-specs` suffix if present |
+| `docs/` (root) | `hld` | stem |
+| Other `docs/**` | attempt inference | stem |
+
+After inference, look up the inferred feature slug in `features.yml`. If found: ingest with full registry-derived metadata. If not found: proceed to Tier 3.
+
+**Tier 3 — Unregistered**
+
+Docs that do not resolve to a known feature slug after Tier 1 and Tier 2 are assigned `doc_type: unregistered`. They are ingested as bare `Doc` nodes with no `Feature`, `Module`, or `File` edges. They are surfaced in the ingestion report as a discovery signal:
+
+```
+3 unregistered docs (no matching feature slug):
+  docs/frontmatter.md
+  docs/new-extraction-brainstorm.md
+  docs/archived/hifi-brainstorm.md
+```
+
+Unregistered docs are not errors or warnings. They indicate docs that need an arrow, a manual frontmatter override, or deletion.
+
+**Frontmatter as override**
+
+Any inferred field can be overridden by an explicit frontmatter block. The override need only declare the fields being overridden:
 
 ```yaml
 ---
 modok:
-  doc_type: lld                    # hld | lld | testing | runbook | known-issue | release-notes
-  project: stagehand
-  feature: shtp-receiver
-  product_area: networking
-  modules:
-    - shtp
-  source_files:
-    - agent/src/shtp.c
-    - agent/src/shtp.h
-  test_files:
-    - agent/tests/test_shtp.c
-  error_signatures:
-    - shtp-version-mismatch
-  tags:
-    - udp
-    - protocol
+  feature: pi-agent          # overrides stem inference
+  doc_type: adr              # overrides directory inference
 ---
 ```
+
+Fields not present in frontmatter fall through to inference. A doc with no frontmatter at all is fully inference-driven.
 
 ### Inline MODOK blocks
 
@@ -202,19 +233,90 @@ doc_types:
       - error_signatures
 ```
 
+## Git History Ingestion
+
+### Command interface
+
+```bash
+modok ingest-git --project <slug> [--repo <path>] [--full] [--since <date>] [--max-commits N]
+```
+
+- `--full` — import all history; no lookback limit. Use for initial bootstrap only.
+- `--since <date>` — import commits after this date (ISO-8601). Overrides `--max-commits`.
+- `--max-commits N` — import at most N commits. Default: 500.
+- Default (no flags): import commits from the last 6 months, up to 500 commits.
+
+The post-commit hook calls `modok ingest-git` automatically after each commit, adding exactly one commit node per trigger.
+
+### What is imported
+
+Only commits that touch **registered source files** — files that appear in any feature's `source_files` list in `features.yml`, or in any doc path registered in the arrow index — are imported. Commits touching only unregistered files are skipped.
+
+This filter is applied using `git log --diff-filter=ACMR -- <registered_files>` to avoid importing infrastructure commits (dependency lock updates, CI config changes) that are irrelevant to the feature graph.
+
+### Commit node schema
+
+```
+Commit
+  id:           idFrom("Commit", projectSlug, sha)
+  sha:          str               # full 40-char SHA
+  timestamp:    datetime          # ISO-8601, author date
+  author_name:  str
+  author_email: str
+  message:      str               # first line only, max 120 chars
+  branch:       str | null        # branch name at time of ingest; null if detached
+```
+
+### Edge: TOUCHES
+
+For each file changed in an imported commit (added, modified, renamed, deleted):
+
+```
+(:Commit)-[:TOUCHES {change_type: "M" | "A" | "D" | "R"}]->(:File)
+```
+
+`change_type` mirrors git's diff filter codes. Deleted files (`D`) create the edge even if the `File` node has no current on-disk presence — the commit is historical record.
+
+### Incremental ingestion
+
+The pipeline tracks the most recently ingested SHA per project in `~/.modok/config.toml` under `[projects.{slug}] last_git_sha`. On incremental runs:
+
+1. Read `last_git_sha` from config.
+2. Run `git log {last_git_sha}..HEAD -- <registered_files>`.
+3. Import only new commits.
+4. Update `last_git_sha` to `HEAD` SHA after a successful run.
+
+On the first run (no `last_git_sha`), the lookback window applies.
+
+### Enabling temporal queries
+
+Commit nodes enable queries such as:
+
+- "Which commits have touched both `tracker.c` and the pi-agent LLD in the last 90 days?"
+- "What files changed in the same commit that last modified `recovery.c`?"
+- "Show me all commits touching pi-agent source files since the last release tag."
+
+These are Cypher traversals on the `TOUCHES` edges without any additional indexing.
+
+---
+
 ## Parser Pipeline
 
 For each ingested file the pipeline runs these stages in order. Any stage that fails halts ingestion for that file and emits a structured error — it does not silently continue.
 
 ```
-1. Discover files
-   └── walk paths, apply ignore rules
+1. Discover docs
+   └── Tier 1: walk docs/arrows/index.yaml; collect registered LLD/spec/hld paths
+   └── Tier 2: scan docs/ for .md files not already discovered; infer doc_type + feature from path
+   └── Tier 3: docs with unresolved feature → doc_type: unregistered
+   └── apply ignore rules (same as SI-DISC-002)
 
-2. Parse frontmatter
-   └── extract modok: block, validate against doc type registry
+2. Resolve metadata
+   └── for each doc, merge: inferred metadata ← frontmatter overrides
+   └── look up modules/source_files/test_files from registries (for Tier 1 + 2 docs)
 
 3. Validate references
-   └── feature slug exists in feature registry
+   └── feature slug exists in feature registry (skip for unregistered docs)
    └── module slugs exist in module registry
    └── error signature slugs exist in error registry
    └── source_files and test_files exist on disk (missing → warning + confidence penalty)
@@ -226,22 +328,23 @@ For each ingested file the pipeline runs these stages in order. Any stage that f
 5. Extract headings
    └── parse H2/H3 headings as DocSection nodes
    └── write DESCRIBED_BY edges from Feature → DocSection
+   └── unregistered docs: DocSection nodes written; no DESCRIBED_BY edge (no Feature)
 
 6. Compute commit SHA
    └── git log --format=%H -1 -- <file_path>
    └── store on Doc node; null when file has no git history
 
 7. LLM proposal pass (optional, --fix only)
-   └── detect missing required fields from doc type registry
-   └── call LLM gateway propose_metadata(doc_path, frontmatter, missing_fields)
-   └── call verifier: verify_proposal(proposal, missing_fields, frontmatter, registry)
+   └── detect fields that could not be inferred and are not in frontmatter
+   └── call LLM gateway propose_metadata(doc_path, inferred_metadata, missing_fields)
+   └── call verifier: verify_proposal(proposal, missing_fields, inferred_metadata, registry)
    └── if any fields rejected and cegis_fix_enabled: one repair attempt (propose_metadata with repair_context)
    └── verify repaired proposal; accumulate valid_fields from both attempts
-   └── default mode: write valid_fields to frontmatter, warn per rejected field
+   └── default mode: write valid_fields to frontmatter override; warn per rejected field
    └── --strict mode: if any field rejected after repair, write nothing for this doc
    └── --emit-counterexamples: write YAML counterexample file to tests/fixtures/llm_gateway/
    └── --dry-run: print proposed patch, write nothing
-   └── re-run mechanical parser on updated frontmatter before writing to Quine
+   └── re-run stages 2–5 on updated metadata before writing to Quine
 
 8. Write to Quine
    └── upsert nodes in dependency order
@@ -250,6 +353,7 @@ For each ingested file the pipeline runs these stages in order. Any stage that f
 
 9. End of run
    └── emit structured ingestion report (nodes written, pending count, duration, etc.)
+   └── report unregistered doc count separately
    └── present pending low-confidence facts for interactive approval (--fix mode)
 ```
 
@@ -271,12 +375,13 @@ Nodes are written in dependency order to avoid dangling edge references (though 
 4. `Module`
 5. `File`
 6. `Doc`
-7. `ErrorSignature`
-8. `FailureMode`
-9. `Risk`
-10. `KnownIssue`
-11. `Fix`
-12. `CustomerIssue` → `ResolutionEvent`
+7. `Commit` (git history pass — `TOUCHES` edges written after all `File` nodes exist)
+8. `ErrorSignature`
+9. `FailureMode`
+10. `Risk`
+11. `KnownIssue`
+12. `Fix`
+13. `CustomerIssue` → `ResolutionEvent`
 
 ## Confidence Model
 
@@ -375,6 +480,13 @@ Warnings do not halt ingestion. Errors do.
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
+| Doc discovery model | Three-tier: arrow index → path inference → unregistered | Frontmatter-required; LLM-parsed discovery | Arrow index is already maintained for LID workflow; path inference covers the 90% case; unregistered surfaces gaps without blocking ingestion |
+| Frontmatter role | Override only; no fields required when convention applies | Always required; always optional | Required frontmatter was duplicating data already in the arrow index and registries; making it override-only eliminates that maintenance burden while keeping explicit control available |
+| Unregistered doc type | Ingest as bare Doc node; surface in report | Skip silently; error; require frontmatter | Silent skip hides gaps; errors block ingestion for legitimate WIP docs; unregistered keeps graph complete and makes the gap visible |
+| Git history scope | Only commits touching registered source/doc files | All commits; no filter | Unfiltered history includes infra noise (lock files, CI, tooling) that adds volume without adding diagnostic value; registered-file filter keeps commits relevant to the feature graph |
+| Git history lookback | Default 6 months / 500 commits; `--full` for bootstrap | Fixed window; unlimited always | Unlimited on first run can be slow for old repos; default window captures recent history immediately; `--full` is a deliberate one-time operation |
+| Git history update trigger | Post-commit hook (incremental, one commit per trigger) | Batch on each ingest run; manual only | Hook-driven incremental keeps history current automatically; batch re-import on every ingest run adds latency for no benefit after initial import |
+| Commit filter — change types | A, C, M, R (added, copied, modified, renamed) | All changes including D | Deleted files leave no current artifact to traverse from; including D adds `TOUCHES` edges to non-existent File nodes; easier to omit D and let history emerge from surviving files |
 | Trigger model | git post-commit hook, opt-in via `modok init` | Manual only; CI/CD only | Hook gives automatic local sync without CI infrastructure; opt-in avoids surprising repos that don't want it |
 | Hook install on existing hook | Append MODOK section; replace if section exists | Overwrite; error if hook exists | Hooks are composable shell scripts; appending is the standard pattern and never loses existing tooling |
 | Commit SHA source | `git log --format=%H -1 -- <file>` | Embedded in YAML; git hook env var `$GIT_COMMIT` | File-level SHA is always derivable without hook env; works for manual ingest runs too |
@@ -401,6 +513,8 @@ Warnings do not halt ingestion. Errors do.
 5. ✅ LLM role — proposer only; write-back to doc is opt-in via `--fix`; never writes to Quine directly.
 6. ✅ Confidence model scope — prose/structure extraction only; MODOK block content always verified (1.00).
 7. ✅ Registry location — in-repo `registries/` directory, version-controlled.
+8. ✅ Frontmatter role — override only; three-tier discovery makes frontmatter optional for convention-following docs.
+9. ✅ Git history scope — registered source/doc files only; default 6 months / 500 commits; `--full` for bootstrap.
 
 ### Deferred
 1. **Edge write order within a node** — SI-WRITE-001 mandates node write order; edge writes within a single node's context follow the order of the edge vocabulary table in the Quine client LLD. Not specified further; deterministic by construction from the model.
@@ -409,6 +523,7 @@ Warnings do not halt ingestion. Errors do.
 2. **Incremental ingestion** — currently re-ingests all files on every run. For large doc trees, a file hash cache would skip unchanged files. Not needed at stagehand's doc volume.
 3. **Multi-repo projects** — a project whose docs and code span multiple repos. Registry paths and file validation would need to be repo-relative. Deferred until a concrete case arises.
 4. **LLM proposal review UX** — the CLI review prompt is one field at a time. For docs with many missing fields this could be slow. A batch review mode (show all proposals, approve/reject interactively) may be needed.
+5. **Git commit filter — test_files** — SI-GIT-004's registered-file filter covers `source_files` and arrow doc paths but not `test_files`. Commits that add or modify tests are currently invisible to the feature graph. If queries like "what commits added tests for pi-agent?" are needed, add `test_files` paths to the filter scope.
 
 ## References
 

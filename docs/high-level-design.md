@@ -21,7 +21,8 @@ Three disciplines combine:
 The guiding invariant:
 
 ```
-Explicit metadata is truth.
+Convention + registries are truth for structure.
+Explicit frontmatter overrides convention.
 LLM output is a proposal.
 Quine stores validated structure.
 Files are the source of truth.
@@ -137,7 +138,7 @@ Read path assistance                       Write path assistance
 
 **LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates, (d) per-section registry enrichment and per-field normalisation during registry bootstrapping. It never writes to Quine directly.
 
-**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. Doc ingestion validates `source_files` and `test_files` frontmatter claims against the code map — a claimed file that is absent from the code map produces a warning (or error in `--strict` mode). LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
+**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, git history, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. Doc discovery uses a three-tier approach: (1) arrow-index-driven — walk `docs/arrows/index.yaml` and follow registered LLD/spec paths, inferring all metadata from the index and registries; (2) path-based inference — scan `docs/` for remaining files, infer `doc_type` from directory and `feature` from stem; (3) `unregistered` doc type — docs that don't resolve to a known feature are ingested as bare `Doc` nodes without Feature edges, surfaced as a discovery signal in the ingestion report. Frontmatter is override-only: any field can be overridden explicitly, but none are required when convention applies. LLM is invoked only when metadata cannot be inferred and a proposal is needed. Git commit history is ingested as `Commit` nodes with `TOUCHES` edges to `File` nodes, enabling temporal queries across the graph.
 
 **Registry Proposal Engine** — an LLM-assisted bootstrap tool, used when starting a project with no registry and no code map to derive one from. Not part of normal ingestion. Split across two CLI commands. `modok init --assisted` handles the enrichment pass: discovers all eligible docs, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway one at a time for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), prints a `N/total` progress counter to stderr per section, and writes raw candidates to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. `modok normalise --project <slug>` is then run separately: reads the raw files, normalises each field type independently (separate LLM call per field to keep context small), applies a CEGIS loop to verify no new concepts were introduced, and overwrites the final `features.yml`, `modules.yml`, and `errors.yml`. No Quine interaction in either pass — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
 

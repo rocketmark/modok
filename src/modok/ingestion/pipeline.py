@@ -28,7 +28,7 @@ from modok.ingestion.discovery import discover_files
 from modok.llm.gateway import propose_metadata
 from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
-    Feature, Module, File, DocSection, ErrorSignature,
+    Doc, Feature, Module, File, DocSection, ErrorSignature,
     KnownIssue, Fix,
 )
 
@@ -39,6 +39,7 @@ NODE_WRITE_ORDER = [
     "Module",
     "File",
     "Doc",
+    "Commit",
     "ErrorSignature",
     "FailureMode",
     "Risk",
@@ -426,6 +427,50 @@ async def ingest_doc(
     await _write_nodes_and_edges(fm, path, project_slug, repo_root, headings, client, ctx)
 
     return True
+
+
+# @spec SI-UNREG-001, SI-HEAD-002
+async def ingest_doc_unregistered(
+    path: Path,
+    client: Any,
+    project_slug: str,
+    ctx: IngestionContext | None = None,
+) -> None:
+    """Ingest an unregistered doc as a bare Doc node with DocSection nodes but no Feature/Module/File edges."""
+    if ctx is None:
+        ctx = IngestionContext(project_slug=project_slug, repo_root=path.parent)
+
+    commit_sha = get_commit_sha(path)
+    doc_path_str = str(path)
+
+    doc_node = Doc(
+        node_type="Doc",
+        project_slug=project_slug,
+        doc_path=doc_path_str,
+        doc_type="unregistered",
+        feature_slug=None,
+        commit_sha=commit_sha,
+    )
+    await client.upsert_node(doc_node)
+    ctx.nodes_written += 1
+
+    content = path.read_text(encoding="utf-8", errors="replace")
+    headings = parse_headings(content)
+
+    for heading_text, heading_slug, line_start, line_end in headings:
+        section_node = DocSection(
+            node_type="DocSection",
+            project_slug=project_slug,
+            doc_path=doc_path_str,
+            heading_slug=heading_slug,
+            heading_text=heading_text,
+            doc_type="unregistered",
+            line_start=line_start,
+            line_end=line_end,
+        )
+        await client.upsert_node(section_node)
+        ctx.nodes_written += 1
+        # SI-HEAD-002: no DESCRIBED_BY edge for unregistered docs (no Feature node)
 
 
 def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:

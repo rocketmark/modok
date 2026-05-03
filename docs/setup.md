@@ -320,7 +320,7 @@ Ingestion complete
   LLM proposals:   0
   Pending items:   0
   Files ignored:   5
-  Files skipped:   18
+  Unregistered:    3
   Duration:        1.4s
 ```
 

@@ -12,12 +12,13 @@ class IngestionReport:
     llm_proposals: int = 0
     pending_items: int = 0
     files_ignored: int = 0
-    files_skipped: int = 0
+    unregistered_count: int = 0
+    unregistered_paths: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
 
     def __str__(self) -> str:
         lines = [
-            f"Ingestion complete",
+            "Ingestion complete",
             f"  Docs processed:  {self.docs_processed}",
             f"  Nodes written:   {self.nodes_written}",
             f"  Edges written:   {self.edges_written}",
@@ -26,11 +27,15 @@ class IngestionReport:
             f"  LLM proposals:   {self.llm_proposals}",
             f"  Pending items:   {self.pending_items}",
             f"  Files ignored:   {self.files_ignored}",
-            f"  Files skipped:   {self.files_skipped}",
+            f"  Unregistered:    {self.unregistered_count}",
             f"  Duration:        {self.duration_seconds:.1f}s",
         ]
         for w in self.warnings:
             lines.append(f"  WARNING: {w}")
         for e in self.errors:
             lines.append(f"  ERROR:   {e}")
+        if self.unregistered_paths:
+            lines.append("  Unregistered docs:")
+            for p in self.unregistered_paths:
+                lines.append(f"    {p}")
         return "\n".join(lines)

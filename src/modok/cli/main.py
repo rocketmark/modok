@@ -13,6 +13,7 @@ from modok.cli.commands.import_arrow import import_arrow_cmd
 from modok.cli.commands.init import init_cmd
 from modok.cli.commands.normalise import normalise_cmd
 from modok.cli.commands.ingest import ingest_cmd
+from modok.cli.commands.ingest_git import ingest_git_cmd
 from modok.cli.commands.retrieve import retrieve_cmd
 from modok.cli.commands.recall import recall_cmd
 from modok.cli.commands.search import search_cmd
@@ -74,6 +75,7 @@ cli.add_command(import_arrow_cmd, name="import-arrow")
 cli.add_command(init_cmd, name="init")
 cli.add_command(normalise_cmd, name="normalise")
 cli.add_command(ingest_cmd, name="ingest")
+cli.add_command(ingest_git_cmd, name="ingest-git")
 cli.add_command(retrieve_cmd, name="retrieve")
 cli.add_command(recall_cmd, name="recall")
 cli.add_command(search_cmd, name="search")

@@ -20,16 +20,42 @@ See `docs/testing-standard.md` for full definitions.
 
 - [x] **SI-DISC-001** [U]: The system shall discover all `.md`, `.mdx`, `.yaml`, and `.yml` files under the given ingestion path recursively.
 - [x] **SI-DISC-002** [P]: The system shall never ingest files matching any ignore pattern (`.git/**`, `node_modules/**`, `bin/**`, `obj/**`, `dist/**`, `build/**`, `coverage/**`, `.vs/**`, `.env`, `*.key`, `*.pem`, `*.pfx`).
-- [x] **SI-DISC-003** [U]: When a discovered file has no `modok:` frontmatter block, the system shall skip it without error and include it in a skipped-file count in the ingestion report.
+- [ ] **SI-DISC-003** [U]: When a discovered file cannot be resolved to a known feature slug after Tier 1 (arrow index), Tier 2 (path inference), and frontmatter override, the system shall ingest it as `doc_type: unregistered` rather than skipping it.
 
 ---
 
-## Frontmatter Parsing
+## Three-Tier Doc Discovery
 
-- [x] **SI-FMTR-001** [U]: The system shall parse the `modok:` YAML frontmatter block from each discovered file and validate that all required fields for the declared `doc_type` are present and well-formed. This stage validates schema structure only — it does not validate that slugs exist in registries. Registry reference validation is a separate subsequent stage (SI-REF-001 through SI-REF-005).
-- [x] **SI-FMTR-002** [U]: If a required frontmatter field is missing and `--fix` is not specified, the system shall emit a structured warning and skip writing that doc's nodes to Quine.
-- [x] **SI-FMTR-003** [U]: If a required frontmatter field is missing and `--fix` is specified, the system shall invoke the LLM gateway for a proposal, run the verifier, apply validated fields to the doc file, and re-run the mechanical parser on the updated file before writing to Quine.
-- [x] **SI-FMTR-004** [U]: The system shall never write LLM proposals directly to Quine; proposals must be written to the doc file first and then pass through the mechanical parser.
+- [ ] **SI-TIER1-001** [U]: The system shall walk `docs/arrows/index.yaml` as the first discovery pass. For each arrow entry, the system shall ingest the `arrow_doc` path as `doc_type: hld`, the `lld` path as `doc_type: lld`, and the `specs` path as `doc_type: spec`, each with `feature` set to the arrow's `id`.
+- [ ] **SI-TIER1-002** [U]: For Tier 1 docs, the system shall derive `modules`, `source_files`, and `test_files` from the feature and module registries rather than from frontmatter.
+- [ ] **SI-TIER2-001** [U]: For docs not discovered in Tier 1, the system shall infer `doc_type` from the containing directory: `docs/llds/` → `lld`; `docs/arrows/` → `hld`; `docs/specs/` → `spec`; `docs/` root → `hld`; other `docs/**` → attempt inference.
+- [ ] **SI-TIER2-002** [U]: For Tier 2 docs, the system shall infer `feature` from the filename stem, stripping a trailing `-specs` suffix for spec files.
+- [ ] **SI-TIER2-003** [U]: When the inferred feature slug exists in the feature registry, the system shall ingest the doc with full registry-derived metadata. When it does not exist, the doc proceeds to Tier 3.
+- [ ] **SI-UNREG-001** [U]: Docs assigned `doc_type: unregistered` shall be written to Quine as bare `Doc` nodes. The system shall not write `Feature`, `Module`, or `File` edges for unregistered docs.
+- [ ] **SI-UNREG-002** [U]: The system shall include a count of unregistered docs in the ingestion report, listed separately from warnings and errors, along with each unregistered doc's path.
+- [ ] **SI-FMTR-001** [U]: Any field in a doc's `modok:` frontmatter block shall override the corresponding inferred value. Fields absent from frontmatter fall through to inference. A doc with no frontmatter block is fully inference-driven.
+- [ ] **SI-FMTR-002** [U]: If a doc's `feature` slug was inferred from Tier 2 path inference and does not exist in the feature registry, the system shall treat the doc as `doc_type: unregistered`. When a `feature` slug is explicitly declared in a doc's `modok:` frontmatter block and does not exist in the feature registry, SI-REF-001 applies — structured error, halt ingestion for that file.
+- [ ] **SI-FMTR-003** [U]: When `--fix` is specified and a doc is missing required metadata fields per the doc type registry after the mechanical parse completes, the system shall invoke the LLM gateway for proposals on the missing fields, run the verifier, apply validated fields as a frontmatter override, and re-run stages 2–5 before writing to Quine.
+- [ ] **SI-FMTR-004** [U]: The system shall never write LLM proposals directly to Quine; proposals must be written to the doc's frontmatter first and then pass through the mechanical resolver.
+
+---
+
+## Git History Ingestion
+
+- [ ] **SI-GIT-001** [U]: The system shall expose a `modok ingest-git --project <slug>` command that imports git commits touching registered source and doc files into Quine as `Commit` nodes.
+- [ ] **SI-GIT-002** [U]: Each `Commit` node shall carry: `sha` (full 40-char), `timestamp` (ISO-8601 author date), `author_name`, `author_email`, `message` (first line, max 120 chars), and `branch` (branch name at ingest time, or null if detached HEAD).
+- [ ] **SI-GIT-003** [U]: For each file changed in an imported commit (change types A, C, M, R — not D), the system shall write a `TOUCHES` edge from the `Commit` node to the corresponding `File` node, carrying a `change_type` property. If no `File` node exists in the graph for a changed path, the edge for that path is silently skipped; no shell node is created.
+- [ ] **SI-GIT-004** [U]: The system shall only import commits that touch files appearing in any feature's `source_files` in `features.yml` or in any path registered in the arrow index. Commits touching only unregistered files shall be skipped.
+- [ ] **SI-GIT-005** [U]: Without `--full` or `--since`, the system shall import commits from the last 6 months or the last 500 commits, whichever limit is reached first.
+- [ ] **SI-GIT-006** [U]: When `--full` is specified, the system shall import all commits in the repo's history that pass the registered-file filter, with no lookback limit.
+- [ ] **SI-GIT-007** [U]: The system shall store the most recently ingested commit SHA per project in config as `last_git_sha`. On incremental runs, the system shall import only commits between `last_git_sha` and `HEAD`, then update `last_git_sha` to the new `HEAD` SHA. `last_git_sha` shall be updated only after all `Commit` nodes and `TOUCHES` edges for the batch have been successfully written to Quine; a failed run leaves `last_git_sha` unchanged so the next run re-imports the batch.
+- [ ] **SI-GIT-008** [U]: The post-commit hook installed by `modok init` shall invoke `modok ingest-git` unconditionally after every commit. The registered-file filter inside `modok ingest-git` (SI-GIT-004) handles skipping commits that touch no registered files; the hook does not pre-check this.
+- [ ] **SI-GIT-009** [P]: Running `modok ingest-git` twice on the same repo state shall produce no duplicate `Commit` nodes or `TOUCHES` edges.
+- [ ] **SI-GIT-010** [U]: When `--since <date>` (ISO-8601) is specified, the system shall import only commits authored after `<date>`, overriding the 6-month default. `--since` and `--max-commits` may be combined; both limits apply and whichever is reached first stops the import. `--since` and `--full` are mutually exclusive; specifying both shall emit a structured error and exit `1`.
+
+---
+
+## Reference Validation
 
 ---
 
@@ -54,7 +80,7 @@ See `docs/testing-standard.md` for full definitions.
 ## Doc Section Extraction
 
 - [x] **SI-HEAD-001** [U]: The system shall extract H2 and H3 headings from each ingested doc body and represent each as a `DocSection` node carrying the heading text, a slugified identifier, and the line range (line_start, line_end) within the doc. H1 headings shall not be extracted as `DocSection` nodes.
-- [x] **SI-HEAD-002** [U]: For each `DocSection` extracted from a doc, the system shall write a `DESCRIBED_BY` edge from the doc's associated `Feature` node to the `DocSection` node.
+- [x] **SI-HEAD-002** [U]: For each `DocSection` extracted from a registered doc (doc_type other than `unregistered`), the system shall write a `DESCRIBED_BY` edge from the doc's associated `Feature` node to the `DocSection` node. Unregistered docs have no `Feature` node; their `DocSection` nodes are written without any `DESCRIBED_BY` edge.
 
 ---
 
@@ -79,7 +105,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Node Write Order and Idempotency
 
-- [x] **SI-WRITE-001** [U, C]: The system shall write nodes to Quine in dependency order: Project → ProductArea → Feature → Module → File → Doc → ErrorSignature → FailureMode → Risk → KnownIssue → Fix → CustomerIssue → ResolutionEvent.
+- [x] **SI-WRITE-001** [U, C]: The system shall write nodes to Quine in dependency order: Project → ProductArea → Feature → Module → File → Doc → Commit → ErrorSignature → FailureMode → Risk → KnownIssue → Fix → CustomerIssue → ResolutionEvent. `Commit` nodes are written after all `File` nodes so that `TOUCHES` edges can be resolved immediately.
 - [x] **SI-WRITE-002** [P, C]: Running ingestion twice on the same inputs shall produce the same graph state — no duplicate nodes, no duplicate edges, no orphaned nodes from the second run.
 - [x] **SI-WRITE-003** [U]: When a doc is updated and re-ingested, the system shall re-upsert the full node, replacing all properties with current values from the updated doc. Partial property updates are not permitted; the node must reflect exactly what the current doc declares.
 
@@ -95,7 +121,7 @@ See `docs/testing-standard.md` for full definitions.
 ## Ingestion Trigger — git hook
 
 - [x] **SI-HOOK-001** [U]: When `modok init --project {slug} --repo {path}` is run, the system shall install a post-commit hook in the project repo that runs ingestion after any commit touching registered ingestion paths.
-- [x] **SI-HOOK-002** [U]: The post-commit hook shall exit immediately without running ingestion when no changed file in the commit matches the project's registered ingestion paths.
+- [x] **SI-HOOK-002** [U]: The post-commit hook shall skip the `modok ingest-docs` step when no changed file in the commit matches the project's registered doc and registry paths. The hook shall always invoke `modok ingest-git` regardless — the registered-file filter inside that command handles skipping commits with no relevant file changes (SI-GIT-004, SI-GIT-008).
 - [x] **SI-HOOK-003** [U]: When a post-commit hook already exists in the target repo, `modok init` shall append a clearly marked MODOK section rather than overwriting the existing hook.
 - [x] **SI-HOOK-004** [U]: When a MODOK section already exists in the post-commit hook, `modok init` shall replace only that section, leaving all other hook content unchanged.
 
@@ -118,5 +144,5 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Ingestion Report
 
-- [x] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), and files skipped (present but no `modok:` frontmatter — SI-DISC-003). Ignored and skipped are separate counts.
+- [x] **SI-RPT-001** [U]: The system shall emit a structured ingestion report after every run containing: docs processed, nodes written, edges written, warnings count, errors count, LLM proposals count, duration, files ignored (matched ignore patterns — SI-DISC-002), and unregistered docs count (discovered but resolved to no known feature slug — SI-UNREG-002, listed with paths). Ignored and unregistered are separate counts.
 - [x] **SI-RPT-002** [U]: Warnings shall not halt ingestion; errors shall halt ingestion for the affected file and allow ingestion of remaining files to continue.

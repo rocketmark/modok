@@ -756,7 +756,7 @@ def test_node_write_order_is_respected():
     from modok.ingestion.pipeline import NODE_WRITE_ORDER
     expected = [
         "Project", "ProductArea", "Feature", "Module", "File",
-        "Doc", "ErrorSignature", "FailureMode", "Risk",
+        "Doc", "Commit", "ErrorSignature", "FailureMode", "Risk",
         "KnownIssue", "Fix", "CustomerIssue", "ResolutionEvent",
     ]
     assert NODE_WRITE_ORDER == expected
@@ -892,8 +892,9 @@ def test_hook_content_includes_path_guard():
     content = hook_content("stagehand", ["docs/", "registries/"])
     assert "docs/" in content
     assert "registries/" in content
-    # Must contain an exit-early guard when no matching files
-    assert "exit 0" in content or "exit" in content
+    # Must gate ingest-docs on path check; ingest-git must always appear
+    assert "ingest-git" in content
+    assert "ingest" in content
 
 
 # ---------------------------------------------------------------------------
@@ -983,14 +984,15 @@ def test_report_has_all_required_fields():
         llm_proposals=0,
         pending_items=2,
         files_ignored=5,
-        files_skipped=3,
+        unregistered_count=3,
+        unregistered_paths=["docs/a.md", "docs/b.md", "docs/c.md"],
         duration_seconds=1.3,
     )
     assert report.docs_processed == 24
     assert report.nodes_written == 312
     assert report.edges_written == 487
     assert report.files_ignored == 5
-    assert report.files_skipped == 3
+    assert report.unregistered_count == 3
     assert report.pending_items == 2
 
 

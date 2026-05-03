@@ -34,6 +34,15 @@ class File(QuineNode):
     repo_path: str
 
 
+class Doc(QuineNode):
+    node_type: Literal["Doc"]
+    project_slug: str
+    doc_path: str
+    doc_type: str
+    feature_slug: str | None = None
+    commit_sha: str | None = None
+
+
 class DocSection(QuineNode):
     node_type: Literal["DocSection"]
     project_slug: str

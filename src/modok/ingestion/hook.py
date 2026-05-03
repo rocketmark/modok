@@ -13,12 +13,16 @@ def hook_content(project_slug: str, ingestion_paths: list[str]) -> str:
     return f"""\
 {MODOK_HOOK_START}
 # Auto-installed by modok init — do not edit this section manually.
-_modok_changed=$(git diff --cached --name-only | grep -E '^({paths_pattern})')
-if [ -z "$_modok_changed" ]; then
-  exit 0
-fi
-modok ingest --project {project_slug} \\
+
+# ingest-docs: only when doc/registry files changed
+_modok_changed=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -E '^({paths_pattern})')
+if [ -n "$_modok_changed" ]; then
+  modok ingest --project {project_slug} \\
 {guards}
+fi
+
+# ingest-git: unconditional — registered-file filter is inside the command
+modok ingest-git --project {project_slug}
 {MODOK_HOOK_END}
 """
 
