@@ -9,7 +9,7 @@ _GENERATED_SUFFIXES = (".g.cs", ".designer.cs", ".generated.h")
 _GENERATED_DIRS = {"Generated", "Intermediate"}
 
 _TEST_STEM_PREFIXES = ("test_", "Test")
-_TEST_STEM_SUFFIXES = ("_test", "Tests")
+_TEST_STEM_SUFFIXES = ("_test", "_tests", "Tests", "_props")
 _TEST_DIRS = {"tests", "test", "Tests", "Test"}
 
 _CONFIG_EXTS = {
