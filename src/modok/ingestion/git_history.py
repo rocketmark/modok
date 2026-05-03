@@ -72,6 +72,9 @@ def parse_commit_log(log_output: str) -> list[CommitRecord]:
         i += 5
 
         touched: list[tuple[str, str]] = []
+        # Skip the blank line git inserts between the format block and --name-status lines
+        while i < n and lines[i] == "":
+            i += 1
         while i < n:
             fl = lines[i]
             if fl.startswith("COMMIT "):
@@ -149,10 +152,12 @@ def _build_git_log_command(
         "--diff-filter=ACMR",
     ]
 
-    if since_sha:
+    if full:
+        pass  # no range limit — full history
+    elif since_sha:
         # Incremental: only commits strictly after last_git_sha
         cmd.append(f"{since_sha}..HEAD")
-    elif not full:
+    else:
         date_limit = since_date if since_date else "6 months ago"
         cmd.extend(["--after", date_limit, f"--max-count={max_commits}"])
 
@@ -291,28 +296,26 @@ async def write_commit_to_quine(
     project_slug: str,
 ) -> None:
     """Write one Commit node and its TOUCHES edges to Quine (SI-GIT-002, SI-GIT-003)."""
-    commit_node = {
-        "node_type": "Commit",
-        "project_slug": project_slug,
-        "sha": commit.sha,
-        "timestamp": commit.timestamp,
-        "author_name": commit.author_name,
-        "author_email": commit.author_email,
-        "message": commit.message,
-        "branch": commit.branch,
-    }
+    from modok.quine.models import Commit as CommitNode
+    commit_node = CommitNode(
+        node_type="Commit",
+        project_slug=project_slug,
+        sha=commit.sha,
+        timestamp=commit.timestamp,
+        author_name=commit.author_name,
+        author_email=commit.author_email,
+        message=commit.message,
+        branch=commit.branch,
+    )
     await client.upsert_node(commit_node)
 
     for file_path, change_type in commit.touched_files:
-        # SI-GIT-003: only write TOUCHES edge when File node already exists
-        file_node = await client.get_node_by_path(file_path)
-        if file_node is None:
-            continue
-        await client.write_edge(
+        # SI-GIT-003: TOUCHES edge is only created if the File node exists in the graph.
+        # write_edge_by_parts uses MATCH — if the File node is absent the edge is silently skipped.
+        await client.write_edge_by_parts(
             ("commit", project_slug, commit.sha),
             "TOUCHES",
             ("file", project_slug, file_path),
-            {"change_type": change_type},
         )
 
 
@@ -383,3 +386,5 @@ async def ingest_git(
     if head_sha:
         config_path = Path.home() / ".modok" / "config.toml"
         save_last_git_sha(config_path, project_slug, head_sha)
+
+    return len(commits)

@@ -2,8 +2,22 @@
   "STAGEHAND-10": {
     "ticket_id": "STAGEHAND-10",
     "status": "failed",
+    "error": "quine_unreachable",
+    "ingest_exit_code": 2,
+    "ingest_stderr": "Usage: modok ingest [OPTIONS]\nTry 'modok ingest --help' for help.\n\nError: Got unexpected extra argument (/Users/markstalzer/github/modok/ui/demo-data/customer-tickets/STAGEHAND-10.md)\n"
+  },
+  "STAGEHAND-9": {
+    "ticket_id": "STAGEHAND-9",
+    "status": "failed",
     "error": "issue_not_found",
     "retrieve_exit_code": 1,
     "retrieve_stderr": "Error: issue not found in project `stagehand`\n"
+  },
+  "STAGEHAND-3": {
+    "ticket_id": "STAGEHAND-3",
+    "status": "failed",
+    "error": "quine_unreachable",
+    "ingest_exit_code": 2,
+    "ingest_stderr": "Usage: modok ingest [OPTIONS]\nTry 'modok ingest --help' for help.\n\nError: Got unexpected extra argument (/Users/markstalzer/github/modok/ui/demo-data/customer-tickets/STAGEHAND-3.md)\n"
   }
 }

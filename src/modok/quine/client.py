@@ -233,11 +233,14 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
     from modok.quine.models import (
         Project, Feature, Module, File, Doc, DocSection, ErrorSignature,
         KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
-        DiagnosticNote,
+        DiagnosticNote, Commit,
     )
     if isinstance(node, Doc):
         return ("'doc', $idf_project_slug, $idf_doc_path",
                 {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path})
+    if isinstance(node, Commit):
+        return ("'commit', $idf_project_slug, $idf_sha",
+                {"idf_project_slug": node.project_slug, "idf_sha": node.sha})
     if isinstance(node, Project):
         return ("'project', $idf_project_slug",
                 {"idf_project_slug": node.project_slug})

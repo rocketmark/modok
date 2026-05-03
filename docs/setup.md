@@ -341,10 +341,10 @@ Imports commits that touch registered source files and docs as `Commit` nodes in
 ## Step 13 — Verify the graph
 
 ```bash
-modok recall --project stagehand --feature shtp-receiver
+modok recall --project stagehand --module shtp-receiver
 ```
 
-Returns a summary of what MODOK knows about that feature: docs, modules, files, tests, known issues, risks.
+Returns a summary of what MODOK knows about that module: its parent feature, source files, and test files.
 
 ---
 

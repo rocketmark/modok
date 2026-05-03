@@ -116,6 +116,17 @@ class DiagnosticNote(QuineNode):
     created_at: str
 
 
+class Commit(QuineNode):
+    node_type: Literal["Commit"]
+    project_slug: str
+    sha: str
+    timestamp: str
+    author_name: str
+    author_email: str
+    message: str
+    branch: str | None = None
+
+
 _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Project": Project,
     "Feature": Feature,
@@ -129,4 +140,5 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Fix": Fix,
     "ResolutionEvent": ResolutionEvent,
     "DiagnosticNote": DiagnosticNote,
+    "Commit": Commit,
 }

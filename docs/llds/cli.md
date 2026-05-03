@@ -59,7 +59,13 @@ Runs the doc ingestion pipeline for `--project <slug>`:
 1. Pings Quine; exits `2` if unreachable.
 2. Loads registries from `{repo_root}/registries/`.
 3. Calls `discover_docs(repo_root, registry)` to classify all `docs/**/*.md` via three-tier discovery: Tier 1 (arrow index), Tier 2 (path + stem inference), Tier 3 (unregistered).
-4. Calls `run_ingestion(repo_root, registry, client, project_slug)`, which writes Feature, Module, File, DocSection, and Doc nodes to Quine.
+4. Calls `run_ingestion(repo_root, registry, client, project_slug)`, which writes the following node types to Quine:
+   - **Feature, Module, File** — derived automatically from the registry.
+   - **DocSection** — extracted from heading structure of every registered doc.
+   - **Doc** — written for unregistered docs only (no feature association).
+   - **KnownIssue** — only written when a doc contains a `known_issue` MODOK block. These must be authored manually in the relevant doc.
+   - **ErrorSignature** — only written when a doc contains an `error_signatures` entry. These must be authored manually.
+   - **Fix** — only written when a doc contains a `fix` MODOK block. These must be authored manually.
 5. Prints the structured ingestion report to stdout.
 6. Exits `3` if the report contains errors; `0` otherwise.
 

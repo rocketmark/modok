@@ -58,7 +58,7 @@ def ingest_git_cmd(
         for p in config.projects
     ]}
 
-    asyncio.run(ingest_git(
+    commit_count = asyncio.run(ingest_git(
         project_slug=project,
         repo_root=repo_root,
         registry=registry,
@@ -68,4 +68,4 @@ def ingest_git_cmd(
         since_date=since_date,
         max_commits=max_commits,
     ))
-    click.echo(f"Git history ingested for project '{project}'.")
+    click.echo(f"Git history ingested for project '{project}': {commit_count} commits written.")

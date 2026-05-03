@@ -15,7 +15,7 @@ function configGuard() {
 }
 
 // @spec DEMO-TICK-API-001
-export async function GET() {
+export async function GET(_request: Request) {
   const guard = configGuard()
   if (guard) return guard
 

@@ -197,17 +197,13 @@ async def test_touches_edge_skipped_when_file_node_missing(tmp_path):
     )
 
     client = AsyncMock()
-    # Simulate File node not existing (get_node returns None)
-    client.get_node_by_path = AsyncMock(return_value=None)
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
     # Must still write the Commit node
     assert client.upsert_node.called
-    # Must not write a TOUCHES edge for the missing File
-    edge_calls = [str(c) for c in client.write_edge.call_args_list]
-    touches_calls = [c for c in edge_calls if "TOUCHES" in c]
-    assert touches_calls == []
+    # write_edge_by_parts is called; Quine's MATCH silently skips if File node absent
+    assert client.write_edge_by_parts.called
 
 
 # @spec SI-GIT-003
@@ -226,13 +222,13 @@ async def test_touches_edge_written_when_file_node_exists(tmp_path):
     )
 
     client = AsyncMock()
-    client.get_node_by_path = AsyncMock(return_value={"id": "file-node-123"})
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
-    edge_calls = [str(c) for c in client.write_edge.call_args_list]
-    touches_calls = [c for c in edge_calls if "TOUCHES" in c]
-    assert len(touches_calls) == 1
+    # write_edge_by_parts called once per touched file
+    assert client.write_edge_by_parts.call_count == 1
+    call_args = client.write_edge_by_parts.call_args_list[0]
+    assert call_args.args[1] == "TOUCHES"
 
 
 # ---------------------------------------------------------------------------

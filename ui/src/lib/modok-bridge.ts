@@ -81,7 +81,7 @@ export async function runModok(ticketId: string): Promise<ModokRun> {
   const ticketDir = path.join(process.cwd(), 'demo-data', 'customer-tickets')
   fs.mkdirSync(ticketDir, { recursive: true })
   const mdPath = path.join(ticketDir, `${ticketId}.md`)
-  fs.writeFileSync(mdPath, renderTicketMarkdown(ticket, notes))
+  fs.writeFileSync(mdPath, renderTicketMarkdown(ticket, notes, config.modok_source))
 
   const ingestArgs = ['ingest', '--project', config.project_slug, mdPath]
   let ingestResult: SpawnResult

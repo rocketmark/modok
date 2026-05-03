@@ -1,9 +1,10 @@
 import type { Ticket, Note } from '@/types/ticket'
 
-export function renderTicketMarkdown(ticket: Ticket, notes: Note[]): string {
+export function renderTicketMarkdown(ticket: Ticket, notes: Note[], source: string): string {
   const lines: string[] = [
     `# Ticket: ${ticket.id}`,
     '',
+    `**Source:** ${source}`,
     `**Created:** ${ticket.created_at}`,
     '',
     '## Subject',
