@@ -135,7 +135,7 @@ def test_missing_config_exits_1(tmp_path):
     missing = tmp_path / "nonexistent.toml"
     runner = CliRunner(mix_stderr=False)
     with patch("modok.cli.config.CONFIG_PATH", missing):
-        result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+        result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
     assert result.exit_code == 1
     assert "setup" in (result.output + (result.stderr or "")).lower()
 
@@ -149,7 +149,7 @@ def test_malformed_config_exits_1(tmp_path):
     bad_config.write_text("[[[ not valid toml")
     runner = CliRunner(mix_stderr=False)
     with patch("modok.cli.config.CONFIG_PATH", bad_config):
-        result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+        result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
     assert result.exit_code == 1
 
 
@@ -163,7 +163,7 @@ def test_unknown_project_slug_exits_1(tmp_path):
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_client_cls:
             mock_client_cls.return_value.ping = AsyncMock(return_value=True)
-            result = runner.invoke(cli, ["ingest", "--project", "unknown-project", str(tmp_path)])
+            result = runner.invoke(cli, ["ingest", "--project", "unknown-project"])
     assert result.exit_code == 1
     assert "unknown-project" in (result.output + (result.stderr or ""))
 
@@ -186,7 +186,7 @@ def test_quine_unreachable_exits_2_without_graph_op(tmp_path):
             mock_client.ping = mock_ping
             mock_client_cls.return_value = mock_client
             with patch("modok.cli.commands.ingest.run_ingestion") as mock_ingest:
-                result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+                result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert result.exit_code == 2
     mock_ingest.assert_not_called()
@@ -383,7 +383,7 @@ def test_ingest_prints_report_to_stdout(tmp_path):
             mock_cls.return_value.ping = AsyncMock(return_value=True)
             with patch("modok.cli.commands.ingest.run_ingestion", return_value=report):
                 with patch("modok.cli.commands.ingest.Registry"):
-                    result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+                    result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert "Docs processed" in result.output or "5" in result.output
 
@@ -401,7 +401,7 @@ def test_ingest_exits_0_on_clean_report(tmp_path):
             mock_cls.return_value.ping = AsyncMock(return_value=True)
             with patch("modok.cli.commands.ingest.run_ingestion", return_value=make_clean_report()):
                 with patch("modok.cli.commands.ingest.Registry"):
-                    result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+                    result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert result.exit_code == 0
 
@@ -419,7 +419,7 @@ def test_ingest_exits_3_on_errored_report(tmp_path):
             mock_cls.return_value.ping = AsyncMock(return_value=True)
             with patch("modok.cli.commands.ingest.run_ingestion", return_value=make_errored_report()):
                 with patch("modok.cli.commands.ingest.Registry"):
-                    result = runner.invoke(cli, ["ingest", "--project", "stagehand", str(tmp_path)])
+                    result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert result.exit_code == 3
 
@@ -447,7 +447,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
                 with patch("modok.cli.commands.ingest.Registry") as mock_reg_cls:
                     mock_reg_cls.return_value = MagicMock()
                     result = runner.invoke(
-                        cli, ["ingest", "--project", "stagehand", str(tmp_path)]
+                        cli, ["ingest", "--project", "stagehand"]
                     )
 
     assert captured_args, "run_ingestion was not called"

@@ -231,10 +231,13 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
     Param keys are prefixed with 'idf_' to avoid collision with node property params.
     """
     from modok.quine.models import (
-        Project, Feature, Module, File, DocSection, ErrorSignature,
+        Project, Feature, Module, File, Doc, DocSection, ErrorSignature,
         KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
         DiagnosticNote,
     )
+    if isinstance(node, Doc):
+        return ("'doc', $idf_project_slug, $idf_doc_path",
+                {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path})
     if isinstance(node, Project):
         return ("'project', $idf_project_slug",
                 {"idf_project_slug": node.project_slug})

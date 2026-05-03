@@ -215,34 +215,70 @@ def load_last_git_sha(config: dict, project_slug: str) -> str | None:
 
 
 def save_last_git_sha(config_path: Path, project_slug: str, sha: str) -> None:
-    """Write last_git_sha for a project to the TOML config file."""
-    try:
-        import tomllib
-        with open(config_path, "rb") as f:
-            config = tomllib.load(f)
-    except (FileNotFoundError, Exception):
-        config = {}
+    """Write last_git_sha for a project to the TOML config file.
 
-    projects = config.get("projects", [])
-    updated = False
-    for proj in projects:
-        if isinstance(proj, dict) and proj.get("slug") == project_slug:
-            proj["last_git_sha"] = sha
-            updated = True
-            break
-    if not updated:
-        projects.append({"slug": project_slug, "last_git_sha": sha})
-    config["projects"] = projects
-
+    Edits the file in-place: finds the [[projects]] block with matching slug
+    and updates or inserts last_git_sha within that block.
+    """
     try:
-        import tomli_w
-        with open(config_path, "wb") as f:
-            tomli_w.dump(config, f)
-    except ImportError:
-        # Fallback: write a minimal representation
-        lines = [f'last_git_sha_{project_slug} = "{sha}"\n']
-        with open(config_path, "a") as f:
-            f.writelines(lines)
+        text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    i = 0
+    n = len(lines)
+    found = False
+
+    while i < n:
+        line = lines[i]
+        result.append(line)
+
+        # Detect the start of a [[projects]] block
+        if line.strip() == "[[projects]]":
+            block_start = len(result) - 1
+            i += 1
+            # Collect the block's lines until next [[...]] or EOF
+            block: list[str] = []
+            while i < n and not lines[i].strip().startswith("[["):
+                block.append(lines[i])
+                i += 1
+
+            # Check if this block has the matching slug
+            slug_line = f'slug = "{project_slug}"'
+            if any(slug_line in bl for bl in block):
+                found = True
+                # Update or insert last_git_sha
+                sha_line = f'last_git_sha = "{sha}"\n'
+                new_block: list[str] = []
+                replaced = False
+                for bl in block:
+                    if bl.strip().startswith("last_git_sha"):
+                        new_block.append(sha_line)
+                        replaced = True
+                    else:
+                        new_block.append(bl)
+                if not replaced:
+                    # Insert before any trailing blank lines
+                    insert_at = len(new_block)
+                    while insert_at > 0 and new_block[insert_at - 1].strip() == "":
+                        insert_at -= 1
+                    new_block.insert(insert_at, sha_line)
+                result.extend(new_block)
+            else:
+                result.extend(block)
+            continue
+
+        i += 1
+
+    if not found:
+        # Project block not found — append a minimal entry
+        if result and result[-1].strip():
+            result.append("\n")
+        result.append(f'[[projects]]\nslug = "{project_slug}"\nlast_git_sha = "{sha}"\n')
+
+    config_path.write_text("".join(result), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

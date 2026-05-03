@@ -66,6 +66,7 @@ class DocRecord:
     doc_type: str
     feature: str | None
     tier: int  # 1 = arrow index, 2 = path inference, 3 = unregistered
+    modules: list[str] = field(default_factory=list)
     source_files: list[str] = field(default_factory=list)
     test_files: list[str] = field(default_factory=list)
     is_unregistered: bool = False
@@ -99,6 +100,7 @@ def discover_docs(
         src_files = registry.source_files_for_feature(feature_id)
         tst_files = registry.test_files_for_feature(feature_id)
 
+        mod_slugs = registry.modules_for_feature(feature_id)
         for field_name, doc_type in [("arrow_doc", "hld"), ("lld", "lld"), ("specs", "spec")]:
             rel_path = entry.get(field_name)
             if not rel_path:
@@ -110,6 +112,7 @@ def discover_docs(
                 doc_type=doc_type,
                 feature=feature_id,
                 tier=1,
+                modules=list(mod_slugs),
                 source_files=list(src_files),
                 test_files=list(tst_files),
             )
@@ -174,6 +177,7 @@ def discover_docs(
                 doc_type=final_doc_type or "hld",
                 feature=final_feature,
                 tier=2,
+                modules=list(registry.modules_for_feature(final_feature)),
                 source_files=list(registry.source_files_for_feature(final_feature)),
                 test_files=list(registry.test_files_for_feature(final_feature)),
             ))

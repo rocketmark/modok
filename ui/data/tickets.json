@@ -1,39 +1,32 @@
 [
   {
-    "id": "TICKET-1777776031775",
+    "id": "STAGEHAND-9",
+    "subject": "Add arrows for unclaimed source files (UI, client utilities, agent C)",
+    "content": "After running `modok import-arrow`, 57 source files have no arrow coverage. Three natural groupings need arrow docs:\n\n## 1. Client UI subsystem (`client/stagehand_client/ui/`)\n- `ui/app.py`\n- `ui/main_window.py`\n- `ui/device_card.py`\n- `ui/dialogs.py`\n- `ui/feature_flags.py`\n- `ui/lh_panel.py`\n- `ui/rec_panel.py`\n- `ui/stream_panel.py`\n- `ui/tc_card.py`\n- `ui/widgets.py`\n\n## 2. Client utilities (`client/stagehand_client/`)\n- `log_format.py`\n- `math_utils.py`\n- `paths.py`\n- `event_log.py`\n- `lighthouse_ble.py`\n- `__init__.py`, `__main__.py`\n- `shtp_listener.py`\n\n## 3. Additional agent C source (`agent/src/`)\nFiles not currently in the `pi-agent` arrow:\n- `encoder.c` / `encoder.h`\n- `event.c` / `event.h` / `event_props.c`\n- `tracker.c` / `tracker.h` / `tracker_age.h` / `tracker_age_race_tests.c`\n- `main_loop_bridge.c` / `main_loop_bridge.h`\n- `recovery_props.c`\n- `shtp.h` / `shtp_mem_tests.c` / `shtp_props.c`\n- `version.h`\n\nThese may extend the existing `pi-agent` arrow or warrant a separate arrow for the C test/property infrastructure.\n\n## Also unclaimed (scripts — may not need arrows)\n- `client/scripts/` — dev utility scripts (analyze_shtp, capture_shtp, ltc_diag, etc.)\n- `scripts/` — install/provisioning scripts (bootstrap, prepare-sdcard, setup.sh, etc.)\n- `testsupport/` — C build test support\n- `spec/run_baseline.sh`, `spec/run_mutation_tests.sh`",
+    "created_at": "2026-05-03T16:06:50Z"
+  },
+  {
+    "id": "STAGEHAND-10",
     "subject": "lighthouse disappears",
     "content": "a lighthouse disappears from the client. i had 3 and now it just sees 2, but the 3rd is still on and active.",
-    "created_at": "2026-05-03T02:40:31.775Z",
-    "_uuid": "cb080066-f6ad-43c1-b532-0f5e69e61dd0"
+    "created_at": "2026-05-03T02:40:31.775Z"
   },
   {
-    "id": "ACME-1842",
-    "subject": "Checkout fails after retrying payment",
-    "content": "When a user's initial payment attempt fails (e.g. insufficient funds), they retry with a different card. The checkout enters a retry loop and eventually fails with 'PaymentRetryError: max retries exceeded' even when the second card is valid. Customer reports this started after the v2.4.1 deploy on Jan 14.",
-    "created_at": "2024-01-15T10:32:00Z"
+    "id": "STAGEHAND-3",
+    "subject": "docs: developer-guide recovery section describes in-process reinit that doesn't exist",
+    "content": "## Problem\n\nThe Recovery section of developer-guide.md describes three behaviors that do\nnot exist in agent/src/main.c. All three are doc inaccuracies — the code is\ncorrect, the docs are wrong.\n\n## Discrepancies\n\n**1. \"No lighthouses at start\" row:**\n> Agent automatically reinitializes libsurvive every 60 seconds until poses arrive.\n\nActual behavior: agent exits (breaks from main loop) after 60s with no tracker\nobject found. systemd restarts the service. There is no in-process reinit loop.\n\n**2. \"libsurvive shutdown\" row:**\n> Agent attempts reinit immediately, retrying every 10 seconds.\n\nActual behavior: agent exits when `tracker_is_running()` returns false. Again,\nsystemd handles the retry. There is no in-process reinit or 10s retry counter.\n\n**3. \"SHTC REINIT\" command description:**\n> rate-limited to once per 10 seconds\n\nNo rate limiting exists in the agent. The REINIT command causes an immediate\nexit (sets g_running = 0). If this rate limit exists, it is enforced by the\nWindows client, not the agent.\n\n## Suggested fix\n\nUpdate the two table rows to say \"agent exits (code 0); systemd restarts\nautomatically\" rather than implying in-process reinit. Add a note to the SHTC\nREINIT entry clarifying that rate limiting is enforced by the client.\n\nFound during recovery state machine refactor.",
+    "created_at": "2026-03-01T19:23:00Z"
   },
   {
-    "id": "GLOBEX-991",
-    "subject": "Webhook replay causes duplicate notification",
-    "content": "When a webhook event is replayed after a delivery failure, the notification service sends duplicate emails and Slack messages to the affected user. Multiple GLOBEX users reported receiving 3-4 copies of the same notification following the Nov 14 infrastructure event. Replay appears to bypass the idempotency check.",
-    "created_at": "2024-01-14T14:20:00Z"
+    "id": "STAGEHAND-2",
+    "subject": "agent: tracker_lost_logged never resets after tracking recovers",
+    "content": "## Bug\n\n`tracker_lost_logged` is reset to `false` only inside the `if (!announced)`\nbranch in `main.c` — which fires exactly once, on first-ever tracking acquisition.\n\nIf tracking is subsequently lost (30s no poses) and recovers before the 300s\nrestart threshold, `tracker_lost_logged` is never cleared. The \"no pose updates\nfor 30s\" warning will not fire for any subsequent dropout in the same agent\nlifetime.\n\n**Observed:** at-most-one warning per agent lifetime.\n**Expected:** at-most-one warning per dropout episode.\n\n## Location\n\nagent/src/main.c — reset only happens inside `if (!announced)`, which is never\ntrue after first acquisition:\n\n    if (tracker_get_pose(tracker, &pose)) {\n        if (!announced) {     // <-- only fires once ever\n            announced = true;\n            tracker_lost_logged = false;\n        }\n    }\n\n## Fix (not applied — found during recovery state machine refactor)\n\nReset `tracker_lost_logged = false` whenever a pose is received while\n`announced` is already true and `tracker_lost_logged` is true — i.e. on\nrecovery from POSE_LOST, not only on first-ever acquisition.",
+    "created_at": "2026-03-01T19:21:26Z"
   },
   {
-    "id": "INITRODE-237",
-    "subject": "Search results ignore archived filter",
-    "content": "When a user applies the 'exclude archived' filter in the search UI, archived records still appear in the result set. The filter value is present in the query params (archived=false) but does not appear to be passed to the backend search service. Reproducible on all environments.",
-    "created_at": "2024-01-12T09:05:00Z"
-  },
-  {
-    "id": "UMBRELLA-404",
-    "subject": "User invite email links to expired token",
-    "content": "Newly invited users receive an onboarding email with a sign-up link. The link contains a token that expires after 24 hours, but emails are sometimes delayed 24-48 hours due to the SES queue backlog, causing the token to be expired by the time the user clicks it. Affects approximately 12% of new invites this week.",
-    "created_at": "2024-01-10T16:45:00Z"
-  },
-  {
-    "id": "STARK-733",
-    "subject": "Dashboard metrics lag after deploy",
-    "content": "After each production deployment, dashboard metrics (active users, request latency, error rate) stop updating for 5-15 minutes. Metrics resume automatically but the gap causes confusion during post-deploy monitoring windows. The on-call team has been manually reassuring stakeholders after each deploy.",
-    "created_at": "2024-01-08T11:00:00Z"
+    "id": "STAGEHAND-1",
+    "subject": "GSS re-solve: MP_MAXITER result accepted by --max-cal-error, corrupts calibration",
+    "content": "## Summary\n\nWhen the Watchman radio scan causes a brief USB dropout, libsurvive triggers a\nGSS re-solve on resumption. If that re-solve hits the iteration limit (MP_MAXITER)\nwithout converging, it still passes the `--max-cal-error 0.01` gate because\n`sensor_err` appears just under the threshold — even though the result is\nmeaningless. The corrupt calibration is written to config.json, causing a boot\nloop on the next agent restart.\n\n## Observed values (real log)\n\n| Metric | Good solve | Bad solve (MP_MAXITER) |\n|--------|-----------|------------------------|\n| Stop reason | MP_OK_BOTH | MP_MAXITER (hit 200 iter limit) |\n| sensor_err | 0.000124 rad | 0.008954 rad ← passes our gate |\n| bestnorm | 58.5 | 863,358.7 (15,000× worse) |\n| Accepted? | ✅ | ✅ should be ❌ |\n\n## Root cause\n\n`--max-cal-error` is a libsurvive flag that gates on `sensor_err < threshold`.\nIt does not check the MPFIT convergence status. A solve that returns MP_MAXITER\ndid not converge — the reported sensor_err is the residual at the iteration\nlimit, not a meaningful calibration quality metric.\n\n## Trigger sequence\n\n1. Watchman radio scan → USB timeout on IMU (ep 0x81) and Lightcap (ep 0x83) simultaneously (~2s)\n2. USB resumes → libsurvive GSS re-solves with all 3 lighthouses\n3. Re-solve returns MP_MAXITER, sensor_err=0.008954 (just under 0.01)\n4. Bad calibration written to ~/.config/libsurvive/config.json\n5. Agent exits; restarts load corrupt config → no poses → SIGABRT boot loop\n\n## Fix\n\nIn the GSS result callback in agent/src/tracker.c, check the MPFIT convergence\nstatus before accepting a result. Reject any solve that returns MP_MAXITER,\nMP_BADSTEP, or other non-OK codes regardless of sensor_err.\n\nAlso log the stop reason string alongside sensor_err and bestnorm so this is\nvisible in journalctl without decoding the libsurvive INFO line.\n\n## Workaround\n\nDelete ~/.config/libsurvive/config.json to force fresh calibration on restart:\n\n    ssh stagehand@<pi-ip> \"rm -f ~/.config/libsurvive/config.json && sudo systemctl restart stagehand-agent\"",
+    "created_at": "2026-02-24T21:05:21Z"
   }
 ]

@@ -16,8 +16,7 @@ from modok.quine.client import QuineClient
 
 @click.command("ingest")
 @click.option("--project", required=True, help="Project slug.")
-@click.argument("path", type=click.Path())
-def ingest_cmd(project: str, path: str) -> None:
+def ingest_cmd(project: str) -> None:
     config = ModokConfig.load()
     proj = config.project(project)
 

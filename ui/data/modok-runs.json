@@ -1,6 +1,6 @@
 {
-  "TICKET-1777776031775": {
-    "ticket_id": "TICKET-1777776031775",
+  "STAGEHAND-10": {
+    "ticket_id": "STAGEHAND-10",
     "status": "failed",
     "error": "issue_not_found",
     "retrieve_exit_code": 1,

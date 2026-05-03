@@ -5,7 +5,8 @@ import yaml
 
 from modok.ingestion.errors import RegistryNotFoundError
 
-_REQUIRED_FILES = ["features.yml", "modules.yml", "errors.yml", "doc-types.yml"]
+_REQUIRED_FILES = ["features.yml", "modules.yml"]
+_OPTIONAL_FILES = ["errors.yml", "doc-types.yml"]
 
 
 class Registry:
@@ -22,11 +23,18 @@ class Registry:
 
         self._features: dict = self._load(reg_dir / "features.yml").get("features", {}) or {}
         self._modules: dict = self._load(reg_dir / "modules.yml").get("modules", {}) or {}
-        self._errors: dict = self._load(reg_dir / "errors.yml").get("errors", {}) or {}
-        self._doc_types: dict = self._load(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
+        self._errors: dict = self._load_optional(reg_dir / "errors.yml").get("errors", {}) or {}
+        self._doc_types: dict = self._load_optional(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
 
     @staticmethod
     def _load(path: Path) -> dict:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _load_optional(path: Path) -> dict:
+        if not path.exists():
+            return {}
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
 
@@ -50,6 +58,10 @@ class Registry:
         if not isinstance(entry, dict):
             return []
         return list(entry.get("required_fields", []))
+
+    def modules_for_feature(self, slug: str) -> list[str]:
+        entry = self._features.get(slug, {})
+        return entry.get("modules", []) if isinstance(entry, dict) else []
 
     def source_files_for_feature(self, slug: str) -> list[str]:
         entry = self._features.get(slug, {})

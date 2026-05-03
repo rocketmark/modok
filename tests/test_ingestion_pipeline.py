@@ -964,33 +964,32 @@ def test_report_has_all_required_fields():
 @pytest.mark.asyncio
 async def test_error_in_one_file_does_not_halt_others(tmp_path):
     from modok.ingestion.pipeline import run_ingestion
+    from modok.ingestion.discovery import DocRecord
 
-    good = write_file(tmp_path / "good.md", MINIMAL_FRONTMATTER)
-    bad_content = """\
-        ---
-        modok:
-          doc_type: lld
-          project: stagehand
-          feature: bad-unknown-slug
-        ---
-        # Bad doc
-        """
-    write_file(tmp_path / "bad.md", bad_content)
+    good_path = write_file(tmp_path / "good.md", "# Good\n")
+    bad_path = write_file(tmp_path / "bad.md", "# Bad\n")
+
+    good_rec = DocRecord(path=good_path, doc_type="lld", feature="shtp-receiver", tier=2)
+    bad_rec = DocRecord(path=bad_path, doc_type="lld", feature="other-feature", tier=2)
 
     registry = MagicMock(spec=Registry)
-    registry.has_feature.side_effect = lambda s: s == "shtp-receiver"
-    registry.has_module.return_value = True
-    registry.has_error.return_value = True
-    registry.required_fields.return_value = ["feature", "modules", "source_files", "test_files"]
-
     client = AsyncMock()
+    # Quine raises for the first upsert on bad_path, succeeds for good_path
+    call_count = 0
+    async def upsert_side_effect(node):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Quine write failed")
+    client.upsert_node.side_effect = upsert_side_effect
 
-    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+    with patch("modok.ingestion.discovery.discover_docs",
+               return_value=([bad_rec, good_rec], [], 0)):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             report = await run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
 
-    assert report.errors  # bad.md produced an error
-    assert report.docs_processed >= 1  # good.md was processed
+    assert report.errors  # bad_rec produced an error
+    assert report.docs_processed >= 1  # good_rec was processed
 
 
 # ---------------------------------------------------------------------------
@@ -1001,29 +1000,20 @@ async def test_error_in_one_file_does_not_halt_others(tmp_path):
 @pytest.mark.asyncio
 async def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(tmp_path):
     from modok.ingestion.pipeline import run_ingestion
+    from modok.ingestion.discovery import DocRecord
 
-    write_file(tmp_path / "incomplete.md", """\
----
-modok:
-  doc_type: lld
-  project: stagehand
-  feature: shtp-receiver
----
-# Incomplete doc
-""")
-    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+    doc_path = write_file(tmp_path / "doc.md", "# Doc\n")
+    rec = DocRecord(path=doc_path, doc_type="lld", feature="shtp-receiver", tier=2)
 
     registry = MagicMock(spec=Registry)
-    registry.has_feature.return_value = True
-    registry.has_module.return_value = True
-    registry.has_error.return_value = True
     client = AsyncMock()
 
-    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        report = await run_ingestion(
-            tmp_path, registry=registry, client=client,
-            project_slug="stagehand",
-        )
+    with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            report = await run_ingestion(
+                tmp_path, registry=registry, client=client,
+                project_slug="stagehand",
+            )
 
     assert report.docs_processed >= 1
     assert not report.errors
@@ -1032,31 +1022,21 @@ modok:
 # @spec LLM-META-004
 @pytest.mark.asyncio
 async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
-    # Same contract as above but for a doc with missing fields.
     from modok.ingestion.pipeline import run_ingestion
+    from modok.ingestion.discovery import DocRecord
 
-    write_file(tmp_path / "incomplete.md", """\
----
-modok:
-  doc_type: lld
-  project: stagehand
-  feature: shtp-receiver
----
-# Incomplete doc
-""")
-    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+    doc_path = write_file(tmp_path / "doc.md", "# Doc\n")
+    rec = DocRecord(path=doc_path, doc_type="lld", feature="shtp-receiver", tier=2)
 
     registry = MagicMock(spec=Registry)
-    registry.has_feature.return_value = True
-    registry.has_module.return_value = True
-    registry.has_error.return_value = True
     client = AsyncMock()
 
-    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        report = await run_ingestion(
-            tmp_path, registry=registry, client=client,
-            project_slug="stagehand",
-        )
+    with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            report = await run_ingestion(
+                tmp_path, registry=registry, client=client,
+                project_slug="stagehand",
+            )
 
     assert report.docs_processed >= 1
     assert not report.errors
@@ -1399,29 +1379,20 @@ async def test_non_interactive_suppresses_llm_proposal_and_repair(tmp_path):
 @pytest.mark.asyncio
 async def test_llm_response_error_skips_doc_continues_ingestion(tmp_path):
     from modok.ingestion.pipeline import run_ingestion
+    from modok.ingestion.discovery import DocRecord
 
-    write_file(tmp_path / "doc_with_missing.md", """\
----
-modok:
-  doc_type: lld
-  project: stagehand
-  feature: shtp-receiver
----
-# Missing modules
-""")
-    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+    doc_path = write_file(tmp_path / "doc.md", "# Doc\n")
+    rec = DocRecord(path=doc_path, doc_type="lld", feature="shtp-receiver", tier=2)
 
     registry = MagicMock(spec=Registry)
-    registry.has_feature.return_value = True
-    registry.has_module.return_value = True
-    registry.has_error.return_value = True
     client = AsyncMock()
 
-    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        report = await run_ingestion(
-            tmp_path, registry=registry, client=client,
-            project_slug="stagehand",
-        )
+    with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
+        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+            report = await run_ingestion(
+                tmp_path, registry=registry, client=client,
+                project_slug="stagehand",
+            )
 
     assert report.docs_processed >= 1
     assert not report.errors
@@ -1464,8 +1435,8 @@ async def test_reruns_stages_2_to_5_after_patch_not_stage_1_or_6(tmp_path):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
             with patch("modok.ingestion.pipeline._load_llm_config",
                        return_value={"cegis_fix_enabled": False}):
-                with patch("modok.ingestion.pipeline.discover_files",
-                           side_effect=lambda *a, **kw: discover_calls.append(1) or []) as _disc:
+                with patch("modok.ingestion.discovery.discover_docs",
+                           side_effect=lambda *a, **kw: discover_calls.append(1) or ([], [], 0)) as _disc:
                     with patch("modok.ingestion.parser.get_commit_sha",
                                side_effect=lambda *a: sha_calls.append(1) or "abc") as _sha:
                         with patch("modok.ingestion.parser.parse_frontmatter",

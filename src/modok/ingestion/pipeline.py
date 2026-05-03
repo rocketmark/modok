@@ -24,7 +24,6 @@ from modok.ingestion.parser import (
 )
 from modok.ingestion.registry import Registry
 from modok.ingestion.report import IngestionReport
-from modok.ingestion.discovery import discover_files
 from modok.llm.gateway import propose_metadata
 from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
@@ -359,32 +358,43 @@ async def ingest_doc(
     project_slug: str,
     repo_root: Path,
     ctx: IngestionContext | None = None,
+    doc_record: Any = None,
 ) -> bool:
-    """Ingest a single markdown/yaml doc. Returns False if skipped (no modok: frontmatter)."""
+    """Ingest a single markdown/yaml doc. Returns False if skipped (no frontmatter and no DocRecord)."""
     if ctx is None:
         ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root)
 
-    fm = parse_frontmatter(path)
-    if fm is None:
-        return False
+    if doc_record is not None:
+        # Registry-driven path: build fm from DocRecord, skip frontmatter checks
+        fm: dict = {
+            "doc_type": doc_record.doc_type,
+            "feature": doc_record.feature or "",
+            "modules": list(doc_record.modules),
+            "source_files": list(doc_record.source_files),
+            "test_files": list(doc_record.test_files),
+        }
+    else:
+        # Legacy: parse frontmatter from file
+        fm = parse_frontmatter(path)
+        if fm is None:
+            return False
 
-    # Normalise: support both top-level keys and nested modok: block
-    if isinstance(fm, dict) and "modok" in fm and isinstance(fm["modok"], dict):
-        modok = fm["modok"]
-        # Merge modok: subkeys up to top level (top-level wins on conflict)
-        merged = {**modok, **{k: v for k, v in fm.items() if k != "modok"}}
-        fm = merged
+        # Normalise: support both top-level keys and nested modok: block
+        if isinstance(fm, dict) and "modok" in fm and isinstance(fm["modok"], dict):
+            modok = fm["modok"]
+            merged = {**modok, **{k: v for k, v in fm.items() if k != "modok"}}
+            fm = merged
+
+        # SI-FMTR-002/003: check required fields
+        field_warnings, _ = check_required_fields(fm, fm.get("doc_type", ""))
+        for w in field_warnings:
+            ctx.add_warning(w)
+
+        # SI-REF-001/002/003: validate registry references (raises on invalid slug)
+        validate_references(fm, registry)
 
     doc_type = fm.get("doc_type", "")
     feature_slug: str = fm.get("feature", "")
-
-    # SI-FMTR-002/003: check required fields
-    field_warnings, _ = check_required_fields(fm, doc_type)
-    for w in field_warnings:
-        ctx.add_warning(w)
-
-    # SI-REF-001/002/003: validate registry references (raises on invalid slug)
-    validate_references(fm, registry)
 
     # SI-REF-004: validate file references (warnings + confidence penalty)
     file_warnings, _ = validate_file_references(fm, repo_root)
@@ -676,27 +686,34 @@ async def run_ingestion(
     report.warnings.extend(check_working_tree(repo_root))
 
     t0 = time.monotonic()
-    files, ignored = discover_files(repo_root)
-    report.files_ignored = ignored
+    from modok.ingestion.discovery import discover_docs
+    registered, unregistered, ignored_count = discover_docs(repo_root, registry)
+    report.files_ignored = ignored_count
 
-    for path in files:
+    for record in registered:
         try:
-            processed = await ingest_doc(
-                path,
+            await ingest_doc(
+                record.path,
                 registry=registry,
                 client=client,
                 project_slug=project_slug,
                 repo_root=repo_root,
                 ctx=ctx,
+                doc_record=record,
             )
-            if processed:
-                report.docs_processed += 1
-            else:
-                report.files_skipped += 1
+            report.docs_processed += 1
         except InvalidSlugReferenceError as exc:
             report.errors.append(str(exc))
         except Exception as exc:
-            report.errors.append(f"{path}: {exc}")
+            report.errors.append(f"{record.path}: {exc}")
+
+    for record in unregistered:
+        try:
+            await ingest_doc_unregistered(record.path, client=client, project_slug=project_slug, ctx=ctx)
+            report.unregistered_count += 1
+            report.unregistered_paths.append(str(record.path))
+        except Exception as exc:
+            report.errors.append(f"{record.path}: {exc}")
 
     report.nodes_written = ctx.nodes_written
     report.edges_written = ctx.edges_written

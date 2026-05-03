@@ -20,9 +20,10 @@ modok --version
 modok --help
 modok --status
 
-modok init     --project <slug> --repo <path> [--assisted]
-modok ingest   --project <slug> [--fix] <path>
-modok retrieve --project <slug> --source <system> --ticket <id>
+modok init        --project <slug> --repo <path> [--assisted]
+modok ingest      --project <slug>
+modok ingest-git  --project <slug> [--full] [--since <date>] [--max-commits <n>]
+modok retrieve    --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
 modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
@@ -54,14 +55,35 @@ Exit codes for `modok init`: `0` = success, `1` = bad args or not a git repo, `2
 
 ### `modok ingest`
 
-Runs the ingestion pipeline over `<path>` for `--project <slug>`:
+Runs the doc ingestion pipeline for `--project <slug>`:
 1. Pings Quine; exits `2` if unreachable.
 2. Loads registries from `{repo_root}/registries/`.
-3. Calls `run_ingestion(repo_root, registry, client, project_slug, fix_mode)`.
-4. Prints the structured ingestion report to stdout.
-5. Exits `3` if the report contains errors; `0` otherwise.
+3. Calls `discover_docs(repo_root, registry)` to classify all `docs/**/*.md` via three-tier discovery: Tier 1 (arrow index), Tier 2 (path + stem inference), Tier 3 (unregistered).
+4. Calls `run_ingestion(repo_root, registry, client, project_slug)`, which writes Feature, Module, File, DocSection, and Doc nodes to Quine.
+5. Prints the structured ingestion report to stdout.
+6. Exits `3` if the report contains errors; `0` otherwise.
 
-With `--fix`: invokes the LLM proposal pass for docs with missing required fields. Prompts interactively on stderr for approval. When stdout is not a tty (piped), auto-rejects proposals and emits a warning to stderr — ingestion continues without LLM proposals.
+No `<path>` argument — repo root is derived from the project's `repo` in `~/.modok/config.toml`. No `--fix` flag — frontmatter is not the source of truth; metadata comes from the registry.
+
+### `modok ingest-git`
+
+Ingests git commits touching registered files into Quine as `Commit` nodes with `TOUCHES` edges to `File` nodes.
+
+1. Pings Quine; exits `2` if unreachable.
+2. Loads registries and builds the registered file set from `features.yml` and the arrow index.
+3. Determines incremental start point from `last_git_sha` in `~/.modok/config.toml` for this project.
+4. Runs `git log` filtered to registered files only (commits touching only unregistered files are skipped).
+5. Writes each commit as a `Commit` node; writes `TOUCHES` edges only to `File` nodes already in the graph.
+6. On success, updates `last_git_sha` to HEAD in `~/.modok/config.toml`.
+
+**Incremental behavior:**
+- With `last_git_sha` set: ingests only commits after that SHA (`{sha}..HEAD`).
+- With no `last_git_sha` and no flags: ingests the last 6 months of history (up to `--max-commits`, default 500).
+- `--full`: ingests the entire repo history. Mutually exclusive with `--since`.
+- `--since <date>`: ingests commits after the given date (any format `git log --after` accepts, e.g. `2025-01-01`). Mutually exclusive with `--full`.
+- `--max-commits <n>`: caps the number of commits processed (default 500). Ignored when `--full` is set.
+
+Exits `0` on success (including when there are no new commits). Exits `2` if Quine is unreachable.
 
 ### `modok retrieve`
 
@@ -185,6 +207,7 @@ model = "llama3"
 [[projects]]
 slug = "stagehand"
 repo = "~/github/stagehand"
+last_git_sha = "<sha>"   # written by modok ingest-git; absent on first run
 ```
 
 `~` in path values is expanded via `Path.expanduser()`. `ConfigNotFoundError` (exit `1`) if `~/.modok/config.toml` is absent; `ConfigParseError` (exit `1`) if malformed. The CLI derives `repo_root` for a project by matching `--project <slug>` against the `[[projects]]` list; an unknown slug exits `1` with a clear error.
@@ -202,10 +225,6 @@ Config is modeled as a pydantic model (`ModokConfig`) for validation and type sa
 
 **Stderr** carries progress, warnings, and error messages. Commands that succeed with no warnings produce no stderr output.
 
-## Non-Interactive Detection
-
-`modok ingest --fix` and any future command that prompts the user detects non-interactive mode via `sys.stdin.isatty()`. When non-interactive, prompts are suppressed, proposals are auto-rejected, and a warning is emitted to stderr. This allows `--fix` to be used in CI or agent pipelines without hanging.
-
 ## Framework
 
 `click` is the CLI framework. It handles argument parsing, help text, subcommand grouping, and process exit. Added as a production dependency in `pyproject.toml`. `toml` parsing uses the stdlib `tomllib` (Python 3.11+).
@@ -220,6 +239,7 @@ src/modok/cli/
         __init__.py
         init.py
         ingest.py
+        ingest_git.py
         retrieve.py
         recall.py
         search.py
@@ -247,7 +267,7 @@ modok = "modok.cli.main:cli"
 | `retrieve` input | `--source` + `--ticket` (primary); `--node-id` (power user) | Node ID only; source+ticket only | Agents can't call `idFrom` directly — they have source system and ticket ID from their context. Node ID form retained for power users and testing. |
 | Config location | `~/.modok/config.toml` fixed | `.modok.toml` in cwd, `$MODOK_CONFIG` env var | Fixed location makes agent subprocess calls predictable without path coordination. |
 | Config parsing | stdlib `tomllib` + pydantic | `tomli` backport, `tomlkit` | `tomllib` is in stdlib from Python 3.11 (already required). No extra dependency. |
-| Non-interactive `--fix` | Auto-reject, warn, continue | Block and fail | CI and agent pipelines can use `--fix` safely without hanging; explicit `--auto-approve` is the v2 opt-in. |
+| `ingest-git` incremental start | `last_git_sha` in config; default 6 months if absent | Always full history; always explicit `--since` | Full history is expensive on large repos. 6-month default covers most active development. `--full` is the explicit escape hatch. | 
 | `quine start` when already running | Ping first; if up, print and exit `0` | Check PID file; error if no PID | Quine may have been started externally. "It's already running" is success, not an error, regardless of how it started. |
 | `recall` on unknown feature slug | Exit `0` with empty results | Exit `1` | "No results" is a valid graph query answer. Agents can handle empty JSON; they can't easily distinguish a real error from a missing feature if both return non-zero. |
 | `init` on non-git directory | Exit `1` immediately | Skip hook, warn, continue | The hook is a core deliverable of `init`. A missing `.git/` is almost certainly a wrong path; a silent skip would leave the project half-initialized with no visible signal. |
@@ -261,8 +281,7 @@ modok = "modok.cli.main:cli"
 1. **`$MODOK_CONFIG` env var** — config path override for multi-config setups (e.g. staging vs. prod Quine). Defer until someone needs it.
 2. **`--output json` as global flag** — currently `--json` is per-command where tabular is the default. A global flag may be cleaner once all commands support JSON. Revisit after v1.
 3. **`modok ingest-code-map`** — code map ingestion (file/module discovery from source tree). Referenced in `setup.md` but the ingestion pipeline only handles docs today. Separate command when code map ingestion is built.
-4. **`--auto-approve` flag for `--fix`** — explicit opt-in for CI pipelines that want LLM proposals without prompts. Defer until there is a real CI use case.
-5. **`modok find-issue`** — look up a CustomerIssue node ID by source + ticket without running retrieval. Not needed given `retrieve` now accepts `--source` + `--ticket` directly.
+4. **`modok find-issue`** — look up a CustomerIssue node ID by source + ticket without running retrieval. Not needed given `retrieve` now accepts `--source` + `--ticket` directly.
 
 ## References
 

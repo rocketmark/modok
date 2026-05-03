@@ -303,13 +303,14 @@ M\tpackage-lock.json
                    return_value=registered_files):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="e" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
-                    result = await ingest_git(
-                        project_slug="stagehand",
-                        repo_root=tmp_path,
-                        registry=MagicMock(),
-                        client=client,
-                        config={},
-                    )
+                    with patch("modok.ingestion.git_history.save_last_git_sha"):
+                        result = await ingest_git(
+                            project_slug="stagehand",
+                            repo_root=tmp_path,
+                            registry=MagicMock(),
+                            client=client,
+                            config={},
+                        )
 
     assert client.upsert_node.call_count == 0
 

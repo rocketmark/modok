@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { randomUUID } from 'crypto'
 import { loadConfig, ConfigError } from '@/lib/config'
 import { readTickets, writeTicket, getRun } from '@/lib/data'
 
@@ -37,12 +36,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'subject is required' }, { status: 400 })
   }
 
+  const tickets = readTickets()
+  const maxN = tickets.reduce((max, t) => {
+    const m = /^STAGEHAND-(\d+)$/i.exec(t.id)
+    return m ? Math.max(max, parseInt(m[1], 10)) : max
+  }, 0)
+
   const ticket = {
-    id: `TICKET-${Date.now()}`,
+    id: `STAGEHAND-${maxN + 1}`,
     subject: subject.trim(),
     content: content.trim(),
     created_at: new Date().toISOString(),
-    _uuid: randomUUID(),
   }
 
   writeTicket(ticket)
