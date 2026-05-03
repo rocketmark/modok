@@ -424,33 +424,6 @@ def test_ingest_exits_3_on_errored_report(tmp_path):
     assert result.exit_code == 3
 
 
-# @spec CLI-INGEST-004
-def test_ingest_fix_non_interactive_passes_fix_mode_false(tmp_path):
-    from click.testing import CliRunner
-    from modok.cli.main import cli
-
-    config_path = write_config(tmp_path / "config.toml", repo_path=str(tmp_path))
-    runner = CliRunner(mix_stderr=False)
-    captured_kwargs: dict = {}
-
-    def capture_ingest(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-        return make_clean_report()
-
-    with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.ingest.run_ingestion", side_effect=capture_ingest):
-                with patch("modok.cli.commands.ingest.Registry"):
-                    with patch("sys.stdin.isatty", return_value=False):
-                        result = runner.invoke(
-                            cli, ["ingest", "--project", "stagehand", "--fix", str(tmp_path)]
-                        )
-
-    assert captured_kwargs.get("fix_mode") is False
-    output = result.output + (result.stderr or "")
-    assert "suppressed" in output.lower() or "non-interactive" in output.lower() or "fix" in output.lower()
-
 
 # @spec CLI-INGEST-005
 def test_ingest_derives_repo_root_from_config(tmp_path):

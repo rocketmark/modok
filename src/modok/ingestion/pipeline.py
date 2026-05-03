@@ -62,7 +62,6 @@ _KNOWN_BLOCK_KINDS = {
 class IngestionContext:
     project_slug: str = ""
     repo_root: Path = field(default_factory=Path)
-    fix_mode: bool = False
     nodes_written: int = 0
     edges_written: int = 0
     _pending: list[dict] = field(default_factory=list)
@@ -115,8 +114,6 @@ async def route_fact(
 def check_required_fields(
     frontmatter: dict | None,
     doc_type: str,
-    fix: bool = False,
-    doc_path: Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return (warnings, errors) for missing required fields."""
     if frontmatter is None:
@@ -132,15 +129,7 @@ def check_required_fields(
     warnings: list[str] = []
     errors: list[str] = []
 
-    if missing and fix and doc_path is not None:
-        from modok.llm.errors import LLMResponseError, LLMUnavailableError
-        try:
-            proposals = invoke_llm_gateway(doc_path)
-        except (_LLMProposalWarning, LLMResponseError, LLMUnavailableError) as exc:
-            warnings.append(f"LLM proposal skipped for {doc_path.name}: {exc}")
-            proposals = {}
-        warnings.extend(f"LLM proposed value for missing field: {k}" for k in proposals)
-    elif missing:
+    if missing:
         warnings.extend(f"Missing field: {f}" for f in missing)
 
     return warnings, errors
@@ -390,9 +379,7 @@ async def ingest_doc(
     feature_slug: str = fm.get("feature", "")
 
     # SI-FMTR-002/003: check required fields
-    field_warnings, _ = check_required_fields(
-        fm, doc_type, fix=ctx.fix_mode, doc_path=path
-    )
+    field_warnings, _ = check_required_fields(fm, doc_type)
     for w in field_warnings:
         ctx.add_warning(w)
 
@@ -528,35 +515,6 @@ def user_approves(proposals: dict | list) -> bool:
     answer = input("Accept proposals? [y/N] ").strip().lower()
     return answer == "y"
 
-
-# @spec LLM-META-004
-def invoke_llm_gateway(doc_path: Path, ctx: IngestionContext | None = None) -> dict:
-    """Call LLM gateway to generate proposals for a doc."""
-    import asyncio
-    from modok.llm import gateway
-    from modok.llm.errors import LLMResponseError, LLMUnavailableError
-
-    fm = parse_frontmatter(doc_path) or {}
-    missing = [f for f in ["feature", "modules", "source_files", "test_files"] if not fm.get(f)]
-    if not missing:
-        return {}
-
-    try:
-        proposal = asyncio.run(
-            gateway.propose_metadata(
-                doc_path=doc_path,
-                frontmatter=fm,
-                missing_fields=missing,
-            )
-        )
-    except (LLMResponseError, LLMUnavailableError) as exc:
-        raise _LLMProposalWarning(str(exc)) from exc
-
-    return proposal.proposed_fields
-
-
-class _LLMProposalWarning(Exception):
-    pass
 
 
 def _load_llm_config() -> dict:
@@ -709,12 +667,11 @@ async def run_ingestion(
     registry: Registry,
     client: Any,
     project_slug: str,
-    fix_mode: bool = False,
 ) -> IngestionReport:
     """Top-level entry point. Discover, parse, ingest all docs under repo_root."""
     import time
     report = IngestionReport()
-    ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root, fix_mode=fix_mode)
+    ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root)
 
     report.warnings.extend(check_working_tree(repo_root))
 

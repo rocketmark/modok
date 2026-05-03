@@ -822,16 +822,14 @@ def test_ingestion_pipeline_catches_llm_response_error_and_warns(tmp_path):
 
     # apply_llm_proposals must not re-raise LLMResponseError
     client = MagicMock()
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
-               side_effect=LLMResponseError("bad response")):
-        with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-            # Should not raise
-            path = tmp_path / "doc.md"
-            path.write_text("---\nmodok:\n  doc_type: lld\n---\n# Doc\n")
-            try:
-                apply_llm_proposals(path, proposals={}, client=client)
-            except LLMResponseError:
-                pytest.fail("ingestion pipeline must not propagate LLMResponseError")
+    with patch("modok.ingestion.pipeline.user_approves", return_value=False):
+        # Should not raise
+        path = tmp_path / "doc.md"
+        path.write_text("---\nmodok:\n  doc_type: lld\n---\n# Doc\n")
+        try:
+            apply_llm_proposals(path, proposals={}, client=client)
+        except LLMResponseError:
+            pytest.fail("ingestion pipeline must not propagate LLMResponseError")
 
 
 # ---------------------------------------------------------------------------

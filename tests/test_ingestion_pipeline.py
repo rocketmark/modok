@@ -226,9 +226,8 @@ def test_parse_frontmatter_accepts_unregistered_slug(tmp_path):
 # SI-FMTR-002 / SI-LLM-001 / SI-LLM-002 — missing fields without --fix
 # ---------------------------------------------------------------------------
 
-# @spec SI-FMTR-002, SI-LLM-002
-def test_missing_required_field_without_fix_does_not_invoke_llm(tmp_path):
-    # Without --fix, missing fields → warn and skip. LLM not called.
+# @spec SI-FMTR-002
+def test_missing_required_field_emits_warning(tmp_path):
     content = """\
         ---
         modok:
@@ -242,46 +241,9 @@ def test_missing_required_field_without_fix_does_not_invoke_llm(tmp_path):
     path = write_file(tmp_path / "doc.md", content)
 
     fm = parse_frontmatter(path)
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway") as mock_llm:
-        from modok.ingestion.pipeline import check_required_fields
-        warnings, errors = check_required_fields(fm, "lld", fix=False)
-        mock_llm.assert_not_called()
-        assert any("modules" in w or "source_files" in w for w in warnings + errors)
-
-
-# @spec SI-FMTR-003, SI-LLM-001
-def test_missing_required_field_with_fix_invokes_llm(tmp_path):
-    content = """\
-        ---
-        modok:
-          doc_type: lld
-          project: stagehand
-          feature: shtp-receiver
-        ---
-        # Doc
-        """
-    path = write_file(tmp_path / "doc.md", content)
-
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway") as mock_llm:
-        mock_llm.return_value = {"modules": ["shtp"], "source_files": [], "test_files": []}
-        fm = parse_frontmatter(path)
-        from modok.ingestion.pipeline import check_required_fields
-        check_required_fields(fm, "lld", fix=True, doc_path=path)
-        mock_llm.assert_called_once()
-
-
-# @spec SI-FMTR-004
-def test_llm_proposals_not_written_directly_to_quine():
-    # LLM proposals must go to doc file first; the Quine write path
-    # only accepts output from the mechanical parser.
-    # Verified structurally: the pipeline module must not import QuineClient
-    # in the llm proposal path — it writes to disk then re-parses.
-    import inspect
-    import modok.ingestion.pipeline as pipeline_mod
-    src = inspect.getsource(pipeline_mod)
-    # The LLM proposal function must not call upsert_node directly
-    # (it may import QuineClient elsewhere, but the proposal path must not)
-    assert "upsert_node" not in src.split("invoke_llm_gateway")[1].split("def ")[0]
+    from modok.ingestion.pipeline import check_required_fields
+    warnings, errors = check_required_fields(fm, "lld")
+    assert any("modules" in w or "source_files" in w for w in warnings + errors)
 
 
 # ---------------------------------------------------------------------------
@@ -956,11 +918,9 @@ def test_fix_mode_writes_proposals_to_doc_not_quine(tmp_path):
     path = write_file(tmp_path / "doc.md", content)
     client = MagicMock()
 
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway") as mock_llm:
-        mock_llm.return_value = {"modules": ["shtp"], "source_files": [], "test_files": []}
-        with patch("modok.ingestion.pipeline.user_approves", return_value=True):
-            from modok.ingestion.pipeline import apply_llm_proposals
-            apply_llm_proposals(path, proposals={"modules": ["shtp"]}, client=client)
+    with patch("modok.ingestion.pipeline.user_approves", return_value=True):
+        from modok.ingestion.pipeline import apply_llm_proposals
+        apply_llm_proposals(path, proposals={"modules": ["shtp"]}, client=client)
 
     # LLM proposals must not call upsert_node directly
     client.upsert_node.assert_not_called()
@@ -1040,50 +1000,7 @@ async def test_error_in_one_file_does_not_halt_others(tmp_path):
 # @spec LLM-META-004
 @pytest.mark.asyncio
 async def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(tmp_path):
-    # When propose_metadata raises LLMResponseError, the pipeline must catch it,
-    # emit a structured warning, and continue ingesting remaining files.
     from modok.ingestion.pipeline import run_ingestion
-    from modok.llm.errors import LLMResponseError
-
-    # Two docs: one triggers --fix LLM path (missing fields), one is complete.
-    incomplete = write_file(tmp_path / "incomplete.md", """\
----
-modok:
-  doc_type: lld
-  project: stagehand
-  feature: shtp-receiver
----
-# Incomplete doc
-""")
-    complete = write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
-
-    registry = MagicMock(spec=Registry)
-    registry.has_feature.return_value = True
-    registry.has_module.return_value = True
-    registry.has_error.return_value = True
-    client = AsyncMock()
-
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
-               side_effect=LLMResponseError("bad json")):
-        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-                report = await run_ingestion(
-                    tmp_path, registry=registry, client=client,
-                    project_slug="stagehand", fix_mode=True,
-                )
-
-    assert report.docs_processed >= 1, "complete.md must still be ingested"
-    assert any("LLM" in w or "propose" in w.lower() or "missing" in w.lower()
-               for w in report.warnings), "expected a warning for the LLM failure"
-    assert not report.errors, "LLM failure must not count as an ingestion error"
-
-
-# @spec LLM-META-004
-@pytest.mark.asyncio
-async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
-    # Same contract as above but for LLMUnavailableError.
-    from modok.ingestion.pipeline import run_ingestion
-    from modok.llm.errors import LLMUnavailableError
 
     write_file(tmp_path / "incomplete.md", """\
 ---
@@ -1102,17 +1019,47 @@ modok:
     registry.has_error.return_value = True
     client = AsyncMock()
 
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
-               side_effect=LLMUnavailableError("timeout")):
-        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-                report = await run_ingestion(
-                    tmp_path, registry=registry, client=client,
-                    project_slug="stagehand", fix_mode=True,
-                )
+    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+        report = await run_ingestion(
+            tmp_path, registry=registry, client=client,
+            project_slug="stagehand",
+        )
 
-    assert report.docs_processed >= 1, "complete.md must still be ingested"
-    assert not report.errors, "LLM unavailability must not count as an ingestion error"
+    assert report.docs_processed >= 1
+    assert not report.errors
+
+
+# @spec LLM-META-004
+@pytest.mark.asyncio
+async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_path):
+    # Same contract as above but for a doc with missing fields.
+    from modok.ingestion.pipeline import run_ingestion
+
+    write_file(tmp_path / "incomplete.md", """\
+---
+modok:
+  doc_type: lld
+  project: stagehand
+  feature: shtp-receiver
+---
+# Incomplete doc
+""")
+    write_file(tmp_path / "complete.md", MINIMAL_FRONTMATTER)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    client = AsyncMock()
+
+    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+        report = await run_ingestion(
+            tmp_path, registry=registry, client=client,
+            project_slug="stagehand",
+        )
+
+    assert report.docs_processed >= 1
+    assert not report.errors
 
 
 # ---------------------------------------------------------------------------
@@ -1470,16 +1417,11 @@ modok:
     registry.has_error.return_value = True
     client = AsyncMock()
 
-    from modok.llm.errors import LLMResponseError as LLMRespErr
-
-    with patch("modok.ingestion.pipeline.invoke_llm_gateway",
-               side_effect=LLMRespErr("bad response")):
-        with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-            with patch("modok.ingestion.pipeline.user_approves", return_value=False):
-                report = await run_ingestion(
-                    tmp_path, registry=registry, client=client,
-                    project_slug="stagehand", fix_mode=True,
-                )
+    with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
+        report = await run_ingestion(
+            tmp_path, registry=registry, client=client,
+            project_slug="stagehand",
+        )
 
     assert report.docs_processed >= 1
     assert not report.errors
