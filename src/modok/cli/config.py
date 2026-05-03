@@ -53,6 +53,8 @@ class LLMConfig(BaseModel):
 class ProjectConfig(BaseModel):
     slug: str
     repo: str
+    github_repo: str | None = None
+    last_github_sync: str | None = None
 
     @field_validator("repo", mode="after")
     @classmethod

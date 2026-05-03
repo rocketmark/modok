@@ -75,6 +75,8 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **DRE-PKT-004** [U]: `DebugPacket.evidence` shall contain one `EvidenceAnchor` per anchor instance that produced at least one result, recording the anchor type, anchor value, and list of matched node IDs.
 - [x] **DRE-PKT-005** [U]: `DebugPacket.anchor_count` shall be set to the total number of anchor instances (feature slugs + error signature strings) used during traversal, including those that produced no results.
 
+- [x] **DRE-PKT-006** [U]: Each `FixRef` in `recent_fixes` shall include a `pr_url` field set to the `pr_url` property of the corresponding `Fix` node, or `None` if the property is absent.
+
 ---
 
 ## Write Boundary

@@ -96,6 +96,7 @@ class Fix(QuineNode):
     fix_id: str
     summary: str
     kind: str
+    pr_url: str | None = None
 
 
 class ResolutionEvent(QuineNode):

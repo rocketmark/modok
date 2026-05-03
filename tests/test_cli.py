@@ -73,7 +73,7 @@ def make_debug_packet() -> DebugPacket:
         anchors=AnchorSet(feature_slugs=["shtp-receiver"], error_signatures=[], symptoms=[]),
         anchor_count=1,
         known_issues=[KnownIssueRef("KI-001", "SHTP version mismatch", "open", 1)],
-        recent_fixes=[FixRef("FIX-001", "Upgrade to SHTP v2", "patch", 1)],
+        recent_fixes=[FixRef("FIX-001", "Upgrade to SHTP v2", "patch", 1, None)],
         relevant_files=[FileRef("agent/src/shtp.c", 1)],
         recent_commits=[],
         evidence=[EvidenceAnchor("feature", "shtp-receiver", ["agent/src/shtp.c"])],

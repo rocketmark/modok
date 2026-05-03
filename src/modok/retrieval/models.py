@@ -23,6 +23,7 @@ class FixRef:
     summary: str
     kind: str
     match_count: int
+    pr_url: str | None = None
 
 
 @dataclass

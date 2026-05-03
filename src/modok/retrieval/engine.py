@@ -393,6 +393,7 @@ async def retrieve(
             summary=fix_meta[item["id"]].get("summary", ""),
             kind=fix_meta[item["id"]].get("kind", ""),
             match_count=item["match_count"],
+            pr_url=fix_meta[item["id"]].get("pr_url") or None,
         )
         for item in fix_items
     ]

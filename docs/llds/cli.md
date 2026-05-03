@@ -22,7 +22,8 @@ modok --status
 
 modok init        --project <slug> --repo <path> [--assisted]
 modok ingest      --project <slug>
-modok ingest-git  --project <slug> [--full] [--since <date>] [--max-commits <n>]
+modok ingest-git    --project <slug> [--full] [--since <date>] [--max-commits <n>]
+modok ingest-github --project <slug> [--full]
 modok retrieve    --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
@@ -90,6 +91,26 @@ Ingests git commits touching registered files into Quine as `Commit` nodes with 
 - `--max-commits <n>`: caps the number of commits processed (default 500). Ignored when `--full` is set.
 
 Exits `0` on success (including when there are no new commits). Exits `2` if Quine is unreachable.
+
+### `modok ingest-github`
+
+Pulls GitHub issues and merged PRs for the project and writes them to Quine.
+
+1. Pings Quine; exits `2` if unreachable.
+2. Reads `github_repo` from project config; reads `GITHUB_TOKEN` from environment. Exits `1` if either is missing.
+3. Fetches issues (all states) and merged PRs from the GitHub API, incrementally since `last_github_sync`.
+4. Writes `CustomerIssue` nodes (one per issue) and `Fix` nodes (one per merged PR).
+5. Writes `Fix -[:IMPLEMENTED_IN]-> Commit` edges using PR `merge_commit_sha` (silently skipped if Commit absent).
+6. Parses PR closing references and writes `CustomerIssue -[:RESOLVED_BY]-> Fix` edges.
+7. Updates `last_github_sync` in config on success.
+
+**Incremental behavior:**
+- With `last_github_sync` set: fetches only issues/PRs with `updated_at` after that timestamp.
+- With no `last_github_sync` or `--full`: fetches all issues and PRs.
+
+Exit codes: `0` on success, `1` if config or token is missing, `2` if Quine or GitHub API is unreachable.
+
+See `docs/llds/github-ingestion.md` for full design.
 
 ### `modok retrieve`
 

@@ -199,6 +199,7 @@ async def _write_nodes_and_edges(
     headings: list[tuple[str, str, int, int | None]],
     client: Any,
     ctx: IngestionContext,
+    registry: Any = None,
 ) -> None:
     """Build QuineNode models from frontmatter and write them with edges."""
     feature_slug: str = fm.get("feature", "")
@@ -244,6 +245,7 @@ async def _write_nodes_and_edges(
 
     # --- File nodes (source + test) + DEFINED_IN edges ---
     all_files: list[str] = list(fm.get("source_files", [])) + list(fm.get("test_files", []))
+    all_mod_slugs: list[str] = fm.get("modules", [])
     for fpath in all_files:
         file_node = File(
             node_type="File",
@@ -252,15 +254,21 @@ async def _write_nodes_and_edges(
         )
         await client.upsert_node(file_node)
         ctx.nodes_written += 1
-        # Determine which module owns this file (first module in list, if any)
-        for mod_slug in fm.get("modules", []):
+        # Use registry to find which module(s) specifically own this file.
+        # Fall back to all modules listed on the feature if registry unavailable.
+        if registry is not None:
+            owning_mods = registry.modules_covering_path(fpath)
+            if not owning_mods:
+                owning_mods = all_mod_slugs[:1]
+        else:
+            owning_mods = all_mod_slugs[:1]
+        for mod_slug in owning_mods:
             await client.write_edge_by_parts(
                 ("module", project_slug, mod_slug),
                 "DEFINED_IN",
                 ("file", project_slug, fpath),
             )
             ctx.edges_written += 1
-            break  # one DEFINED_IN per file is enough for v1
 
     # --- ErrorSignature nodes + HAS_ERROR edges ---
     for err_slug in fm.get("error_signatures", []):
@@ -421,7 +429,7 @@ async def ingest_doc(
     headings = parse_headings(content)
 
     # SI-WRITE-001: write nodes and edges in dependency order
-    await _write_nodes_and_edges(fm, path, project_slug, repo_root, headings, client, ctx)
+    await _write_nodes_and_edges(fm, path, project_slug, repo_root, headings, client, ctx, registry=registry)
 
     return True
 
