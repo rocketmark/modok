@@ -11,7 +11,6 @@ import click
 
 from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
-from modok.quine.ids import idFrom
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import (
     DREGraphUnavailableError,
@@ -51,9 +50,15 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         raise SystemExit(2)
 
     if has_node_id:
-        resolved_id = node_id
+        resolved_id = str(node_id)
     else:
-        resolved_id = idFrom("customer-issue", project, source, ticket)
+        # Resolve via Quine's native idFrom() — returns a UUID string, not a Python int.
+        # The Python ids.idFrom is a test-harness stub that uses a different algorithm.
+        rows = asyncio.run(client.query(
+            "RETURN idFrom('customer-issue', $p, $s, $t)",
+            {"p": project, "s": source, "t": ticket},
+        ))
+        resolved_id = rows[0][0]
 
     try:
         packet = asyncio.run(retrieve(resolved_id, project, client))
