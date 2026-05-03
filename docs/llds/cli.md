@@ -22,8 +22,9 @@ modok --status
 
 modok init        --project <slug> --repo <path> [--assisted]
 modok ingest      --project <slug>
-modok ingest-git    --project <slug> [--full] [--since <date>] [--max-commits <n>]
-modok ingest-github --project <slug> [--full]
+modok ingest-git      --project <slug> [--full] [--since <date>] [--max-commits <n>]
+modok ingest-github   --project <slug> [--full]
+modok ingest-elements --project <slug>
 modok retrieve    --project <slug> --source <system> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
@@ -111,6 +112,22 @@ Pulls GitHub issues and merged PRs for the project and writes them to Quine.
 Exit codes: `0` on success, `1` if config or token is missing, `2` if Quine or GitHub API is unreachable.
 
 See `docs/llds/github-ingestion.md` for full design.
+
+### `modok ingest-elements`
+
+Extracts code identifiers from each module's source files and writes them to `registries/elements.yml`. Run this after adding or changing module source files so that the diagnostic retrieval engine can map ticket language to modules even when the ticket does not use the exact module name.
+
+1. Loads registries from `{repo_root}/registries/`.
+2. For each module in `modules.yml` that has a `source_files` list, calls `extract_module_elements(source_files, repo_root)` to extract identifiers:
+   - **Python files**: AST-based extraction of class names, non-dunder method names, and class-level attribute names (covers Qt signals and similar patterns).
+   - **C/C++ files**: regex-based extraction of function-call-like identifiers, filtered against common C keywords.
+   - Capped at 25 identifiers per module to keep prompts concise.
+3. Writes `registries/elements.yml` with shape `{module_slug: [identifier, ...]}`.
+4. If any module entries in `modules.yml` contain a stale `elements` key (written by an older version), strips those keys and rewrites `modules.yml`.
+
+Does **not** require Quine to be running. Does **not** write to the graph — `elements.yml` is read by the registry at startup and forwarded to the LLM gateway when `modok retrieve` runs.
+
+Exit codes: `0` on success, `1` if the project is not in config or the registries directory is missing.
 
 ### `modok retrieve`
 
@@ -267,6 +284,8 @@ src/modok/cli/
         init.py
         ingest.py
         ingest_git.py
+        ingest_github.py
+        ingest_elements.py
         retrieve.py
         recall.py
         search.py
