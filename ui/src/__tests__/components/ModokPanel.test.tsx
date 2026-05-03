@@ -8,11 +8,12 @@ import { ModokPanel } from '@/components/modok/ModokPanel'
 
 const mockPacket: DebugPacket = {
   issue_summary: 'Checkout fails after retry',
-  anchors: { feature_slugs: ['checkout'], error_signatures: ['PaymentRetryError'], symptoms: [] },
+  anchors: { feature_slugs: ['checkout'], module_slugs: [], error_signatures: ['PaymentRetryError'], symptoms: [] },
   anchor_count: 2,
   relevant_files: [{ repo_path: 'src/checkout/retry.py', match_count: 2 }],
   known_issues: [{ known_issue_id: 'ki:1', summary: 'Retry count not reset', status: 'open', match_count: 2 }],
   recent_fixes: [{ fix_id: 'fix:1', summary: 'Reset retry counter', kind: 'code-change', match_count: 2 }],
+  recent_commits: [],
   evidence: [],
   confidence: 0.8,
 }

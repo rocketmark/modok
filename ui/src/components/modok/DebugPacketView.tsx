@@ -8,14 +8,21 @@ interface Props {
 
 // @spec DEMO-MODOK-004, DEMO-MODOK-005, DEMO-MODOK-006, DEMO-MODOK-011
 export function DebugPacketView({ packet }: Props) {
-  const { anchors, relevant_files, known_issues, recent_fixes } = packet
+  const { anchors, relevant_files, known_issues, recent_fixes, recent_commits } = packet
   const hasAnchors =
     anchors.feature_slugs.length > 0 ||
+    anchors.module_slugs.length > 0 ||
     anchors.error_signatures.length > 0 ||
     anchors.symptoms.length > 0
 
   return (
     <div>
+      {packet.summary && (
+        <div className="mb-5 p-3 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 leading-relaxed">
+          {packet.summary}
+        </div>
+      )}
+
       <p className="text-sm font-medium text-slate-800 mb-4">{packet.issue_summary}</p>
 
       {hasAnchors && (
@@ -25,6 +32,12 @@ export function DebugPacketView({ packet }: Props) {
               <p>
                 <span className="text-xs text-slate-500">Features: </span>
                 {anchors.feature_slugs.join(', ')}
+              </p>
+            )}
+            {anchors.module_slugs.length > 0 && (
+              <p>
+                <span className="text-xs text-slate-500">Modules: </span>
+                {anchors.module_slugs.join(', ')}
               </p>
             )}
             {anchors.error_signatures.length > 0 && (
@@ -88,6 +101,21 @@ export function DebugPacketView({ packet }: Props) {
                   {fix.kind}
                 </span>
                 <span className="text-slate-700">{fix.summary}</span>
+              </li>
+            ))}
+          </ul>
+        </PacketSection>
+      )}
+
+      {recent_commits.length > 0 && (
+        <PacketSection title="Recent Commits">
+          <ul className="space-y-2">
+            {recent_commits.map((c) => (
+              <li key={c.sha} className="text-sm">
+                <p className="text-slate-700 leading-snug">{c.message}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {c.author_name} · {new Date(c.timestamp).toLocaleDateString()}
+                </p>
               </li>
             ))}
           </ul>

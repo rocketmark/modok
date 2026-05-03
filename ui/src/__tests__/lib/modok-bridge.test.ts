@@ -31,7 +31,7 @@ const makeSpawnMock = (stdout: string, exitCode: number) => {
   return proc
 }
 
-const validPacketJson = JSON.stringify({ issue_summary: 'y', anchors: { feature_slugs: [], error_signatures: [], symptoms: [] }, anchor_count: 0, relevant_files: [], known_issues: [], recent_fixes: [], evidence: [], confidence: 0.0 })
+const validPacketJson = JSON.stringify({ issue_summary: 'y', anchors: { feature_slugs: [], module_slugs: [], error_signatures: [], symptoms: [] }, anchor_count: 0, relevant_files: [], known_issues: [], recent_fixes: [], recent_commits: [], evidence: [], confidence: 0.0 })
 const baseTicket = { id: 'ACME-1842', subject: 'S', content: 'C', created_at: '2024-01-15T10:00:00Z' }
 
 beforeEach(() => {

@@ -1,105 +1,135 @@
 {
-  "STAGEHAND-11": {
-    "ticket_id": "STAGEHAND-11",
+  "STAGEHAND-10": {
+    "ticket_id": "STAGEHAND-10",
     "status": "complete",
     "debug_packet": {
-      "issue_summary": "tracker won't reinitialize",
+      "issue_summary": "lighthouse disappears",
       "anchors": {
         "feature_slugs": [],
         "module_slugs": [
-          "device-card"
+          "lighthouse-ble"
         ],
         "error_signatures": [
-          "tracker doesn't reinitialize"
+          "lighthouse disappears",
+          "lighthouse sees 2 but there are 3"
         ],
         "symptoms": [
-          "The tracker fails to reinitialize when the reinit button is clicked."
+          "One lighthouse disappears from the client view.",
+          "The user must toggle the lighthouse power (turn it off and on) to make it reappear."
         ]
       },
-      "anchor_count": 2,
+      "anchor_count": 3,
       "known_issues": [],
       "recent_fixes": [],
       "relevant_files": [
         {
-          "repo_path": "client/stagehand_client/ui/device_card.py",
+          "repo_path": "client/stagehand_client/lighthouse_ble.py",
           "match_count": 1
         }
       ],
       "recent_commits": [
         {
-          "sha": "b34e3825bc8a3b79aeb77a3adcc623b05b4e84fe",
-          "message": "fixed resizing issue - need to fix the disappearing seperator",
+          "sha": "01a066cb44c4f236f80ea2fbb284d12ef4921434",
+          "message": "rolled back client diagnostics. issue was windows bluetooth problem, not our code",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-27T20:31:46-04:00",
+          "timestamp": "2026-04-22T17:41:19-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "32bbb66e203a79352bc321d999603a39e5d099bc",
-          "message": "Fix broken window width from SetFixedSize; fix card collapse correctly",
+          "sha": "e9e940fd48af4fea95e58a114b461bcb37d57f98",
+          "message": "client debugging for windows",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T17:14:54-04:00",
+          "timestamp": "2026-04-22T17:29:20-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "c70eb951e453d2638104ca62bb68d44e20984d16",
-          "message": "Fix card collapse and taskbar icon properly",
+          "sha": "58cf9302901a4de15b61dc544101bd2474d3d60f",
+          "message": "cleaned up 6 and 7 on client cleanup",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T17:00:41-04:00",
+          "timestamp": "2026-04-22T17:04:26-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "4b34193abc8660e323b38f1a17be8001194820a0",
-          "message": "Fix card collapse and taskbar icon",
+          "sha": "89078227f46f82811b7e6d17ff4077ddb0cfd2fe",
+          "message": "fixed bleak issue for blue tooth control of light houses that caused a client crash",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T16:42:30-04:00",
+          "timestamp": "2026-04-08T10:48:44-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "21f16f18b62d6585a7495c1c625d8594a8a66bca",
-          "message": "Fix five UI issues found in first live run",
+          "sha": "e14263911cf6f23d7fb2d745a191d73fe5b64019",
+          "message": "bug fix for lighthouse rescan",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T16:25:50-04:00",
+          "timestamp": "2026-03-24T11:02:59-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "ecde869b0f4c20beca7fa08f883dda25a65f263b",
-          "message": "fixed lint error",
+          "sha": "ebae9d93945b26cd48f558a0168ca6507d0e9d83",
+          "message": "fixed a test",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T16:12:34-04:00",
+          "timestamp": "2026-03-16T15:51:05-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         },
         {
-          "sha": "de912bfe9d4b1f10a2dce0bdac8dd6e42bb0729e",
-          "message": "first pass at rewriting tkinter client in pyside6",
+          "sha": "6f680061c3f986f7bd4ca2fe1f023d5858c9dc52",
+          "message": "fixed test failures",
           "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-24T16:08:52-04:00",
+          "timestamp": "2026-03-16T15:29:14-04:00",
           "files_touched": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "7b7bf963e4c036b7570443af15d824bd486b23e3",
+          "message": "fixed lighthouse timeout issue",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-03-16T15:10:20-04:00",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "6a531337bd261b621504c9dc19d62c408502342f",
+          "message": "fix ruff format: wrap long ternary in mode notify fallback",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-03-13T17:46:44-04:00",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "1e1d227c8a1bcf75fe7deacf44a634b3de71603b",
+          "message": "fix ruff format: two blank lines before top-level function",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-03-13T17:44:22-04:00",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         }
       ],
       "evidence": [
         {
           "anchor_type": "module",
-          "anchor_value": "device-card",
+          "anchor_value": "lighthouse-ble",
           "matched_node_ids": [
-            "client/stagehand_client/ui/device_card.py"
+            "client/stagehand_client/lighthouse_ble.py"
           ]
         }
       ],
-      "confidence": 0.5
+      "confidence": 0.3333333333333333,
+      "summary": "Start by investigating `client/stagehand_client/lighthouse_ble.py`. The component seems to lose visibility of one connected lighthouse, requiring a power cycle on the client to resolve. Check recent commits, specifically around 2026-04-08, as they touched Bluetooth control, though the last changes were on 2026-04-22."
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",

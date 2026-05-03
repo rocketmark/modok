@@ -1,5 +1,6 @@
 export interface AnchorSet {
   feature_slugs: string[]
+  module_slugs: string[]
   error_signatures: string[]
   symptoms: string[]
 }
@@ -21,6 +22,15 @@ export interface FixRef {
   summary: string
   kind: string
   match_count: number
+  pr_url?: string | null
+}
+
+export interface CommitRef {
+  sha: string
+  message: string
+  author_name: string
+  timestamp: string
+  files_touched: string[]
 }
 
 export interface EvidenceAnchor {
@@ -36,6 +46,8 @@ export interface DebugPacket {
   known_issues: KnownIssueRef[]
   recent_fixes: FixRef[]
   relevant_files: FileRef[]
+  recent_commits: CommitRef[]
   evidence: EvidenceAnchor[]
   confidence: number
+  summary?: string
 }
