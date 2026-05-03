@@ -304,11 +304,13 @@ If the project does not have arrow docs, edit `registries/features.yml` and `reg
 
 ## Step 12 — Run first ingestion
 
+**Ingest docs:**
+
 ```bash
-modok ingest --project stagehand ~/github/stagehand
+modok ingest --project stagehand
 ```
 
-This discovers all markdown and YAML files under the repo root, parses MODOK frontmatter and blocks, and writes nodes and edges to Quine. You should see a structured report:
+Discovers docs using three-tier discovery: Tier 1 walks `docs/arrows/index.yaml` and ingests each registered LLD, spec, and arrow doc with metadata derived from the registries; Tier 2 scans remaining `docs/**/*.md` files and infers `doc_type` and `feature` from path conventions; Tier 3 ingests anything that doesn't resolve to a known feature slug as `doc_type: unregistered`. You should see a structured report:
 
 ```
 Ingestion complete
@@ -324,15 +326,15 @@ Ingestion complete
   Duration:        1.4s
 ```
 
-**To fill in missing frontmatter fields using the local LLM** (requires Ollama running):
+Unregistered docs are listed below the summary — they are a discovery signal, not errors. A doc showing up unregistered usually means it belongs in `docs/arrows/index.yaml` or its filename doesn't match a known feature slug yet.
+
+**Ingest git history:**
 
 ```bash
-modok ingest --project stagehand ~/github/stagehand --fix
+modok ingest-git --project stagehand
 ```
 
-Docs with missing required fields (`feature`, `modules`, `source_files`, `test_files`) will be sent to the local model for proposals. Each proposal is verified before being written — unknown slugs, wrong types, duplicates, and weak evidence are all rejected. With `cegis_fix_enabled = true`, one repair attempt is made automatically when the first proposal fails.
-
-Add `--strict` to reject the entire doc if any field fails verification after repair. Add `--dry-run` to see what would be proposed without writing anything.
+Imports commits that touch registered source files and docs as `Commit` nodes in the graph, with `TOUCHES` edges to the relevant `File` nodes. By default imports the last 6 months / 500 commits. Use `--full` for an initial bootstrap of the full history, or `--since 2025-01-01` to import from a specific date. Subsequent runs are incremental — only commits since the last run are imported.
 
 ---
 
