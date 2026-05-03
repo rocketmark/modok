@@ -37,7 +37,7 @@ def _strip_leading_symbols(text: str) -> str:
     return text[i:]
 
 
-def resolve_slug_collisions(entries: list[dict]) -> dict:
+def resolve_slug_collisions(entries: list[dict], registry_file: str = "") -> dict:
     """Apply slug collision rules (RP-SLUG-003, RP-SLUG-004) to a list of name-keyed entries.
 
     Each entry must have a "name" key. Returns a slug-keyed dict.
@@ -69,7 +69,7 @@ def resolve_slug_collisions(entries: list[dict]) -> dict:
                 # RP-SLUG-004: genuinely different names — keep both, second gets -2 suffix
                 suffix_slug = f"{slug}-2"
                 print(
-                    f"slug collision '{slug}': could not merge — review registries/",
+                    f"slug collision '{slug}': could not merge — review registries/{registry_file}",
                     file=sys.stderr,
                 )
                 result[suffix_slug] = entry

@@ -6,8 +6,7 @@ All tests written before implementation (Phase 5). Tests cite specs via @spec an
   RP-PARSE-006 — parse_sections is a pure function with no LLM I/O
   RP-SLUG-002  — slugify is a pure function
   RP-SLUG-003  — identical lowercased names → merge, keep the longer
-  RP-NORM-001  — candidates are deduplicated by exact string before normalisation
-  RP-NORM-005  — normalisation never introduces new concepts
+  RP-NORM-001  — candidates are deduplicated by exact string before writing to .raw.yml
   RP-WRITE-006 — every written registry file is valid YAML
 """
 from __future__ import annotations
@@ -260,10 +259,10 @@ def test_merge_candidates_handles_multiple_node_types(features, modules):
 
 
 # ---------------------------------------------------------------------------
-# RP-NORM-005 — normalisation never introduces new concepts
+# RP-NORM-001 — raw entry count after dedup never exceeds unique input count
 # ---------------------------------------------------------------------------
 
-# @spec RP-NORM-005
+# @spec RP-NORM-001
 @given(
     raw_features=st.lists(
         st.text(alphabet="abcdefghijklmnopqrstuvwxyz -", min_size=3, max_size=25),
@@ -273,7 +272,7 @@ def test_merge_candidates_handles_multiple_node_types(features, modules):
     )
 )
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_normalisation_does_not_increase_entry_count(tmp_path, raw_features):
+def test_raw_entry_count_does_not_exceed_unique_input(tmp_path, raw_features):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
 
     (tmp_path / "doc.md").write_text(
@@ -282,28 +281,14 @@ def test_normalisation_does_not_increase_entry_count(tmp_path, raw_features):
 
     raw_result = EnrichSectionResult(features=raw_features)
 
-    def bounded_normalise(candidates, cfg_llm):
-        raw = candidates.get("features", [])
-        if not raw:
-            return {}
-        # Simulate the normalisation contract: may rename but not add new concepts.
-        # Renaming is represented as returning ≤ len(raw) entries.
-        return {
-            "features": [
-                {"name": f, "description": "desc"}
-                for f in raw  # same items, possibly renamed — never more than raw
-            ]
-        }
-
     cfg = MagicMock()
     cfg.llm.timeout_propose_registry = 60
     cfg.llm.backend = "local"
 
     with patch("modok.registry.proposal.enrich_section", return_value=raw_result):
-        with patch("modok.registry.proposal.normalise_candidates", side_effect=bounded_normalise):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
-    written = summary.entries_written.get("features.yml", 0)
+    written = summary.entries_written.get("features.raw.yml", 0)
     assert written <= max(len(raw_features), 1)
 
 

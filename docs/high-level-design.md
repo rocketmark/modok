@@ -117,11 +117,11 @@ Read path assistance                       Write path assistance
 
 **CLI / MCP server** — two surfaces, one behavior. The CLI is the primary development interface and the MCP server exposes the same operations to agents. Both are thin entry points; logic lives in core.
 
-**LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates. It never writes to Quine directly.
+**LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates, (d) per-section registry enrichment and per-field normalisation during registry bootstrapping. It never writes to Quine directly.
 
 **Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
 
-**Registry Proposal Engine** — an LLM-assisted bootstrapping pass that runs during `modok init --assisted`. Discovers all eligible docs in the project repo, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), runs a normalisation pass to deduplicate and canonicalise the results, and writes `features.yml`, `modules.yml`, and `errors.yml` to `{repo}/registries/`. No Quine interaction — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
+**Registry Proposal Engine** — an LLM-assisted bootstrapping split across two CLI commands. `modok init --assisted` handles the enrichment pass: discovers all eligible docs, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway one at a time for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), prints a `N/total` progress counter to stderr per section, and writes raw candidates to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. `modok normalise --project <slug>` is then run separately: reads the raw files, normalises each field type independently (separate LLM call per field to keep context small), applies a CEGIS loop to verify no new concepts were introduced, and overwrites the final `features.yml`, `modules.yml`, and `errors.yml`. No Quine interaction in either pass — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
 
 **Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
 
@@ -187,14 +187,21 @@ On the shared Mac mini, a launchd plist keeps Quine running as a persistent back
 
 Registries (`features.yml`, `modules.yml`, `errors.yml`) must exist before ingestion can run — the ingestion pipeline validates all doc frontmatter slugs against them. For a new project, manually authoring these files requires knowing the project's taxonomy upfront.
 
-`modok init --assisted` solves this with a mechanical-first, LLM-enriched bootstrapping pass:
+Registry bootstrapping is split across two commands so that an hour-long enrichment run is never lost to a normalisation timeout:
+
+**`modok init --assisted`** — the enrichment pass:
 
 1. **Mechanical section parse** — splits each eligible doc on H2 headings. No LLM involved; deterministic and fast.
-2. **Per-section LLM enrichment** — each section is sent to the LLM gateway independently. The LLM extracts typed node candidates (features, modules, error signatures, failure modes, decisions, known issues, observation events). Smaller context per call means lower timeout risk and more focused output.
-3. **Normalisation pass** — a second LLM call deduplicates and canonicalises the merged raw candidates into a clean, consistent list.
-4. **Write** — registry files are written directly. The user edits them if needed, then runs `modok ingest`.
+2. **Per-section LLM enrichment** — each section is sent to the LLM gateway independently. The LLM extracts typed node candidates (features, modules, error signatures, failure modes, decisions, known issues, observation events). Prints `N/total` to stderr after each section so progress is visible. Smaller context per call means lower timeout risk and more focused output.
+3. **Raw write** — merged candidates are written immediately to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. These are the checkpoint; normalisation has not run yet.
 
-The more docs the repo contains, the more accurate and complete the output. The registry files are the source of truth after this point — the proposal pass does not re-run automatically.
+**`modok normalise --project <slug>`** — the normalisation pass:
+
+1. **Per-field normalisation** — reads the raw files and sends each field type (features, modules, errors) to the LLM gateway as a separate call. Smaller per-call context avoids timeouts on large candidate lists.
+2. **CEGIS verification** — after each field is normalised, a verifier checks that no new concepts were introduced (RP-NORM-005) and that format constraints hold (e.g. error codes are SCREAMING_SNAKE_CASE). If verification fails, a repair call is made with counterexamples, up to `cegis_max_repairs` attempts.
+3. **Write** — final `features.yml`, `modules.yml`, and `errors.yml` are written. The raw files are left in place for reference.
+
+The more docs the repo contains, the more accurate and complete the output. The registry files are the source of truth after normalisation — neither pass re-runs automatically.
 
 This is distinct from the `--fix` metadata proposal pass in `modok ingest`, which fills in missing frontmatter fields on individual docs after registries exist. The registry proposal pass runs first and is a prerequisite for ingestion.
 

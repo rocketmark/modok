@@ -232,8 +232,7 @@ def test_propose_registries_counts_processed_vs_skipped_docs(tmp_path):
     cfg = make_cfg()
 
     with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert summary.docs_processed == 1
     assert summary.docs_skipped == 1
@@ -251,8 +250,7 @@ def test_propose_registries_calls_enrich_for_each_section(tmp_path):
 
     with patch("modok.registry.proposal.enrich_section",
                return_value=EnrichSectionResult()) as mock_enrich:
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+        propose_registries(tmp_path, cfg)
 
     assert mock_enrich.call_count == 2
 
@@ -270,8 +268,7 @@ def test_enrich_section_receives_section_with_correct_fields(tmp_path):
         return EnrichSectionResult()
 
     with patch("modok.registry.proposal.enrich_section", side_effect=capturing_enrich):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+        propose_registries(tmp_path, cfg)
 
     assert len(received_sections) == 2
     for s in received_sections:
@@ -297,37 +294,29 @@ def test_propose_registries_processes_sections_sequentially(tmp_path):
         return EnrichSectionResult()
 
     with patch("modok.registry.proposal.enrich_section", side_effect=ordered_enrich):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+        propose_registries(tmp_path, cfg)
 
     assert call_order == ["Overview", "Details"]
 
 
 # ---------------------------------------------------------------------------
-# RP-ENRICH-003 — print section count + time estimate to stderr before processing
+# RP-ENRICH-003 — print "Found N sections across M docs" to stderr before processing
 # ---------------------------------------------------------------------------
 
 # @spec RP-ENRICH-003
-def test_propose_registries_prints_estimate_to_stderr_before_processing(tmp_path, capsys):
+def test_propose_registries_prints_section_count_to_stderr_before_processing(tmp_path, capsys):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # 2 sections, 1 doc
     cfg = make_cfg(timeout_propose_registry=60)
 
-    processed_before_estimate = []
-
-    def tracking_enrich(section, cfg_llm):
-        processed_before_estimate.append(section.heading)
-        return EnrichSectionResult()
-
-    with patch("modok.registry.proposal.enrich_section", side_effect=tracking_enrich):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+    with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
+        propose_registries(tmp_path, cfg)
 
     captured = capsys.readouterr()
-    # Estimate must be printed to stderr
     assert "2 section" in captured.err
     assert "1 doc" in captured.err
-    assert "min" in captured.err
+    # No time estimate — just counts
+    assert "min" not in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -350,8 +339,7 @@ def test_propose_registries_on_llm_unavailable_records_failed_and_continues(tmp_
         return EnrichSectionResult()
 
     with patch("modok.registry.proposal.enrich_section", side_effect=failing_then_ok):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert call_count[0] == 2, "Both sections must be attempted"
     assert summary.sections_failed == 1
@@ -371,8 +359,7 @@ def test_propose_registries_on_llm_response_error_records_failed_and_continues(t
         raise LLMResponseError("bad JSON")
 
     with patch("modok.registry.proposal.enrich_section", side_effect=raise_response_err):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert summary.sections_failed == 2
     assert summary.sections_processed == 0
@@ -593,76 +580,10 @@ def test_propose_registries_all_empty_result_counts_as_processed(tmp_path):
     cfg = make_cfg()
 
     with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert summary.sections_processed == 2
     assert summary.sections_failed == 0
-
-
-# ---------------------------------------------------------------------------
-# RP-NORM-002 — single normalisation call with NORMALISE_REGISTRY_SYSTEM
-# ---------------------------------------------------------------------------
-
-# @spec RP-NORM-002
-def test_normalisation_is_called_once(tmp_path):
-    from modok.registry.proposal import propose_registries, EnrichSectionResult
-    write_file(tmp_path / "doc.md", SIMPLE_DOC)
-    cfg = make_cfg()
-
-    with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}) as mock_norm:
-            propose_registries(tmp_path, cfg)
-
-    mock_norm.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# RP-NORM-003 — normalisation failure → write raw-merged, emit warning
-# ---------------------------------------------------------------------------
-
-# @spec RP-NORM-003
-def test_normalisation_failure_writes_raw_merged_candidates(tmp_path, capsys):
-    from modok.registry.proposal import propose_registries, EnrichSectionResult
-    from modok.llm.errors import LLMUnavailableError
-    write_file(tmp_path / "doc.md", SIMPLE_DOC)
-    cfg = make_cfg()
-
-    result = EnrichSectionResult(features=["Real-Time Tracking"])
-
-    with patch("modok.registry.proposal.enrich_section", return_value=result):
-        with patch("modok.registry.proposal.normalise_candidates",
-                   side_effect=LLMUnavailableError("norm down")):
-            propose_registries(tmp_path, cfg)
-
-    features_yml = tmp_path / "registries" / "features.yml"
-    assert features_yml.exists(), "features.yml must be written even when normalisation fails"
-    captured = capsys.readouterr()
-    # Warning must be emitted to stderr
-    warning_words = {"warn", "warning", "failed", "normalisation", "normalization", "skipping"}
-    assert any(w in captured.err.lower() for w in warning_words)
-
-
-# ---------------------------------------------------------------------------
-# RP-NORM-004 — normalisation call uses timeout_propose_registry
-# ---------------------------------------------------------------------------
-
-# @spec RP-NORM-004
-def test_normalisation_uses_timeout_propose_registry(tmp_path):
-    from modok.registry.proposal import propose_registries, EnrichSectionResult
-    write_file(tmp_path / "doc.md", SIMPLE_DOC)
-    cfg = make_cfg(timeout_propose_registry=75)
-
-    with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}) as mock_norm:
-            propose_registries(tmp_path, cfg)
-
-    call_args = mock_norm.call_args
-    # The config (carrying timeout_propose_registry=75) must be passed to normalise_candidates
-    all_args = list(call_args.args) + list(call_args.kwargs.values())
-    cfg_arg = next((a for a in all_args if hasattr(a, "timeout_propose_registry")), None)
-    if cfg_arg is not None:
-        assert cfg_arg.timeout_propose_registry == 75
 
 
 # ---------------------------------------------------------------------------
@@ -750,32 +671,30 @@ def test_write_creates_registries_dir_if_missing(tmp_path):
     assert not (tmp_path / "registries").exists()
 
     with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+        propose_registries(tmp_path, cfg)
 
     assert (tmp_path / "registries").is_dir()
 
 
 # ---------------------------------------------------------------------------
-# RP-WRITE-002 — overwrite existing registry files
+# RP-WRITE-008 — overwrite existing .raw.yml checkpoint files on re-run
 # ---------------------------------------------------------------------------
 
-# @spec RP-WRITE-002
-def test_write_overwrites_existing_registry_files(tmp_path):
+# @spec RP-WRITE-008
+def test_raw_yml_files_overwritten_on_rerun(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
     registries = tmp_path / "registries"
     registries.mkdir()
-    (registries / "features.yml").write_text(
+    (registries / "features.raw.yml").write_text(
         "features:\n  old-feature:\n    name: Old\n    description: Old feature\n"
     )
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
     with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            propose_registries(tmp_path, cfg)
+        propose_registries(tmp_path, cfg)
 
-    content = (registries / "features.yml").read_text()
+    content = (registries / "features.raw.yml").read_text()
     assert "old-feature" not in content
 
 
@@ -848,10 +767,9 @@ def test_proposal_never_calls_quine(tmp_path):
     cfg = make_cfg()
 
     with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            with patch("modok.quine.client.QuineClient") as mock_quine_cls:
-                propose_registries(tmp_path, cfg)
-                mock_quine_cls.assert_not_called()
+        with patch("modok.quine.client.QuineClient") as mock_quine_cls:
+            propose_registries(tmp_path, cfg)
+            mock_quine_cls.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -864,14 +782,9 @@ def test_propose_registries_returns_proposal_summary(tmp_path):
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
-    normalised = {
-        "features": [{"name": "Tracking", "description": "Tracks things."}],
-    }
-
     with patch("modok.registry.proposal.enrich_section",
                return_value=EnrichSectionResult(features=["Tracking"])):
-        with patch("modok.registry.proposal.normalise_candidates", return_value=normalised):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert isinstance(summary, ProposalSummary)
     assert isinstance(summary.sections_processed, int)
@@ -879,9 +792,9 @@ def test_propose_registries_returns_proposal_summary(tmp_path):
     assert isinstance(summary.docs_processed, int)
     assert isinstance(summary.docs_skipped, int)
     assert isinstance(summary.entries_written, dict)
-    assert "features.yml" in summary.entries_written
-    assert "modules.yml" in summary.entries_written
-    assert "errors.yml" in summary.entries_written
+    assert "features.raw.yml" in summary.entries_written
+    assert "modules.raw.yml" in summary.entries_written
+    assert "errors.raw.yml" in summary.entries_written
     assert isinstance(summary.failed_sections, list)
 
 
@@ -891,21 +804,13 @@ def test_proposal_summary_entries_written_reflects_actual_counts(tmp_path):
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
-    normalised = {
-        "features": [
-            {"name": "Feature One", "description": "desc"},
-            {"name": "Feature Two", "description": "desc"},
-        ],
-    }
-
     with patch("modok.registry.proposal.enrich_section",
                return_value=EnrichSectionResult(features=["Feature One", "Feature Two"])):
-        with patch("modok.registry.proposal.normalise_candidates", return_value=normalised):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
-    assert summary.entries_written["features.yml"] == 2
-    assert summary.entries_written["modules.yml"] == 0
-    assert summary.entries_written["errors.yml"] == 0
+    assert summary.entries_written["features.raw.yml"] == 2
+    assert summary.entries_written["modules.raw.yml"] == 0
+    assert summary.entries_written["errors.raw.yml"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -925,11 +830,122 @@ def test_proposal_summary_includes_failed_sections(tmp_path):
         return EnrichSectionResult()
 
     with patch("modok.registry.proposal.enrich_section", side_effect=fail_overview):
-        with patch("modok.registry.proposal.normalise_candidates", return_value={}):
-            summary = propose_registries(tmp_path, cfg)
+        summary = propose_registries(tmp_path, cfg)
 
     assert len(summary.failed_sections) == 1
     failed = summary.failed_sections[0]
     # Each entry identifies the section heading and doc path
     heading = failed[0] if isinstance(failed, (tuple, list)) else getattr(failed, "heading", None)
     assert heading == "Overview"
+
+
+# ---------------------------------------------------------------------------
+# RP-ENRICH-010 — N/total progress line per section on stderr
+# ---------------------------------------------------------------------------
+
+# @spec RP-ENRICH-010
+def test_propose_registries_prints_progress_line_per_section(tmp_path, capsys):
+    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    write_file(tmp_path / "doc.md", SIMPLE_DOC)  # 2 H2 sections
+    cfg = make_cfg()
+
+    with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
+        propose_registries(tmp_path, cfg)
+
+    captured = capsys.readouterr()
+    assert "1/2" in captured.err
+    assert "2/2" in captured.err
+
+
+# @spec RP-ENRICH-010
+def test_propose_registries_prints_failed_progress_line_inline(tmp_path, capsys):
+    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    from modok.llm.errors import LLMUnavailableError
+    write_file(tmp_path / "doc.md", SIMPLE_DOC)  # Overview, Details
+    cfg = make_cfg()
+
+    def fail_overview(section, cfg_llm):
+        if section.heading == "Overview":
+            raise LLMUnavailableError("down")
+        return EnrichSectionResult()
+
+    with patch("modok.registry.proposal.enrich_section", side_effect=fail_overview):
+        propose_registries(tmp_path, cfg)
+
+    captured = capsys.readouterr()
+    # Failure appears on the progress line itself, not as a separate warning line
+    failed_line = next((l for l in captured.err.splitlines() if "FAILED" in l), None)
+    assert failed_line is not None, "FAILED must appear on a progress line"
+    assert "Overview" in failed_line
+
+
+# ---------------------------------------------------------------------------
+# RP-WRITE-008 — write .raw.yml files after enrichment
+# ---------------------------------------------------------------------------
+
+# @spec RP-WRITE-008
+def test_propose_registries_writes_raw_yml_files(tmp_path):
+    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    write_file(tmp_path / "doc.md", SIMPLE_DOC)
+    cfg = make_cfg()
+
+    result = EnrichSectionResult(features=["Real-Time Tracking"])
+    with patch("modok.registry.proposal.enrich_section", return_value=result):
+        propose_registries(tmp_path, cfg)
+
+    assert (tmp_path / "registries" / "features.raw.yml").exists()
+    assert (tmp_path / "registries" / "modules.raw.yml").exists()
+    assert (tmp_path / "registries" / "errors.raw.yml").exists()
+
+
+# @spec RP-WRITE-008
+def test_raw_yml_has_same_structure_as_final_yml(tmp_path):
+    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    write_file(tmp_path / "doc.md", SIMPLE_DOC)
+    cfg = make_cfg()
+
+    result = EnrichSectionResult(features=["Real-Time Tracking"])
+    with patch("modok.registry.proposal.enrich_section", return_value=result):
+        propose_registries(tmp_path, cfg)
+
+    data = yaml.safe_load((tmp_path / "registries" / "features.raw.yml").read_text())
+    assert "features" in data
+    for slug, entry in data["features"].items():
+        assert "name" in entry
+        assert "description" in entry
+
+
+# ---------------------------------------------------------------------------
+# RP-WRITE-009 — modok init --assisted does NOT write final .yml files
+# ---------------------------------------------------------------------------
+
+# @spec RP-WRITE-009
+def test_propose_registries_does_not_write_final_yml(tmp_path):
+    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    write_file(tmp_path / "doc.md", SIMPLE_DOC)
+    cfg = make_cfg()
+
+    with patch("modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()):
+        propose_registries(tmp_path, cfg)
+
+    assert not (tmp_path / "registries" / "features.yml").exists()
+    assert not (tmp_path / "registries" / "modules.yml").exists()
+    assert not (tmp_path / "registries" / "errors.yml").exists()
+
+
+# ---------------------------------------------------------------------------
+# RP-SLUG-005 — slug collision warnings go to stderr, not stdout
+# ---------------------------------------------------------------------------
+
+# @spec RP-SLUG-005
+def test_slug_collision_warnings_go_to_stderr_not_stdout(capsys):
+    from modok.registry.slugify import resolve_slug_collisions
+    entries = [
+        {"name": "Real-Time Tracking", "description": ""},
+        {"name": "Real Time Tracking", "description": ""},
+    ]
+    resolve_slug_collisions(entries)
+
+    captured = capsys.readouterr()
+    assert captured.out == "" or "collision" not in captured.out.lower()
+    assert "collision" in captured.err.lower() or "merged" in captured.err.lower()

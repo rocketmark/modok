@@ -431,3 +431,51 @@ cd ~/github/modok
 git pull
 pip install -e ".[dev]"
 ```
+
+---
+
+## Demo UI
+
+The demo UI is a local Next.js console that shows the core MODOK workflow: open a ticket, build a debug packet, see the result.
+
+**Prerequisites:** Node.js 18+
+
+**Install dependencies (first time only):**
+
+```bash
+cd ~/github/modok/ui
+npm install
+```
+
+**Edit `ui/config.json`** to point at your project:
+
+```json
+{
+  "project_slug": "stagehand",
+  "modok_source": "demo-crm"
+}
+```
+
+`project_slug` must match a `[[projects]]` slug in `~/.modok/config.toml`. `modok_source` is the `--source` value passed to `modok retrieve`.
+
+**Launch with real Quine (Quine must be running):**
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+**Launch in mock mode (no Quine required):**
+
+```bash
+MODOK_MOCK=1 npm run dev
+```
+
+Mock mode returns the fixture packet from `ui/data/mock-debug-packets.json` without spawning any `modok` subprocesses — useful for demos and offline development.
+
+**Run unit tests:**
+
+```bash
+npm test
+```

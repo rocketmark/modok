@@ -341,6 +341,7 @@ def _ollama_enrich_call(
     endpoint: str,
     model: str,
     timeout: float,
+    num_ctx: int = 8192,
 ) -> dict:
     """Sync Ollama native /api/chat call for section enrichment. Returns parsed JSON dict."""
     body = {
@@ -349,7 +350,7 @@ def _ollama_enrich_call(
         "stream": False,
         "think": False,
         "format": "json",
-        "options": {"num_ctx": 8192},
+        "options": {"num_ctx": num_ctx},
     }
     try:
         resp = httpx.post(
@@ -474,8 +475,13 @@ def enrich_section(section: Any, cfg_llm: Any) -> Any:
     )
 
 
-def normalise_candidates(candidates: dict, cfg_llm: Any) -> dict:
-    # @spec RP-NORM-002, RP-NORM-004
+def normalise_candidates(
+    candidates: list,
+    field_type: str,
+    cfg_llm: Any,
+    counterexamples: list | None = None,
+) -> list:
+    # @spec RN-NORM-001, RN-NORM-002
     import yaml as _yaml
 
     timeout = getattr(cfg_llm, "timeout_propose_registry", None)
@@ -484,7 +490,28 @@ def normalise_candidates(candidates: dict, cfg_llm: Any) -> dict:
     timeout = float(timeout)
 
     backend = getattr(cfg_llm, "backend", "local")
-    user_content = _yaml.dump(candidates, default_flow_style=False, allow_unicode=True)
+
+    # Send only names to cut output tokens — no descriptions needed for normalisation
+    name_key = "normalized_error" if field_type == "errors" else "name"
+    name_list = [c.get(name_key, "") for c in candidates if c.get(name_key)]
+
+    user_parts = [
+        f"field: {field_type}",
+        "",
+        _yaml.dump({"candidates": name_list}, default_flow_style=False, allow_unicode=True),
+    ]
+    if counterexamples:
+        ce_names = [
+            v.get(name_key, "")
+            for v in counterexamples
+            if not v.get("_empty_output") and v.get(name_key, "")
+        ]
+        if ce_names:
+            user_parts += [
+                "COUNTEREXAMPLES (these violate constraints — do not re-introduce them):",
+                _yaml.dump(ce_names, default_flow_style=False, allow_unicode=True),
+            ]
+    user_content = "\n".join(user_parts)
 
     messages = [
         {"role": "system", "content": prompts.NORMALISE_REGISTRY_SYSTEM},
@@ -495,7 +522,7 @@ def normalise_candidates(candidates: dict, cfg_llm: Any) -> dict:
         endpoint = getattr(cfg_llm, "remote_endpoint", "") or getattr(cfg_llm, "base_url", "")
         model = getattr(cfg_llm, "remote_model", "") or getattr(cfg_llm, "model", "")
         api_key = getattr(cfg_llm, "remote_api_key", "")
-        return _openai_enrich_call(
+        raw = _openai_enrich_call(
             messages=messages,
             endpoint=endpoint,
             model=model,
@@ -505,12 +532,33 @@ def normalise_candidates(candidates: dict, cfg_llm: Any) -> dict:
     else:
         endpoint = getattr(cfg_llm, "local_endpoint", "http://localhost:11434")
         model = getattr(cfg_llm, "local_model", "llama3.2")
-        return _ollama_enrich_call(
+        raw = _ollama_enrich_call(
             messages=messages,
             endpoint=endpoint,
             model=model,
             timeout=timeout,
+            num_ctx=131072,
         )
+
+    # Extract list from response
+    if isinstance(raw, list):
+        raw_list = raw
+    elif isinstance(raw, dict):
+        raw_list = raw.get("entries", raw.get(field_type, raw.get("candidates", [])))
+    else:
+        raw_list = []
+
+    # Convert strings to dicts for downstream verification
+    result = []
+    for item in raw_list:
+        if isinstance(item, str):
+            if field_type == "errors":
+                result.append({"normalized_error": item, "description": ""})
+            else:
+                result.append({"name": item, "description": ""})
+        elif isinstance(item, dict):
+            result.append(item)
+    return result
 
 
 async def parse_ticket(

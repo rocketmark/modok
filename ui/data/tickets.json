@@ -1,0 +1,32 @@
+[
+  {
+    "id": "ACME-1842",
+    "subject": "Checkout fails after retrying payment",
+    "content": "When a user's initial payment attempt fails (e.g. insufficient funds), they retry with a different card. The checkout enters a retry loop and eventually fails with 'PaymentRetryError: max retries exceeded' even when the second card is valid. Customer reports this started after the v2.4.1 deploy on Jan 14.",
+    "created_at": "2024-01-15T10:32:00Z"
+  },
+  {
+    "id": "GLOBEX-991",
+    "subject": "Webhook replay causes duplicate notification",
+    "content": "When a webhook event is replayed after a delivery failure, the notification service sends duplicate emails and Slack messages to the affected user. Multiple GLOBEX users reported receiving 3-4 copies of the same notification following the Nov 14 infrastructure event. Replay appears to bypass the idempotency check.",
+    "created_at": "2024-01-14T14:20:00Z"
+  },
+  {
+    "id": "INITRODE-237",
+    "subject": "Search results ignore archived filter",
+    "content": "When a user applies the 'exclude archived' filter in the search UI, archived records still appear in the result set. The filter value is present in the query params (archived=false) but does not appear to be passed to the backend search service. Reproducible on all environments.",
+    "created_at": "2024-01-12T09:05:00Z"
+  },
+  {
+    "id": "UMBRELLA-404",
+    "subject": "User invite email links to expired token",
+    "content": "Newly invited users receive an onboarding email with a sign-up link. The link contains a token that expires after 24 hours, but emails are sometimes delayed 24-48 hours due to the SES queue backlog, causing the token to be expired by the time the user clicks it. Affects approximately 12% of new invites this week.",
+    "created_at": "2024-01-10T16:45:00Z"
+  },
+  {
+    "id": "STARK-733",
+    "subject": "Dashboard metrics lag after deploy",
+    "content": "After each production deployment, dashboard metrics (active users, request latency, error rate) stop updating for 5-15 minutes. Metrics resume automatically but the gap causes confusion during post-deploy monitoring windows. The on-call team has been manually reassuring stakeholders after each deploy.",
+    "created_at": "2024-01-08T11:00:00Z"
+  }
+]

@@ -54,7 +54,8 @@ def init_cmd(project: str, repo: str, assisted: bool) -> None:
         fail_note = f" ({failed} failed)" if failed else ""
         click.echo(f"Processed {processed} sections across {docs} docs{fail_note}.")
         for fname, count in summary.entries_written.items():
-            click.echo(f"Wrote {fname} ({count} entries)")
+            click.echo(f"Wrote registries/{fname} ({count} raw entries)")
+        click.echo("Run `modok normalise --project <slug>` to normalise and write final registries.")
 
         # Emit failed sections to stderr
         for heading, doc_path in summary.failed_sections:

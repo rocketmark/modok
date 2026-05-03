@@ -1,4 +1,4 @@
-# @spec RP-WRITE-003, RP-WRITE-004, RP-WRITE-005, RP-WRITE-006
+# @spec RP-WRITE-003, RP-WRITE-004, RP-WRITE-005, RP-WRITE-006, RP-WRITE-008
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,3 +31,18 @@ def write_errors_yml(path: Path, errors: dict) -> None:
         yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+def write_features_raw_yml(path: Path, features: dict) -> None:
+    """Write features checkpoint. Same structure as features.yml."""
+    write_features_yml(path, features)
+
+
+def write_modules_raw_yml(path: Path, modules: dict) -> None:
+    """Write modules checkpoint. Same structure as modules.yml."""
+    write_modules_yml(path, modules)
+
+
+def write_errors_raw_yml(path: Path, errors: dict) -> None:
+    """Write errors checkpoint. Same structure as errors.yml."""
+    write_errors_yml(path, errors)

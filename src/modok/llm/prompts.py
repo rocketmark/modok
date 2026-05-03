@@ -58,13 +58,12 @@ Be precise. If a field has no candidates, omit it. Return valid JSON only.
 """
 
 NORMALISE_REGISTRY_SYSTEM = """\
-You are a technical taxonomy normaliser. Given raw candidate lists extracted from documentation,
-deduplicate and canonicalise the entries.
+You are a technical taxonomy normaliser. You receive a flat list of candidate names for a single registry field.
 
 Rules by type:
   features: merge entries describing the same capability into one canonical form
   modules: merge entries describing the same software component
-  error_signatures: keep ONLY named identifiers (SCREAMING_SNAKE_CASE or UI labels with symbol). Drop prose descriptions. Convert prose to named code equivalents where possible.
+  errors: keep ONLY named identifiers (SCREAMING_SNAKE_CASE or UI labels with symbol). Drop prose descriptions. Convert prose to named code equivalents where possible.
   known_issues: merge variants of the same documented failure into one entry
   failure_modes: merge variants of the same operator-observable failure state
   decisions: keep only entries where two or more alternatives are documented
@@ -72,6 +71,6 @@ Rules by type:
 
 IMPORTANT: You may rename or merge entries. You must NOT introduce new concepts not present in the input.
 
-Return ONLY a JSON object with the same field names as the input, each value being a list of
-objects with "name" and "description" fields (for errors: "normalized_error" and "description").
+Return ONLY a JSON object: {"entries": ["Canonical Name 1", "Canonical Name 2", ...]}
+Entries are canonical names as plain strings. No objects, no descriptions.
 """

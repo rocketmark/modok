@@ -1,15 +1,14 @@
 # @spec RP-ENRICH-001, RP-ENRICH-002, RP-ENRICH-003, RP-ENRICH-004, RP-ENRICH-005,
-#        RP-ENRICH-009, RP-NORM-001, RP-NORM-002, RP-NORM-003, RP-NORM-004,
-#        RP-WRITE-001, RP-WRITE-002, RP-WRITE-007, RP-RPT-001, RP-RPT-002
+#        RP-ENRICH-009, RP-ENRICH-010, RP-NORM-001, RP-WRITE-008, RP-WRITE-009,
+#        RP-RPT-001, RP-RPT-002
 from __future__ import annotations
 
-import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from modok.llm.errors import LLMResponseError, LLMUnavailableError
-from modok.llm.gateway import enrich_section, normalise_candidates  # noqa: E402 — patched by tests
+from modok.llm.gateway import enrich_section  # noqa: E402 — patched by tests
 
 
 @dataclass
@@ -63,7 +62,7 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
     from modok.registry.discovery import discover_docs
     from modok.registry.parser import parse_sections
     from modok.registry.slugify import resolve_slug_collisions
-    from modok.registry.writer import write_errors_yml, write_features_yml, write_modules_yml
+    from modok.registry.writer import write_errors_raw_yml, write_features_raw_yml, write_modules_raw_yml
 
     docs, _ = discover_docs(repo_root)
 
@@ -77,11 +76,7 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
     total_sections = len(all_sections)
     total_docs = len(docs)
 
-    timeout = getattr(cfg.llm, "timeout_propose_registry", None)
-    if timeout is None:
-        timeout = getattr(cfg.llm, "timeout_seconds", 60)
-    timeout = float(timeout)
-
+    # RP-ENRICH-003
     print(
         f"Found {total_sections} section{'s' if total_sections != 1 else ''} across "
         f"{total_docs} doc{'s' if total_docs != 1 else ''}",
@@ -96,64 +91,52 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
     sections_processed = 0
     sections_failed = 0
 
-    for section in all_sections:
+    for idx, section in enumerate(all_sections, start=1):
         try:
             result = enrich_section(section, cfg.llm)
             section_results.append(result)
             sections_processed += 1
+            # RP-ENRICH-010: one progress line per section
+            print(f"{idx}/{total_sections}", file=sys.stderr)
         except (LLMUnavailableError, LLMResponseError) as exc:
-            print(
-                f"Warning: failed to enrich section '{section.heading}' "
-                f"in {section.doc_path}: {exc}",
-                file=sys.stderr,
-            )
             failed_sections.append((section.heading, section.doc_path))
             sections_failed += 1
+            # RP-ENRICH-010: failure appears inline on the progress line
+            print(f"{idx}/{total_sections} FAILED: '{section.heading}' ({exc})", file=sys.stderr)
 
+    # RP-NORM-001: merge per-section candidates before writing checkpoint files
     merged = _merge_candidates(section_results)
 
-    try:
-        normalised = normalise_candidates(merged, cfg.llm)
-    except (LLMUnavailableError, LLMResponseError) as exc:
-        print(
-            f"Warning: normalisation failed — writing raw candidates: {exc}",
-            file=sys.stderr,
-        )
-        normalised = None
-
-    if normalised:
-        raw_features = [e["name"] for e in normalised.get("features", []) if "name" in e]
-        raw_modules = [e["name"] for e in normalised.get("modules", []) if "name" in e]
-        raw_errors = [
-            e.get("normalized_error", e.get("name", ""))
-            for e in normalised.get("errors", [])
-            if e.get("normalized_error") or e.get("name")
-        ]
-    else:
-        raw_features = merged.get("features", [])
-        raw_modules = merged.get("modules", [])
-        raw_errors = merged.get("error_signatures", [])
+    raw_features = merged.get("features", [])
+    raw_modules = merged.get("modules", [])
+    raw_errors = merged.get("error_signatures", [])
 
     features_entries = resolve_slug_collisions(
-        [{"name": n, "description": ""} for n in raw_features]
+        [{"name": n, "description": ""} for n in raw_features],
+        registry_file="features.raw.yml",
     )
     modules_entries = resolve_slug_collisions(
-        [{"name": n, "description": ""} for n in raw_modules]
+        [{"name": n, "description": ""} for n in raw_modules],
+        registry_file="modules.raw.yml",
     )
     errors_raw_entries = resolve_slug_collisions(
-        [{"name": e, "description": ""} for e in raw_errors]
+        [{"name": e, "description": ""} for e in raw_errors],
+        registry_file="errors.raw.yml",
     )
     errors_entries = {
         slug: {"normalized_error": entry["name"], "description": entry["description"]}
         for slug, entry in errors_raw_entries.items()
     }
 
+    # RP-WRITE-008: write .raw.yml checkpoint files
     reg_dir = repo_root / "registries"
     reg_dir.mkdir(parents=True, exist_ok=True)
 
-    write_features_yml(reg_dir / "features.yml", features_entries)
-    write_modules_yml(reg_dir / "modules.yml", modules_entries)
-    write_errors_yml(reg_dir / "errors.yml", errors_entries)
+    write_features_raw_yml(reg_dir / "features.raw.yml", features_entries)
+    write_modules_raw_yml(reg_dir / "modules.raw.yml", modules_entries)
+    write_errors_raw_yml(reg_dir / "errors.raw.yml", errors_entries)
+
+    # RP-WRITE-009: do NOT write final .yml files here
 
     return ProposalSummary(
         sections_processed=sections_processed,
@@ -161,9 +144,9 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
         docs_processed=docs_processed,
         docs_skipped=docs_skipped,
         entries_written={
-            "features.yml": len(features_entries),
-            "modules.yml": len(modules_entries),
-            "errors.yml": len(errors_entries),
+            "features.raw.yml": len(features_entries),
+            "modules.raw.yml": len(modules_entries),
+            "errors.raw.yml": len(errors_entries),
         },
         failed_sections=failed_sections,
     )

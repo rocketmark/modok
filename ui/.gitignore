@@ -1,0 +1,5 @@
+node_modules/
+.next/
+demo-data/customer-tickets/
+*.local
+.env*.local
