@@ -62,6 +62,12 @@ export function writeRun(run: ModokRun): void {
   fs.writeFileSync(runsPath(), JSON.stringify(runs, null, 2))
 }
 
+export function deleteRun(ticketId: string): void {
+  const runs = readRuns()
+  delete runs[ticketId]
+  fs.writeFileSync(runsPath(), JSON.stringify(runs, null, 2))
+}
+
 // @spec DEMO-DATA-003
 export function getRun(ticketId: string): ModokRun {
   const runs = readRuns()

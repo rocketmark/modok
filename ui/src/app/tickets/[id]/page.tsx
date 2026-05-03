@@ -83,6 +83,13 @@ export default function TicketPage() {
     }
   }, [ticketId])
 
+  const handleClear = useCallback(async () => {
+    await fetch(`/api/tickets/${ticketId}/modok`, { method: 'DELETE' })
+    const cleared: ModokRun = { ticket_id: ticketId, status: 'not_run' }
+    setCurrentRun(cleared)
+    setRuns((prev) => ({ ...prev, [ticketId]: cleared }))
+  }, [ticketId])
+
   const handleCreateTicket = useCallback(
     async (subject: string, content: string) => {
       const res = await fetch('/api/tickets', {
@@ -135,6 +142,7 @@ export default function TicketPage() {
           ticketId={ticketId}
           run={run}
           onRun={handleRun}
+          onClear={handleClear}
           isRunning={isRunning}
         />
       </div>

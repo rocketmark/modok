@@ -4,12 +4,6 @@ export interface AnchorSet {
   symptoms: string[]
 }
 
-export interface DocRef {
-  doc_path: string
-  heading: string
-  match_count: number
-}
-
 export interface FileRef {
   repo_path: string
   match_count: number
@@ -29,15 +23,19 @@ export interface FixRef {
   match_count: number
 }
 
+export interface EvidenceAnchor {
+  anchor_type: string
+  anchor_value: string
+  matched_node_ids: string[]
+}
+
 export interface DebugPacket {
-  issue: {
-    id: string
-    summary: string
-  }
+  issue_summary: string
   anchors: AnchorSet
-  relevant_docs: DocRef[]
-  relevant_files: FileRef[]
-  relevant_tests: FileRef[]
+  anchor_count: number
   known_issues: KnownIssueRef[]
-  prior_fixes: FixRef[]
+  recent_fixes: FixRef[]
+  relevant_files: FileRef[]
+  evidence: EvidenceAnchor[]
+  confidence: number
 }

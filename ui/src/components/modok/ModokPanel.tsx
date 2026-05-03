@@ -16,17 +16,28 @@ interface Props {
   ticketId: string
   run: ModokRun
   onRun: () => void
+  onClear: () => void
   isRunning?: boolean
 }
 
 // @spec DEMO-MODOK-001, DEMO-MODOK-002, DEMO-MODOK-003, DEMO-MODOK-004, DEMO-MODOK-005,
 //       DEMO-MODOK-006, DEMO-MODOK-007, DEMO-MODOK-008, DEMO-MODOK-009, DEMO-MODOK-010, DEMO-MODOK-011
-export function ModokPanel({ ticketId: _ticketId, run, onRun, isRunning = false }: Props) {
+export function ModokPanel({ ticketId: _ticketId, run, onRun, onClear, isRunning = false }: Props) {
   return (
     <div className="flex flex-col h-full overflow-y-auto p-5">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-4">
-        MODOK Analysis
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          MODOK Analysis
+        </h2>
+        {!isRunning && (run.status === 'complete' || run.status === 'failed') && (
+          <button
+            onClick={onClear}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {isRunning ? (
         <div role="status" className="flex items-center gap-2 text-sm text-slate-500">
