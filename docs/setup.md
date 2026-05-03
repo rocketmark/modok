@@ -262,11 +262,47 @@ modok init --project stagehand --repo ~/github/stagehand
 This:
 - Registers the project in `~/.modok/config.toml` if not already present
 - Installs a git post-commit hook in the stagehand repo that runs ingestion automatically on commits touching docs, registries, or tickets
-- Validates that `registries/features.yml`, `registries/modules.yml`, and `registries/errors.yml` exist in the repo (creates stubs if missing)
+- Creates empty stub files for `registries/features.yml`, `registries/modules.yml`, `registries/errors.yml`, and `registries/doc-types.yml` if they don't already exist
 
 ---
 
-## Step 10 — Run first ingestion
+## Step 10 — Generate the code map
+
+The code map is a YAML snapshot of every file in the repo — language, role, symbols, and SHA256. It is the foundation for registry bootstrap and file validation.
+
+```bash
+modok extract-code-map --project stagehand --repo ~/github/stagehand
+```
+
+Output is written to `<repo>/.modok/code-map.yml` (gitignored). Re-run this any time the repo's file structure changes significantly.
+
+```
+Extracted code map: 320 files (71 source, 68 test, 84 config, 97 docs) → /path/to/stagehand/.modok/code-map.yml
+```
+
+---
+
+## Step 11 — Bootstrap registries from arrow docs
+
+If the project has arrow docs (`docs/arrows/index.yaml`), use `import-arrow` to generate `registries/features.yml` and `registries/modules.yml` directly from them. This replaces the empty stubs created by `modok init`.
+
+```bash
+modok import-arrow --project stagehand --repo ~/github/stagehand
+```
+
+This reads each arrow doc's `### Code` and `### Key Components` sections, validates all file paths against the code map, and writes both registry files. Add `--no-llm` to skip name/description generation (useful for CI or first runs):
+
+```bash
+modok import-arrow --project stagehand --repo ~/github/stagehand --no-llm
+```
+
+Add `--dry-run` to preview the proposed registries without writing anything.
+
+If the project does not have arrow docs, edit `registries/features.yml` and `registries/modules.yml` manually using the stubs created by `modok init`.
+
+---
+
+## Step 12 — Run first ingestion
 
 ```bash
 modok ingest --project stagehand ~/github/stagehand
@@ -300,7 +336,7 @@ Add `--strict` to reject the entire doc if any field fails verification after re
 
 ---
 
-## Step 11 — Verify the graph
+## Step 13 — Verify the graph
 
 ```bash
 modok recall --project stagehand --feature shtp-receiver
@@ -378,6 +414,7 @@ launchctl unload ~/Library/LaunchAgents/io.modok.quine.plist  # stops and disabl
 |---|---|
 | `~/github/modok/` | MODOK source code, tests, LID docs |
 | `~/github/stagehand/registries/` | Feature, module, error registries (version-controlled in stagehand repo) |
+| `~/github/stagehand/.modok/code-map.yml` | Per-project code map — files, roles, symbols, hashes (local, gitignored) |
 | `~/.modok/config.toml` | MODOK runtime config — Quine URL, project repo paths, LLM config |
 | `~/.modok/quine.conf` | Quine HOCON config |
 | `~/.modok/quine.jar` | Quine binary |
