@@ -60,3 +60,4 @@ class DebugPacket:
     recent_commits: list[CommitRef]
     evidence: list[EvidenceAnchor]
     confidence: float
+    summary: str = ""

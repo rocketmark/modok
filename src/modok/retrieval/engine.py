@@ -438,6 +438,24 @@ async def retrieve(
         for c in raw_commits
     ]
 
+    raw_text = issue.raw_text or issue.summary
+    try:
+        generated_summary = await gateway.summarise_packet(
+            issue_text=raw_text,
+            module_slugs=anchors.module_slugs,
+            error_signatures=anchors.error_signatures,
+            symptoms=anchors.symptoms,
+            relevant_files=[f.repo_path for f in relevant_files],
+            recent_commits=[
+                {"timestamp": c.timestamp, "author_name": c.author_name, "message": c.message}
+                for c in recent_commits
+            ],
+            known_issues=[ki.summary for ki in known_issues],
+            backend=backend,
+        )
+    except Exception:
+        generated_summary = ""
+
     return DebugPacket(
         issue_summary=issue.summary,
         anchors=anchors,
@@ -448,4 +466,5 @@ async def retrieve(
         recent_commits=recent_commits,
         evidence=evidence,
         confidence=confidence,
+        summary=generated_summary,
     )

@@ -332,6 +332,12 @@ def _validate_similarity(data: dict, raw: str) -> list[SimilarityProposal]:
     ]
 
 
+def _validate_summary(data: dict, raw: str) -> str:
+    if "summary" not in data:
+        raise ValueError("missing summary field")
+    return str(data["summary"])
+
+
 # ---------------------------------------------------------------------------
 # Synchronous enrich calls (registry proposal — sequential, no asyncio)
 # ---------------------------------------------------------------------------
@@ -749,3 +755,73 @@ async def propose_similarity(
             native_ollama=True,
         )
     return _parse_and_validate(raw, _validate_similarity)
+
+
+async def summarise_packet(
+    issue_text: str,
+    module_slugs: list[str],
+    error_signatures: list[str],
+    symptoms: list[str],
+    relevant_files: list[str],
+    recent_commits: list[dict],
+    known_issues: list[str],
+    backend: str = "local",
+) -> str:
+    cfg = _load_config()
+    timeout = _get_timeout(cfg, "timeout_summarise_packet")
+    max_retries = int(cfg.get("max_retries", 2))
+
+    modules_line = ", ".join(module_slugs) if module_slugs else "unknown"
+    files_block = "\n".join(f"  {f}" for f in relevant_files) if relevant_files else "  (none)"
+    commits_block = "\n".join(
+        f"  {c.get('timestamp', '')[:10]}  {c.get('author_name', '')}:  {c.get('message', '')}"
+        for c in recent_commits[:5]
+    ) if recent_commits else "  (none)"
+    errors_line = "; ".join(error_signatures) if error_signatures else "(none)"
+    symptoms_line = "; ".join(symptoms) if symptoms else "(none)"
+    issues_line = "; ".join(known_issues) if known_issues else "none"
+
+    user_content = (
+        f"Issue: {issue_text}\n\n"
+        f"Module: {modules_line}\n"
+        f"Errors: {errors_line}\n"
+        f"Symptoms: {symptoms_line}\n\n"
+        f"Files:\n{files_block}\n\n"
+        f"Recent commits:\n{commits_block}\n\n"
+        f"Known issues: {issues_line}"
+    )
+    messages = [
+        {"role": "system", "content": prompts.SUMMARISE_PACKET_SYSTEM},
+        {"role": "user", "content": user_content},
+    ]
+    response_format = {"type": "json_object"}
+
+    if backend == "auto":
+        return await _call_auto(messages, response_format, timeout, cfg, _validate_summary)
+
+    if backend == "remote":
+        endpoint, model, api_key = _check_remote_config(cfg)
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+            max_retries=max_retries,
+            native_ollama=False,
+        )
+    else:
+        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
+        model = cfg.get("local_model", "llama3.2")
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key="",
+            max_retries=max_retries,
+            native_ollama=True,
+        )
+    return _parse_and_validate(raw, _validate_summary)

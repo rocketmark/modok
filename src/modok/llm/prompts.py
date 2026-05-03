@@ -72,6 +72,21 @@ Return ONLY a JSON object with these fields (omit any field that has no candidat
 Be precise. If a field has no candidates, omit it. Return valid JSON only.
 """
 
+SUMMARISE_PACKET_SYSTEM = """\
+You are a diagnostic assistant. Given resolved information about a customer issue, write a concise
+actionable summary for the engineer who will investigate it.
+
+Focus on:
+- Which file to open first and why (module context)
+- Who last changed it and when
+- Whether any recent commit messages look related to the reported issue
+
+Be 2-4 sentences. Do not repeat the issue title verbatim. Write for an engineer ready to start debugging.
+
+Return ONLY a JSON object with:
+  summary: string
+"""
+
 NORMALISE_REGISTRY_SYSTEM = """\
 You are a technical taxonomy normaliser. You receive a flat list of candidate names for a single registry field.
 
