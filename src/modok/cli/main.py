@@ -9,6 +9,7 @@ import sys
 import click
 
 from modok.cli.commands.extract_code_map import extract_code_map_cmd
+from modok.cli.commands.import_arrow import import_arrow_cmd
 from modok.cli.commands.init import init_cmd
 from modok.cli.commands.normalise import normalise_cmd
 from modok.cli.commands.ingest import ingest_cmd
@@ -69,6 +70,7 @@ def cli(ctx: click.Context, status: bool) -> None:
 
 
 cli.add_command(extract_code_map_cmd, name="extract-code-map")
+cli.add_command(import_arrow_cmd, name="import-arrow")
 cli.add_command(init_cmd, name="init")
 cli.add_command(normalise_cmd, name="normalise")
 cli.add_command(ingest_cmd, name="ingest")

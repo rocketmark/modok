@@ -65,15 +65,18 @@ Missing `id`, `description`, `arrow_doc`, or `specs` on any entry is a hard erro
 
 Each arrow doc is parsed for two sections:
 
-**`### Code`** — source files for the feature. Extraction rule:
+**Section header detection** — both `### SectionName` (H3) and `**SectionName:**` (bold with colon, under `## Architecture`) are accepted as section delimiters. This accommodates the two common arrow doc styles in use (older docs use H3; newer docs use bold under `## Architecture`).
+
+**`### Code`** / **`**Code:**`** — source files for the feature. Extraction rule:
 - For each `-` bullet line, split on the em-dash separator, take only the left side. Separator is normalised: accept `—` (U+2014), `–` (U+2013), and ` - ` (spaced hyphen). Regex: `re.split(r'\s*[—–]|\s+-\s+', line, maxsplit=1)`.
 - Extract all backtick-quoted strings from the left side.
 - Keep only strings containing `/` or `.` and not containing `(` (file paths, not symbol names).
 - Multiple paths on one line (comma-separated backtick items) are all captured.
 
-**`### Key Components`** — module definitions. Extraction rule:
+**`### Key Components`** / **`**Key Components:**`** — module definitions. Extraction rule:
 - Numbered list items: `` `ClassName` — description ``
 - Extract primary class/function name (first backtick item per line).
+- Strip trailing `()` from the class name before code map lookup (arrow docs often write `func()` with parens; the symbol table stores bare names).
 - Extract description (text after `—` on the same line).
 - Match class name against the code map's symbol table to find the owning source file.
 - If the same class name appears in multiple arrow docs' `### Key Components` sections, emit `WARN: ambiguous Key Components symbol <name> — appears in multiple arrows, skipping overlay` and do not apply the description. File-per-module default still applies.
@@ -128,7 +131,7 @@ Two-pass process: file-per-module default, then `### Key Components` overlay.
 For each path in each feature's `source_files`:
 - Skip non-source files (language `unknown`, role `config`, `docs`, `generated`, `ignored`).
 - **Python files** → file-per-module. Slug: filename stem, underscores replaced with hyphens (`shtp_receiver.py` → `shtp-receiver`). `source_files: [path]`, `source_roots: []`.
-- **C/cpp directory entries** (path ends with `/` or has no extension and is a directory in the code map) → single module with `source_roots: [path]`, `source_files: []`. Slug: directory name, underscores/slashes replaced with hyphens. The heuristic: if the majority of files under the path have `language: cpp`, treat as a directory-level module rather than file-per-module.
+- **C/cpp directory grouping** — after collecting all source files across all features, cpp files are grouped by parent directory. Any parent directory with ≥ 2 cpp files becomes a single directory-level module: `source_roots: [dir_path]`, `source_files: []`. Slug: directory path with `/` and `_` replaced by `-`, leading/trailing hyphens stripped. Individual cpp files belonging to a grouped directory are excluded from file-per-module processing.
 - `language`: from code map.
 - `primary_class`: first class or function symbol in the code map symbol list for this file; empty string if none or if directory-level.
 - `name`: title-case of slug (preliminary; may be overwritten by LLM pass).
@@ -259,6 +262,8 @@ These are candidates for a manual `modules.yml` addition or a future `--include-
 | Shared-file modules in multiple features | Intentional, both `modules` lists get the slug | Creates a hub node in the graph with edges to both features. Correct behaviour, not an error. |
 | Em-dash separator normalisation | Accept U+2014, U+2013, and spaced hyphen | Editor variance is real; regex normalisation makes extraction robust without manual doc fixes. |
 | Key Components class name collision | Skip overlay, emit warning | Ambiguous which instance to apply; file-per-module default stands. Human edits description. |
+| Section header format | Accept both H3 and bold-colon | Real stagehand docs use `**Key Components:**` under `## Architecture`; older docs use `### Key Components`. Supporting both avoids needing to normalise docs. |
+| `()` stripped from Key Components class names | Strip before symbol lookup | Arrow doc style is to write `func()` with parens; code map stores bare names. Stripping is safe since `()` is not a valid part of a Python/C identifier. |
 | Empty index.yaml | Exit zero, write nothing | Avoid clobbering existing registry files on a misconfigured run. |
 
 ---

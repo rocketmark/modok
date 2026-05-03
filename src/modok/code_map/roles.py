@@ -13,10 +13,22 @@ _TEST_STEM_SUFFIXES = ("_test", "Tests")
 _TEST_DIRS = {"tests", "test", "Tests", "Test"}
 
 _CONFIG_EXTS = {
-    ".toml", ".yaml", ".yml", ".json", ".ini", ".config",
+    ".toml", ".yaml", ".yml", ".json", ".ini", ".config", ".cfg",
     ".csproj", ".sln", ".uplugin", ".uproject",
+    ".rules", ".service", ".timer", ".template",  # systemd / udev
+    ".patch",                                      # diff/patch files
+    ".plist",                                      # Apple property lists
+    ".spec",                                       # PyInstaller / RPM spec files
 }
-_DOCS_EXTS = {".md", ".mdx"}
+_CONFIG_NAMES = {
+    ".coveragerc", ".gitignore", ".gitattributes", ".editorconfig",
+    "CMakeLists.txt", "Makefile",
+}
+_CONFIG_STEM_PREFIXES = ("requirements",)  # requirements.txt, requirements-dev.txt
+
+_DOCS_EXTS = {".md", ".mdx", ".tla"}  # .tla = TLA+ formal specs
+_DOCS_NAMES = {"LICENSE", "LICENCE", "NOTICE", "AUTHORS", "CHANGELOG"}
+_DOCS_DIRS = {"spec"}  # TLA+ formal spec trees — all files within are docs/tooling
 
 
 def _is_generated(path: Path) -> bool:
@@ -40,7 +52,23 @@ def _is_config(path: Path) -> bool:
     if path.suffix in _CONFIG_EXTS:
         return True
     name = path.name
-    return name.startswith(".env.") or name == ".env"
+    if name in _CONFIG_NAMES:
+        return True
+    if name.startswith(".env.") or name == ".env":
+        return True
+    if path.suffix == ".txt" and any(name.startswith(p) for p in _CONFIG_STEM_PREFIXES):
+        return True
+    if name.endswith("VERSION") or name == "VERSION":
+        return True
+    return False
+
+
+def _is_docs(path: Path) -> bool:
+    if path.suffix in _DOCS_EXTS:
+        return True
+    if path.name in _DOCS_NAMES:
+        return True
+    return any(part in _DOCS_DIRS for part in path.parts[:-1])
 
 
 def classify_role(path: Path) -> str:
@@ -50,6 +78,6 @@ def classify_role(path: Path) -> str:
         return "test"
     if _is_config(path):
         return "config"
-    if path.suffix in _DOCS_EXTS:
+    if _is_docs(path):
         return "docs"
     return "source"
