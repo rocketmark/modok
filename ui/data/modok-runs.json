@@ -1,1 +1,9 @@
-{}
+{
+  "TICKET-1777776031775": {
+    "ticket_id": "TICKET-1777776031775",
+    "status": "failed",
+    "error": "issue_not_found",
+    "retrieve_exit_code": 1,
+    "retrieve_stderr": "Error: issue not found in project `stagehand`\n"
+  }
+}

@@ -76,6 +76,27 @@ def _load_raw_candidates(raw_path: Path, field_type: str) -> list:
     ]
 
 
+def _normalise_in_batches(
+    input_candidates: list,
+    field_type: str,
+    cfg_llm: Any,
+    batch_size: int,
+    counterexamples: list | None = None,
+) -> list:
+    """Call normalise_candidates in chunks, concatenate results."""
+    if not input_candidates:
+        return []
+    batches = [input_candidates[i:i + batch_size] for i in range(0, len(input_candidates), batch_size)]
+    n_batches = len(batches)
+    results = []
+    for bi, batch in enumerate(batches, 1):
+        if n_batches > 1:
+            print(f"  batch {bi}/{n_batches} ({len(batch)} candidates)...", file=sys.stderr)
+        batch_result = normalise_candidates(batch, field_type, cfg_llm, counterexamples=counterexamples)
+        results.extend(batch_result)
+    return results
+
+
 def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
     from modok.registry.slugify import resolve_slug_collisions
     from modok.registry.writer import write_errors_yml, write_features_yml, write_modules_yml
@@ -102,6 +123,7 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
             print(f"Warning: {raw_path.name} not found — skipping {ft}", file=sys.stderr)
 
     max_repairs = getattr(cfg.llm, "cegis_max_repairs", 1)
+    batch_size = getattr(cfg.llm, "normalise_batch_size", 200)
 
     fields_normalised: dict = {}
     fields_failed: list = []
@@ -127,40 +149,75 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
         accepted = None
         counterexamples: list | None = None
 
-        # RN-CEGIS-004: total calls ≤ max_repairs + 1
-        for attempt in range(max_repairs + 1):
-            if attempt > 0:
+        if field_type == "errors":
+            # Raw error codes from enrichment are already valid identifiers — skip LLM,
+            # resolve_slug_collisions below handles deduplication
+            print("  skipping LLM — deduplicating raw codes directly", file=sys.stderr)
+            accepted = input_candidates
+        else:
+            # RN-CEGIS-004: total calls ≤ max_repairs + 1
+            for attempt in range(max_repairs + 1):
+                if attempt > 0:
+                    print(
+                        f"  Repair {attempt}/{max_repairs} ({len(counterexamples or [])} violation(s))...",
+                        file=sys.stderr,
+                    )
+                try:
+                    normalised = _normalise_in_batches(
+                        input_candidates, field_type, cfg.llm,
+                        batch_size=batch_size, counterexamples=counterexamples,
+                    )
+                except (LLMUnavailableError, LLMResponseError) as exc:
+                    print(f"  Failed: {exc} — falling back to raw candidates", file=sys.stderr)
+                    fields_failed.append(field_type)
+                    break
+
+                violations = _verify_field(field_type, input_candidates, normalised)
+
+                if not violations:
+                    # RN-CEGIS-001: verifier passed
+                    accepted = normalised
+                    break
+
+                # RN-CEGIS-002: verifier failed — prepare counterexamples for repair
+                counterexamples = violations
+
+                if attempt == max_repairs:
+                    # RN-CEGIS-003: exhausted — fall back to raw candidates
+                    print(
+                        f"Warning: CEGIS exhausted for '{field_type}' after {max_repairs} repair "
+                        f"attempt{'s' if max_repairs != 1 else ''} — falling back to raw candidates",
+                        file=sys.stderr,
+                    )
+                    fields_failed.append(field_type)
+
+        # Refinement passes: cross-batch dedup, stops early when count stabilises (skip for errors)
+        refinement_passes = getattr(cfg.llm, "normalise_refinement_passes", 2)
+        if accepted is not None and len(accepted) > 1 and refinement_passes > 0 and field_type != "errors":
+            for pass_num in range(1, refinement_passes + 1):
+                prev_count = len(accepted)
                 print(
-                    f"  Repair {attempt}/{max_repairs} ({len(counterexamples or [])} violation(s))...",
+                    f"  refine {pass_num}/{refinement_passes} ({prev_count} entries)...",
                     file=sys.stderr,
                 )
-            try:
-                normalised = normalise_candidates(
-                    input_candidates, field_type, cfg.llm, counterexamples=counterexamples
-                )
-            except (LLMUnavailableError, LLMResponseError) as exc:
-                print(f"  Failed: {exc} — falling back to raw candidates", file=sys.stderr)
-                fields_failed.append(field_type)
-                break
+                try:
+                    refined = _normalise_in_batches(
+                        accepted, field_type, cfg.llm, batch_size=batch_size,
+                    )
+                except (LLMUnavailableError, LLMResponseError) as exc:
+                    print(f"    failed: {exc} — stopping refinement", file=sys.stderr)
+                    break
 
-            violations = _verify_field(field_type, input_candidates, normalised)
+                if _verify_field(field_type, accepted, refined):
+                    print("    failed verification — stopping refinement", file=sys.stderr)
+                    break
 
-            if not violations:
-                # RN-CEGIS-001: verifier passed
-                accepted = normalised
-                break
+                accepted = refined
+                print(f"    {prev_count} → {len(accepted)} entries", file=sys.stderr)
 
-            # RN-CEGIS-002: verifier failed — prepare counterexamples for repair
-            counterexamples = violations
-
-            if attempt == max_repairs:
-                # RN-CEGIS-003: exhausted — fall back to raw candidates
-                print(
-                    f"Warning: CEGIS exhausted for '{field_type}' after {max_repairs} repair "
-                    f"attempt{'s' if max_repairs != 1 else ''} — falling back to raw candidates",
-                    file=sys.stderr,
-                )
-                fields_failed.append(field_type)
+                if len(accepted) >= prev_count:
+                    print("    count stabilised — stopping early", file=sys.stderr)
+                    break
 
         # Build final entries dict
         out_file = f"{field_type}.yml"

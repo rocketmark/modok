@@ -40,6 +40,8 @@ class LLMConfig(BaseModel):
     timeout_seconds: int = 30
     timeout_propose_registry: int = 60
     cegis_max_repairs: int = 1
+    normalise_batch_size: int = 200
+    normalise_refinement_passes: int = 2
     backend: str = "local"
     local_endpoint: str = "http://localhost:11434"
     local_model: str = "llama3.2"

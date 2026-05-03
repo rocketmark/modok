@@ -41,6 +41,7 @@ Tests verify the diagnosis.
 - Given any customer issue (structured or freeform), return a debug packet that points the agent to the right docs, code, tests, known issues, and prior fixes in under 5 seconds.
 - Support multiple projects in a single MODOK instance from day one. Each project is a named, isolated namespace.
 - Mechanical ingestion: design docs, testing docs, known issues, code maps, and resolved tickets become trusted graph structure without LLM involvement in the write path.
+- Deterministic code extraction runs before doc ingestion. The repo is the first source of truth for what files, modules, and symbols exist. Docs make claims against that known code universe — they do not define it.
 - LLM-agnostic: any model (local or remote) can drive MODOK. Claude and GPT-4 are optional escalation targets, not hard dependencies.
 - Stagehand is the first target project. MODOK must be useful for tracking issues against specific code changes and faster diagnosis before the stream-mode work begins.
 
@@ -70,10 +71,25 @@ Tests verify the diagnosis.
           │                                │
           ▼                                ▼
 ┌──────────────────────┐        ┌──────────────────────┐
-│ Diagnostic Retrieval │        │ Ingestion Pipeline   │
-│ Engine               │        │                      │
-│ builds debug packets │        │ parse/validate/write │
+│ Diagnostic Retrieval │        │ 1. Code Map          │
+│ Engine               │        │    Extractor         │
+│ builds debug packets │        │    (deterministic)   │
 └──────────┬───────────┘        └──────────┬───────────┘
+           │                               │
+           │                               ▼
+           │                    ┌──────────────────────┐
+           │                    │ 2. Registry          │
+           │                    │    Validation        │
+           │                    └──────────┬───────────┘
+           │                               │
+           │                               ▼
+           │                    ┌──────────────────────┐
+           │                    │ 3. Doc / Ticket /    │
+           │                    │    Resolution        │
+           │                    │    Ingestion         │
+           │                    │    (validates vs     │
+           │                    │     code map)        │
+           └───────────────────►└──────────┬───────────┘
            │                               │
            │                               ▼
            │                    ┌──────────────────────┐
@@ -113,15 +129,17 @@ Read path assistance                       Write path assistance
 
 ### Major components
 
+**Code Map Extractor** — a deterministic, LLM-free command (`modok extract-code-map`) that walks the repo and extracts file facts: repo-relative path, SHA-256 hash, language, role (source / test / config / docs / generated / ignored), line count, and test-to-source coverage by mirrored path convention. For Python files, symbol and import facts are extracted via `ast` (classes, functions, methods, line ranges, imports). The output is `.modok/code-map.yml` — a sorted, stable YAML artifact. The same repo state always produces the same code map. `modok ingest-docs` auto-generates the code map if one does not exist. The code map is the foundation against which doc ingestion validates source file and module claims; it is not required for registry validation or ticket ingestion.
+
 **Demo UI** — a local-only web console for demonstrating MODOK's core workflow. A Next.js app (`ui/`) that presents a seeded customer ticket inbox, ticket detail view with notes, and a MODOK analysis panel. The UI calls `modok ingest` and `modok retrieve` via `child_process.spawn` from Next.js API routes. Ticket and note state persists in local JSON files under `ui/data/`. A top navigation bar provides MODOK branding and a freeform search that calls `modok search` with a project slug configured in `ui/config.json`. A mock mode (`MODOK_MOCK=1`) returns fixture debug packets when Quine is not running. The Demo UI is not a production surface — it has no auth, no database, and no deployment target. It exists to make MODOK's debug-packet workflow tangible to engineers and stakeholders.
 
 **CLI / MCP server** — two surfaces, one behavior. The CLI is the primary development interface and the MCP server exposes the same operations to agents. Both are thin entry points; logic lives in core.
 
 **LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates, (d) per-section registry enrichment and per-field normalisation during registry bootstrapping. It never writes to Quine directly.
 
-**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
+**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. Doc ingestion validates `source_files` and `test_files` frontmatter claims against the code map — a claimed file that is absent from the code map produces a warning (or error in `--strict` mode). LLM is invoked only when a doc is missing required metadata and a proposal is needed; the proposal is surfaced for human review before being written.
 
-**Registry Proposal Engine** — an LLM-assisted bootstrapping split across two CLI commands. `modok init --assisted` handles the enrichment pass: discovers all eligible docs, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway one at a time for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), prints a `N/total` progress counter to stderr per section, and writes raw candidates to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. `modok normalise --project <slug>` is then run separately: reads the raw files, normalises each field type independently (separate LLM call per field to keep context small), applies a CEGIS loop to verify no new concepts were introduced, and overwrites the final `features.yml`, `modules.yml`, and `errors.yml`. No Quine interaction in either pass — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
+**Registry Proposal Engine** — an LLM-assisted bootstrap tool, used when starting a project with no registry and no code map to derive one from. Not part of normal ingestion. Split across two CLI commands. `modok init --assisted` handles the enrichment pass: discovers all eligible docs, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway one at a time for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), prints a `N/total` progress counter to stderr per section, and writes raw candidates to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. `modok normalise --project <slug>` is then run separately: reads the raw files, normalises each field type independently (separate LLM call per field to keep context small), applies a CEGIS loop to verify no new concepts were introduced, and overwrites the final `features.yml`, `modules.yml`, and `errors.yml`. No Quine interaction in either pass — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
 
 **Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
 
@@ -205,7 +223,21 @@ The more docs the repo contains, the more accurate and complete the output. The 
 
 This is distinct from the `--fix` metadata proposal pass in `modok ingest`, which fills in missing frontmatter fields on individual docs after registries exist. The registry proposal pass runs first and is a prerequisite for ingestion.
 
-### 9. Python implementation
+### 9. Code extraction before doc ingestion (Option A)
+
+The repo is the primary source of truth for what files, modules, and symbols exist. Docs make claims against that known universe — they do not define it.
+
+`modok ingest-docs` requires a code map. If one does not exist it is generated automatically before ingestion proceeds (equivalent to running `modok extract-code-map` first). Passing `--no-code-map` skips generation and disables code-map validation for that run.
+
+Consequences:
+- A `source_files` claim in a doc frontmatter that is absent from the code map produces a warning by default and an error under `--strict`. This catches stale or mistyped file references.
+- A `module` claim that conflicts with the code map's registry-based mapping produces a warning.
+- Docs with no source file claims (HLDs, runbooks, conceptual docs) are unaffected — not every doc must reference code.
+- The Registry Proposal Engine (LLM-from-docs) is demoted to a one-time bootstrap hint for projects with no code map and no existing registry. It is not invoked during normal ingestion.
+
+The code map is language-agnostic at the file level and Python-specific at the symbol level (via `ast`). Tree-sitter for other languages is deferred.
+
+### 10. Python implementation
 
 Python is chosen for iteration speed, natural LLM SDK integration, and consistency with the stagehand codebase (the first target project). The modular layout (`modok.core`, `modok.quine`, `modok.ingestion`, `modok.mcp`, `modok.cli`) mirrors the logical component split and allows future replacement of performance-critical pieces without rewriting the whole system. `pydantic` v2 enforces schema correctness at runtime. `ruff` + `mypy` enforce style and types statically.
 

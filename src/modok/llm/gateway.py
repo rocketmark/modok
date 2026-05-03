@@ -342,15 +342,19 @@ def _ollama_enrich_call(
     model: str,
     timeout: float,
     num_ctx: int = 8192,
+    temperature: float | None = None,
 ) -> dict:
     """Sync Ollama native /api/chat call for section enrichment. Returns parsed JSON dict."""
+    options: dict = {"num_ctx": num_ctx}
+    if temperature is not None:
+        options["temperature"] = temperature
     body = {
         "model": model,
         "messages": messages,
         "stream": False,
         "think": False,
         "format": "json",
-        "options": {"num_ctx": num_ctx},
+        "options": options,
     }
     try:
         resp = httpx.post(
@@ -538,6 +542,7 @@ def normalise_candidates(
             model=model,
             timeout=timeout,
             num_ctx=131072,
+            temperature=0,
         )
 
     # Extract list from response

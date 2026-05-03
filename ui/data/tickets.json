@@ -1,5 +1,12 @@
 [
   {
+    "id": "TICKET-1777776031775",
+    "subject": "lighthouse disappears",
+    "content": "a lighthouse disappears from the client. i had 3 and now it just sees 2, but the 3rd is still on and active.",
+    "created_at": "2026-05-03T02:40:31.775Z",
+    "_uuid": "cb080066-f6ad-43c1-b532-0f5e69e61dd0"
+  },
+  {
     "id": "ACME-1842",
     "subject": "Checkout fails after retrying payment",
     "content": "When a user's initial payment attempt fails (e.g. insufficient funds), they retry with a different card. The checkout enters a retry loop and eventually fails with 'PaymentRetryError: max retries exceeded' even when the second card is valid. Customer reports this started after the v2.4.1 deploy on Jan 14.",

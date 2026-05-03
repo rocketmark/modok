@@ -8,6 +8,7 @@ import sys
 
 import click
 
+from modok.cli.commands.extract_code_map import extract_code_map_cmd
 from modok.cli.commands.init import init_cmd
 from modok.cli.commands.normalise import normalise_cmd
 from modok.cli.commands.ingest import ingest_cmd
@@ -67,6 +68,7 @@ def cli(ctx: click.Context, status: bool) -> None:
         click.echo(ctx.get_help())
 
 
+cli.add_command(extract_code_map_cmd, name="extract-code-map")
 cli.add_command(init_cmd, name="init")
 cli.add_command(normalise_cmd, name="normalise")
 cli.add_command(ingest_cmd, name="ingest")

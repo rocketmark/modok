@@ -51,16 +51,39 @@ class Registry:
             return []
         return list(entry.get("required_fields", []))
 
+    def source_files_for_feature(self, slug: str) -> list[str]:
+        entry = self._features.get(slug, {})
+        return entry.get("source_files", []) if isinstance(entry, dict) else []
+
+    def test_files_for_feature(self, slug: str) -> list[str]:
+        entry = self._features.get(slug, {})
+        return entry.get("test_files", []) if isinstance(entry, dict) else []
+
+    def specs_for_feature(self, slug: str) -> str | None:
+        entry = self._features.get(slug, {})
+        return entry.get("specs") if isinstance(entry, dict) else None
+
+    def features_for_source_file(self, repo_path: str) -> list[str]:
+        """Return feature slugs that list the given path in source_files."""
+        return [
+            slug for slug, entry in self._features.items()
+            if isinstance(entry, dict) and repo_path in entry.get("source_files", [])
+        ]
+
     def modules_covering_path(self, repo_path: str) -> list[str]:
-        """Return module slugs whose source_roots contain the given repo path."""
+        """Return module slugs whose source_roots or source_files cover the given path."""
         matches = []
         for slug, entry in self._modules.items():
             if not isinstance(entry, dict):
                 continue
-            for root in entry.get("source_roots", []):
-                if repo_path.startswith(root.rstrip("/") + "/") or repo_path == root:
-                    matches.append(slug)
-                    break
+            matched = any(
+                repo_path.startswith(root.rstrip("/") + "/") or repo_path == root
+                for root in entry.get("source_roots", [])
+            )
+            if not matched:
+                matched = repo_path in entry.get("source_files", [])
+            if matched:
+                matches.append(slug)
         return matches
 
     def features_for_module(self, module_slug: str) -> list[str]:

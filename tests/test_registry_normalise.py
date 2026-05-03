@@ -26,10 +26,17 @@ def write_file(path: Path, content: str) -> Path:
     return path
 
 
-def make_cfg(timeout_propose_registry=60, cegis_max_repairs=1):
+def make_cfg(
+    timeout_propose_registry=60,
+    cegis_max_repairs=1,
+    normalise_batch_size=10000,
+    normalise_refinement_passes=2,
+):
     cfg = MagicMock()
     cfg.llm.timeout_propose_registry = timeout_propose_registry
     cfg.llm.cegis_max_repairs = cegis_max_repairs
+    cfg.llm.normalise_batch_size = normalise_batch_size
+    cfg.llm.normalise_refinement_passes = normalise_refinement_passes
     return cfg
 
 
@@ -157,14 +164,14 @@ def test_normalise_makes_separate_call_per_field(tmp_path):
 
     assert "features" in call_args_list
     assert "modules" in call_args_list
-    assert "errors" in call_args_list
+    assert "errors" not in call_args_list  # errors skips LLM; slug dedup only
 
 
 # @spec RN-NORM-001
-def test_normalise_calls_gateway_exactly_once_per_field(tmp_path):
+def test_normalise_calls_gateway_at_most_once_per_field_plus_refinement(tmp_path):
     from modok.registry.normalise import normalise_registries
     write_raw_files(tmp_path / "registries")
-    cfg = make_cfg(cegis_max_repairs=0)  # no repairs — exactly one call per field
+    cfg = make_cfg(cegis_max_repairs=0)  # no repairs — 1 CEGIS call + 1 refinement per field
 
     field_call_counts: dict[str, int] = {}
 
@@ -175,9 +182,12 @@ def test_normalise_calls_gateway_exactly_once_per_field(tmp_path):
     with patch("modok.registry.normalise.normalise_candidates", side_effect=counting_norm):
         normalise_registries(tmp_path, cfg)
 
+    # Each field: 1 CEGIS attempt + at most 1 refinement pass = at most 2 total
+    max_repairs = 0
     for field_type in ("features", "modules", "errors"):
-        assert field_call_counts.get(field_type, 0) == 1, (
-            f"Expected exactly 1 call for '{field_type}', got {field_call_counts.get(field_type, 0)}"
+        count = field_call_counts.get(field_type, 0)
+        assert count <= max_repairs + 2, (
+            f"Expected at most {max_repairs + 2} calls for '{field_type}', got {count}"
         )
 
 
@@ -397,6 +407,8 @@ def test_normalise_cegis_default_max_repairs_is_1(tmp_path):
     write_raw_files(tmp_path / "registries")
     cfg = MagicMock()
     cfg.llm.timeout_propose_registry = 60
+    cfg.llm.normalise_batch_size = 10000
+    cfg.llm.normalise_refinement_passes = 2
     # No cegis_max_repairs set — should default to 1
     del cfg.llm.cegis_max_repairs
 
