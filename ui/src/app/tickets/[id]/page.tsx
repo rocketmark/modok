@@ -130,7 +130,7 @@ export default function TicketPage() {
         )}
       </div>
 
-      <div className="w-80 bg-white flex-shrink-0 border-l border-slate-200">
+      <div className="flex-1 bg-white min-w-0 border-l border-slate-200">
         <ModokPanel
           ticketId={ticketId}
           run={run}
