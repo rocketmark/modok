@@ -119,9 +119,28 @@ async def _traverse_feature_to_files(
     project_slug: str,
     client: QuineClient,
 ) -> list[str]:
+    """Return file paths for a feature slug or module slug.
+
+    Tries the slug as a Feature first. If no results, tries it as a Module slug
+    so that module-level anchors (e.g. 'lighthouse-ble') still resolve to files.
+    """
     rows = await client.query(
         "MATCH (f:Feature {project_slug: $project_slug, feature_slug: $feature_slug}) "
         "MATCH (f)-[:IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File) "
+        "RETURN file",
+        {"project_slug": project_slug, "feature_slug": feature_slug},
+    )
+    paths = [
+        row[0]["properties"]["repo_path"]
+        for row in rows
+        if row and row[0].get("properties", {}).get("repo_path")
+    ]
+    if paths:
+        return paths
+    # Fallback: treat slug as a Module slug
+    rows = await client.query(
+        "MATCH (m:Module {project_slug: $project_slug, module_slug: $feature_slug}) "
+        "MATCH (m)-[:DEFINED_IN]->(file:File) "
         "RETURN file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
@@ -206,6 +225,8 @@ async def retrieve(
     client: QuineClient,
     backend: str = "local",
     valid_slugs: list[str] | None = None,
+    feature_slugs: list[str] | None = None,
+    module_slugs: list[str] | None = None,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -240,7 +261,10 @@ async def retrieve(
                 f"CustomerIssue id={issue_id} has no graph anchors and no raw_text"
             )
         try:
-            parse_result = await gateway.parse_ticket(issue.raw_text, project_slug, backend=backend, valid_slugs=valid_slugs)
+            parse_result = await gateway.parse_ticket(
+            issue.raw_text, project_slug, backend=backend,
+            valid_slugs=valid_slugs, feature_slugs=feature_slugs, module_slugs=module_slugs,
+        )
         except LLMResponseError as exc:
             raise DREAnchorError(f"LLM anchor extraction failed: {exc}") from exc
         except LLMUnavailableError as exc:

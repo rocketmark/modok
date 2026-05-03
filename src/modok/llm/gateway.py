@@ -571,14 +571,19 @@ async def parse_ticket(
     project_slug: str,
     backend: str = "local",
     valid_slugs: list[str] | None = None,
+    feature_slugs: list[str] | None = None,
+    module_slugs: list[str] | None = None,
 ) -> TicketParseResult:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
-    slug_list = "\n".join(f"  - {s}" for s in (valid_slugs or [])) or "  (none registered)"
+    feature_slug_list = "\n".join(f"  - {s}" for s in (feature_slugs or [])) or "  (none registered)"
+    module_slug_list = "\n".join(f"  - {s}" for s in (module_slugs or [])) or "  (none registered)"
     messages = [
         {"role": "system", "content": prompts.PARSE_TICKET_SYSTEM.format(
-            project_slug=project_slug, slug_list=slug_list,
+            project_slug=project_slug,
+            feature_slug_list=feature_slug_list,
+            module_slug_list=module_slug_list,
         )},
         {"role": "user", "content": raw_text},
     ]

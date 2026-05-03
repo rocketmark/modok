@@ -164,6 +164,25 @@ class DummyQuine:
                             results.append(self._node_to_row(file_id, node))
         return results
 
+    def _dispatch_module_slug_to_files(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        project_slug = params.get("project_slug")
+        module_slug = params.get("feature_slug")  # engine reuses the same param name
+        mod_id = None
+        for node_id, node in self._nodes.items():
+            if (node.node_type == "Module" and node.module_slug == module_slug
+                    and (project_slug is None or node.project_slug == project_slug)):
+                mod_id = node_id
+                break
+        if mod_id is None:
+            return []
+        results = []
+        for (f, et, file_id) in self._edges:
+            if f == mod_id and et == "DEFINED_IN":
+                node = self._nodes.get(file_id)
+                if node is not None and node.node_type == "File":
+                    results.append(self._node_to_row(file_id, node))
+        return results
+
     def _dispatch_files_to_commits(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
         project_slug = params.get("project_slug")
         file_paths = set(params.get("file_paths", []))
@@ -249,6 +268,7 @@ class DummyQuine:
         ("AFFECTS]->(f:Feature",            "_dispatch_affects_feature"),
         ("HAS_ERROR]->(e:ErrorSignature",   "_dispatch_has_error_signature"),
         ("IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)", "_dispatch_feature_to_files"),
+        ("module_slug: $feature_slug",       "_dispatch_module_slug_to_files"),
         ("TOUCHES]->(f:File)",              "_dispatch_files_to_commits"),
         ("HAS_ERROR]-(ki:KnownIssue)",      "_dispatch_error_to_known_issues"),
         ("RESOLVED_BY]->(fix:Fix",          "_dispatch_ki_to_fixes"),

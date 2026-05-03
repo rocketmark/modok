@@ -6,21 +6,19 @@
       "issue_summary": "lighthouse disappears",
       "anchors": {
         "feature_slugs": [
-          "lighthouse_display"
+          "lighthouse-ble"
         ],
-        "error_signatures": [
-          "lighthouse disappears"
-        ],
+        "error_signatures": [],
         "symptoms": [
-          "A lighthouse disappears from the client view",
-          "Client only sees 2 lighthouses when 3 are present",
-          "User has to manually toggle the lighthouse off and on to resolve the display issue"
+          "A lighthouse disappears from the client GUI, even though it remains active.",
+          "The user has to toggle the lighthouse (turn it off and back on) to make the client recognize it."
         ]
       },
-      "anchor_count": 2,
+      "anchor_count": 1,
       "known_issues": [],
       "recent_fixes": [],
       "relevant_files": [],
+      "recent_commits": [],
       "evidence": [],
       "confidence": 0
     },

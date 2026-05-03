@@ -197,7 +197,8 @@ async def test_falls_back_to_llm_when_no_graph_anchors():
         mock_gw.parse_ticket = AsyncMock(return_value=make_ticket_parse_result())
         packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
         mock_gw.parse_ticket.assert_called_once_with(
-            "Tracker loses tracking", "stagehand", backend="local", valid_slugs=None
+            "Tracker loses tracking", "stagehand", backend="local",
+            valid_slugs=None, feature_slugs=[], module_slugs=None,
         )
         assert (
             "shtp-receiver" in packet.anchors.feature_slugs

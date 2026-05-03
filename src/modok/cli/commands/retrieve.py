@@ -46,8 +46,12 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
     repo_root = Path(proj.repo)
     try:
         registry = Registry(repo_root)
-        valid_slugs = registry.feature_slugs() + list(registry._modules.keys())
+        feature_slugs = registry.feature_slugs()
+        module_slugs = list(registry._modules.keys())
+        valid_slugs = feature_slugs + module_slugs
     except Exception:
+        feature_slugs = None
+        module_slugs = None
         valid_slugs = None
 
     client = QuineClient(base_url=config.quine.url)
@@ -70,7 +74,12 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         resolved_id = rows[0][0]
 
     try:
-        packet = asyncio.run(retrieve(resolved_id, project, client, valid_slugs=valid_slugs))
+        packet = asyncio.run(retrieve(
+            resolved_id, project, client,
+            valid_slugs=valid_slugs,
+            feature_slugs=feature_slugs,
+            module_slugs=module_slugs,
+        ))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")
     except (DREGraphUnavailableError, DRELLMUnavailableError):

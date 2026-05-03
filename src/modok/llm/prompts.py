@@ -4,11 +4,14 @@ PARSE_TICKET_SYSTEM = """\
 You are a diagnostic assistant for the {project_slug} software project.
 Given a raw customer issue report, extract structured information as JSON.
 
-The valid feature and module slugs for this project are:
-{slug_list}
+The valid feature slugs for this project are:
+{feature_slug_list}
+
+The valid module slugs for this project are:
+{module_slug_list}
 
 Return ONLY a JSON object with these fields:
-  feature_slug: one of the slugs above that best matches the issue, or null if none match
+  feature_slug: the feature slug that best matches the issue (prefer features over modules), or a module slug if a module is a better match, or null if none match
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)
   symptoms: list of strings describing observable symptoms
