@@ -32,6 +32,15 @@ class FileRef:
 
 
 @dataclass
+class CommitRef:
+    sha: str
+    message: str
+    author_name: str
+    timestamp: str
+    files_touched: list[str] = field(default_factory=list)
+
+
+@dataclass
 class EvidenceAnchor:
     anchor_type: str        # "feature" | "error_signature"
     anchor_value: str
@@ -46,5 +55,6 @@ class DebugPacket:
     known_issues: list[KnownIssueRef]
     recent_fixes: list[FixRef]
     relevant_files: list[FileRef]
+    recent_commits: list[CommitRef]
     evidence: list[EvidenceAnchor]
     confidence: float

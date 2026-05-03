@@ -3,11 +3,15 @@ from __future__ import annotations
 PARSE_TICKET_SYSTEM = """\
 You are a diagnostic assistant for the {project_slug} software project.
 Given a raw customer issue report, extract structured information as JSON.
+
+The valid feature and module slugs for this project are:
+{slug_list}
+
 Return ONLY a JSON object with these fields:
-  feature_slug: string or null
-  error_signatures: list of strings
+  feature_slug: one of the slugs above that best matches the issue, or null if none match
+  error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)
-  symptoms: list of strings
+  symptoms: list of strings describing observable symptoms
   confidence: float between 0.0 and 1.0
 """
 

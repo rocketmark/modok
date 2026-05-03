@@ -164,6 +164,30 @@ class DummyQuine:
                             results.append(self._node_to_row(file_id, node))
         return results
 
+    def _dispatch_files_to_commits(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        project_slug = params.get("project_slug")
+        file_paths = set(params.get("file_paths", []))
+        limit = params.get("limit", 10)
+        # Find File node IDs matching the given paths
+        file_ids = {
+            node_id
+            for node_id, node in self._nodes.items()
+            if node.node_type == "File" and node.repo_path in file_paths
+            and (project_slug is None or node.project_slug == project_slug)
+        }
+        # Find Commit nodes that TOUCH any of those files
+        seen_commits: set = set()
+        results = []
+        for (from_id, edge_type, to_id) in self._edges:
+            if edge_type == "TOUCHES" and to_id in file_ids and from_id not in seen_commits:
+                node = self._nodes.get(from_id)
+                if node is not None and node.node_type == "Commit":
+                    seen_commits.add(from_id)
+                    results.append(self._node_to_row(from_id, node))
+        # Sort by timestamp descending (lexicographic on ISO-8601 is correct)
+        results.sort(key=lambda r: r[0]["properties"].get("timestamp", ""), reverse=True)
+        return results[:limit]
+
     # @spec DQ-QD-004
     def _dispatch_error_to_known_issues(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
         project_slug = params.get("project_slug")
@@ -225,6 +249,7 @@ class DummyQuine:
         ("AFFECTS]->(f:Feature",            "_dispatch_affects_feature"),
         ("HAS_ERROR]->(e:ErrorSignature",   "_dispatch_has_error_signature"),
         ("IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)", "_dispatch_feature_to_files"),
+        ("TOUCHES]->(f:File)",              "_dispatch_files_to_commits"),
         ("HAS_ERROR]-(ki:KnownIssue)",      "_dispatch_error_to_known_issues"),
         ("RESOLVED_BY]->(fix:Fix",          "_dispatch_ki_to_fixes"),
         ("HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue",

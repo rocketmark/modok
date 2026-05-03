@@ -446,6 +446,7 @@ def test_assert_packets_equivalent_passes_when_ids_match():
             known_issues=[KnownIssueRef(k, "", "", 1) for k in ki_ids],
             recent_fixes=[FixRef(f, "", "", 1) for f in fix_ids],
             relevant_files=[FileRef(p, 1) for p in paths],
+            recent_commits=[],
             evidence=[],
             confidence=0.0,
         )
@@ -465,6 +466,7 @@ def test_assert_packets_equivalent_fails_when_ki_missing():
             known_issues=[KnownIssueRef(k, "", "", 1) for k in ki_ids],
             recent_fixes=[],
             relevant_files=[],
+            recent_commits=[],
             evidence=[],
             confidence=0.0,
         )

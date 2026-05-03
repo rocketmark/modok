@@ -10,6 +10,7 @@ import json
 import click
 
 from modok.cli.config import ModokConfig
+from modok.ingestion.registry import Registry
 from modok.quine.client import QuineClient
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import (
@@ -39,7 +40,15 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         raise click.ClickException("--source and --ticket must both be supplied together.")
 
     config = ModokConfig.load()
-    config.project(project)  # validates slug; raises ClickException if unknown
+    proj = config.project(project)  # validates slug; raises ClickException if unknown
+
+    from pathlib import Path
+    repo_root = Path(proj.repo)
+    try:
+        registry = Registry(repo_root)
+        valid_slugs = registry.feature_slugs() + list(registry._modules.keys())
+    except Exception:
+        valid_slugs = None
 
     client = QuineClient(base_url=config.quine.url)
     if not asyncio.run(client.ping()):
@@ -61,7 +70,7 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         resolved_id = rows[0][0]
 
     try:
-        packet = asyncio.run(retrieve(resolved_id, project, client))
+        packet = asyncio.run(retrieve(resolved_id, project, client, valid_slugs=valid_slugs))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")
     except (DREGraphUnavailableError, DRELLMUnavailableError):

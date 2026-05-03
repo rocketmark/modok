@@ -188,6 +188,7 @@ class ReferenceModok:
             known_issues=known_issues,
             recent_fixes=recent_fixes,
             relevant_files=relevant_files,
+            recent_commits=[],
             evidence=evidence,
             confidence=confidence,
         )

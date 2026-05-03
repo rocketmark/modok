@@ -21,6 +21,7 @@ def _empty_packet(summary: str) -> DebugPacket:
         known_issues=[],
         recent_fixes=[],
         relevant_files=[],
+        recent_commits=[],
         evidence=[],
         confidence=0.0,
     )

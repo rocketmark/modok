@@ -75,6 +75,7 @@ def make_debug_packet() -> DebugPacket:
         known_issues=[KnownIssueRef("KI-001", "SHTP version mismatch", "open", 1)],
         recent_fixes=[FixRef("FIX-001", "Upgrade to SHTP v2", "patch", 1)],
         relevant_files=[FileRef("agent/src/shtp.c", 1)],
+        recent_commits=[],
         evidence=[EvidenceAnchor("feature", "shtp-receiver", ["agent/src/shtp.c"])],
         confidence=1.0,
     )
@@ -462,27 +463,28 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
 def test_retrieve_source_ticket_computes_idfrom(tmp_path):
     from click.testing import CliRunner
     from modok.cli.main import cli
-    from modok.quine.ids import idFrom
 
     config_path = write_config(tmp_path / "config.toml")
     runner = CliRunner(mix_stderr=False)
     captured_node_ids: list = []
+    fake_quine_id = "quine-node-99"
 
     async def fake_retrieve(node_id, project_slug, client, **kwargs):
         captured_node_ids.append(node_id)
         return make_debug_packet()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                mock_cls.return_value.query = AsyncMock(return_value=[[fake_quine_id]])
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
+                    runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--source", "zendesk", "--ticket", "1842",
+                    ])
 
-    expected_id = idFrom("customer-issue", "stagehand", "zendesk", "1842")
-    assert captured_node_ids == [expected_id]
+    assert captured_node_ids == [fake_quine_id]
 
 
 # @spec CLI-RET-002
@@ -499,15 +501,16 @@ def test_retrieve_node_id_calls_retrieve_directly(tmp_path):
         return make_debug_packet()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--node-id", "12345",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
+                    runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--node-id", "12345",
+                    ])
 
-    assert captured_node_ids == [12345]
+    assert captured_node_ids == ["12345"]
 
 
 # @spec CLI-RET-003
@@ -586,13 +589,15 @@ def test_retrieve_not_found_exits_1_with_message(tmp_path):
         raise DRENotFoundError("not found")
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_not_found):
-                result = runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_not_found):
+                    result = runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--source", "zendesk", "--ticket", "1842",
+                    ])
 
     assert result.exit_code == 1
     output = result.output + (result.stderr or "")
@@ -612,13 +617,15 @@ def test_retrieve_graph_unavailable_exits_2(tmp_path):
         raise DREGraphUnavailableError("quine down")
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_graph_unavailable):
-                result = runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_graph_unavailable):
+                    result = runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--source", "zendesk", "--ticket", "1842",
+                    ])
 
     assert result.exit_code == 2
 
@@ -635,13 +642,15 @@ def test_retrieve_llm_unavailable_exits_2(tmp_path):
         raise DRELLMUnavailableError("llm down")
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_llm_unavailable):
-                result = runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_llm_unavailable):
+                    result = runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--source", "zendesk", "--ticket", "1842",
+                    ])
 
     assert result.exit_code == 2
 
@@ -659,13 +668,15 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
         return packet
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                result = runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
-                ])
+        with patch("modok.cli.commands.retrieve.Registry"):
+            with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
+                mock_cls.return_value.ping = AsyncMock(return_value=True)
+                mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
+                with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
+                    result = runner.invoke(cli, [
+                        "retrieve", "--project", "stagehand",
+                        "--source", "zendesk", "--ticket", "1842",
+                    ])
 
     assert result.exit_code == 0
     parsed = json.loads(result.output)

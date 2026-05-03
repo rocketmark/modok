@@ -15,6 +15,7 @@ from modok.retrieval.errors import (
 )
 from modok.retrieval.models import (
     AnchorSet,
+    CommitRef,
     DebugPacket,
     EvidenceAnchor,
     FileRef,
@@ -83,6 +84,35 @@ async def _graph_anchors(
 # ---------------------------------------------------------------------------
 # Graph traversals
 # ---------------------------------------------------------------------------
+
+async def _traverse_files_to_recent_commits(
+    file_paths: list[str],
+    project_slug: str,
+    client: QuineClient,
+    limit: int = 10,
+) -> list[dict]:
+    """Return up to `limit` most recent commits touching any of the given files."""
+    if not file_paths:
+        return []
+    rows = await client.query(
+        "MATCH (c:Commit {project_slug: $project_slug})-[:TOUCHES]->(f:File) "
+        "WHERE f.repo_path IN $file_paths "
+        "RETURN DISTINCT c ORDER BY c.timestamp DESC LIMIT $limit",
+        {"project_slug": project_slug, "file_paths": file_paths, "limit": limit},
+    )
+    commits = []
+    seen: set[str] = set()
+    for row in rows:
+        if not row or not row[0].get("properties", {}).get("sha"):
+            continue
+        props = row[0]["properties"]
+        sha = props["sha"]
+        if sha in seen:
+            continue
+        seen.add(sha)
+        commits.append(props)
+    return commits
+
 
 async def _traverse_feature_to_files(
     feature_slug: str,
@@ -175,6 +205,7 @@ async def retrieve(
     project_slug: str,
     client: QuineClient,
     backend: str = "local",
+    valid_slugs: list[str] | None = None,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -209,7 +240,7 @@ async def retrieve(
                 f"CustomerIssue id={issue_id} has no graph anchors and no raw_text"
             )
         try:
-            parse_result = await gateway.parse_ticket(issue.raw_text, project_slug, backend=backend)
+            parse_result = await gateway.parse_ticket(issue.raw_text, project_slug, backend=backend, valid_slugs=valid_slugs)
         except LLMResponseError as exc:
             raise DREAnchorError(f"LLM anchor extraction failed: {exc}") from exc
         except LLMUnavailableError as exc:
@@ -346,6 +377,18 @@ async def retrieve(
         for item in file_items
     ]
 
+    file_paths = [f.repo_path for f in relevant_files]
+    raw_commits = await _traverse_files_to_recent_commits(file_paths, project_slug, client)
+    recent_commits = [
+        CommitRef(
+            sha=c.get("sha", ""),
+            message=c.get("message", ""),
+            author_name=c.get("author_name", ""),
+            timestamp=c.get("timestamp", ""),
+        )
+        for c in raw_commits
+    ]
+
     return DebugPacket(
         issue_summary=issue.summary,
         anchors=anchors,
@@ -353,6 +396,7 @@ async def retrieve(
         known_issues=known_issues,
         recent_fixes=recent_fixes,
         relevant_files=relevant_files,
+        recent_commits=recent_commits,
         evidence=evidence,
         confidence=confidence,
     )

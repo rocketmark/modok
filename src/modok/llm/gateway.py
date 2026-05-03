@@ -570,12 +570,16 @@ async def parse_ticket(
     raw_text: str,
     project_slug: str,
     backend: str = "local",
+    valid_slugs: list[str] | None = None,
 ) -> TicketParseResult:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
+    slug_list = "\n".join(f"  - {s}" for s in (valid_slugs or [])) or "  (none registered)"
     messages = [
-        {"role": "system", "content": prompts.PARSE_TICKET_SYSTEM.format(project_slug=project_slug)},
+        {"role": "system", "content": prompts.PARSE_TICKET_SYSTEM.format(
+            project_slug=project_slug, slug_list=slug_list,
+        )},
         {"role": "user", "content": raw_text},
     ]
     response_format = {"type": "json_object"}
@@ -608,7 +612,10 @@ async def parse_ticket(
             max_retries=max_retries,
             native_ollama=True,
         )
-    return _parse_and_validate(raw, _validate_ticket)
+    result = _parse_and_validate(raw, _validate_ticket)
+    if result.feature_slug and valid_slugs and result.feature_slug not in valid_slugs:
+        result.feature_slug = None
+    return result
 
 
 async def propose_metadata(
