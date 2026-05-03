@@ -336,6 +336,16 @@ modok ingest-git --project stagehand
 
 Imports commits that touch registered source files and docs as `Commit` nodes in the graph, with `TOUCHES` edges to the relevant `File` nodes. By default imports the last 6 months / 500 commits. Use `--full` for an initial bootstrap of the full history, or `--since 2025-01-01` to import from a specific date. Subsequent runs are incremental — only commits since the last run are imported.
 
+**Extract module code identifiers:**
+
+```bash
+modok ingest-elements --project stagehand
+```
+
+Reads each module's source files from the registry and extracts code identifiers — class names, method names, signal names — using AST parsing for Python and regex for C/C++. Writes the result to `registries/elements.yml`. These identifiers are forwarded to the LLM during `modok retrieve` so it can match ticket language to module slugs even when the ticket doesn't use the exact module name (e.g. "reinit button" → module containing `reinit_requested`).
+
+Re-run this any time module source files are added, removed, or substantially renamed. Does not require Quine to be running.
+
 ---
 
 ## Step 13 — Verify the graph
@@ -415,7 +425,7 @@ launchctl unload ~/Library/LaunchAgents/io.modok.quine.plist  # stops and disabl
 | Location | Contents |
 |---|---|
 | `~/github/modok/` | MODOK source code, tests, LID docs |
-| `~/github/stagehand/registries/` | Feature, module, error registries (version-controlled in stagehand repo) |
+| `~/github/stagehand/registries/` | Feature, module, error registries and `elements.yml` (version-controlled in stagehand repo) |
 | `~/github/stagehand/.modok/code-map.yml` | Per-project code map — files, roles, symbols, hashes (local, gitignored) |
 | `~/.modok/config.toml` | MODOK runtime config — Quine URL, project repo paths, LLM config |
 | `~/.modok/quine.conf` | Quine HOCON config |
