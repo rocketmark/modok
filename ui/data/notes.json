@@ -5,5 +5,12 @@
     "author": "Demo User",
     "body": "i have to turn off the lighthouse and turn it back on",
     "created_at": "2026-05-03T02:41:11.622Z"
+  },
+  {
+    "id": "0bd00af7-5eaa-4689-9dd3-5f8a1845bfe0",
+    "ticket_id": "STAGEHAND-11",
+    "author": "Demo User",
+    "body": "Click the reinit button in the client",
+    "created_at": "2026-05-03T21:11:11.831Z"
   }
 ]

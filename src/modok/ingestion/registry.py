@@ -25,6 +25,7 @@ class Registry:
         self._modules: dict = self._load(reg_dir / "modules.yml").get("modules", {}) or {}
         self._errors: dict = self._load_optional(reg_dir / "errors.yml").get("errors", {}) or {}
         self._doc_types: dict = self._load_optional(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
+        self._elements: dict[str, list[str]] = self._load_optional(reg_dir / "elements.yml").get("elements", {}) or {}
 
     @staticmethod
     def _load(path: Path) -> dict:
@@ -43,6 +44,21 @@ class Registry:
 
     def feature_slugs(self) -> list[str]:
         return list(self._features.keys())
+
+    def feature_descriptions(self) -> dict[str, str]:
+        return {slug: entry.get("description", "") for slug, entry in self._features.items()}
+
+    def module_slugs(self) -> list[str]:
+        return list(self._modules.keys())
+
+    def module_descriptions(self) -> dict[str, str]:
+        return {slug: entry.get("description", "") for slug, entry in self._modules.items()}
+
+    def module_elements(self) -> dict[str, list[str]]:
+        return dict(self._elements)
+
+    def all_module_source_files(self) -> dict[str, list[str]]:
+        return {slug: entry.get("source_files", []) for slug, entry in self._modules.items()}
 
     def has_module(self, slug: str) -> bool:
         return slug in self._modules

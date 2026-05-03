@@ -94,61 +94,71 @@ async def _traverse_files_to_recent_commits(
     """Return up to `limit` most recent commits touching any of the given files."""
     if not file_paths:
         return []
-    rows = await client.query(
-        "MATCH (c:Commit {project_slug: $project_slug})-[:TOUCHES]->(f:File) "
-        "WHERE f.repo_path IN $file_paths "
-        "RETURN DISTINCT c ORDER BY c.timestamp DESC LIMIT $limit",
-        {"project_slug": project_slug, "file_paths": file_paths, "limit": limit},
-    )
-    commits = []
-    seen: set[str] = set()
-    for row in rows:
-        if not row or not row[0].get("properties", {}).get("sha"):
-            continue
-        props = row[0]["properties"]
-        sha = props["sha"]
-        if sha in seen:
-            continue
-        seen.add(sha)
-        commits.append(props)
-    return commits
+    # sha → commit props dict; we accumulate files_touched across per-file queries
+    seen: dict[str, dict] = {}
+    for file_path in file_paths:
+        rows = await client.query(
+            "MATCH (f) WHERE id(f) = idFrom('file', $project_slug, $file_path) "
+            "OPTIONAL MATCH (c)-[:TOUCHES]->(f) "
+            "RETURN f, c",
+            {"project_slug": project_slug, "file_path": file_path},
+        )
+        for row in rows:
+            if len(row) < 2 or not row[1] or not isinstance(row[1], dict):
+                continue
+            props = row[1].get("properties", {})
+            sha = props.get("sha")
+            if not sha or props.get("project_slug") != project_slug:
+                continue
+            if sha not in seen:
+                seen[sha] = dict(props)
+                seen[sha]["files_touched"] = []
+            if file_path not in seen[sha]["files_touched"]:
+                seen[sha]["files_touched"].append(file_path)
+    all_commits = list(seen.values())
+    all_commits.sort(key=lambda c: c.get("timestamp", ""), reverse=True)
+    return all_commits[:limit]
 
 
 async def _traverse_feature_to_files(
     feature_slug: str,
     project_slug: str,
     client: QuineClient,
-) -> list[str]:
-    """Return file paths for a feature slug or module slug.
+) -> tuple[list[str], str]:
+    """Return (file_paths, resolved_as) where resolved_as is 'feature' or 'module'.
 
     Tries the slug as a Feature first. If no results, tries it as a Module slug
     so that module-level anchors (e.g. 'lighthouse-ble') still resolve to files.
     """
     rows = await client.query(
-        "MATCH (f:Feature {project_slug: $project_slug, feature_slug: $feature_slug}) "
-        "MATCH (f)-[:IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File) "
-        "RETURN file",
+        "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
+        "OPTIONAL MATCH (f)-[:IMPLEMENTED_BY]->(m) "
+        "OPTIONAL MATCH (m)-[:DEFINED_IN]->(file) "
+        "RETURN f, m, file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
     paths = [
-        row[0]["properties"]["repo_path"]
+        row[2]["properties"]["repo_path"]
         for row in rows
-        if row and row[0].get("properties", {}).get("repo_path")
+        if len(row) > 2 and row[2] and isinstance(row[2], dict)
+        and row[2].get("properties", {}).get("repo_path")
     ]
     if paths:
-        return paths
-    # Fallback: treat slug as a Module slug
+        return paths, "feature"
+    # Fallback: treat slug as a Module slug (same query pattern as modok recall)
     rows = await client.query(
-        "MATCH (m:Module {project_slug: $project_slug, module_slug: $feature_slug}) "
-        "MATCH (m)-[:DEFINED_IN]->(file:File) "
-        "RETURN file",
+        "MATCH (m) WHERE id(m) = idFrom('module', $project_slug, $feature_slug) "
+        "OPTIONAL MATCH (m)-[:DEFINED_IN]->(file) "
+        "RETURN m, file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    return [
-        row[0]["properties"]["repo_path"]
+    module_paths = [
+        row[1]["properties"]["repo_path"]
         for row in rows
-        if row and row[0].get("properties", {}).get("repo_path")
+        if len(row) > 1 and row[1] and isinstance(row[1], dict)
+        and row[1].get("properties", {}).get("repo_path")
     ]
+    return module_paths, "module"
 
 
 async def _traverse_error_to_known_issues(
@@ -227,6 +237,9 @@ async def retrieve(
     valid_slugs: list[str] | None = None,
     feature_slugs: list[str] | None = None,
     module_slugs: list[str] | None = None,
+    feature_descriptions: dict[str, str] | None = None,
+    module_descriptions: dict[str, str] | None = None,
+    module_elements: dict[str, list[str]] | None = None,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -262,9 +275,11 @@ async def retrieve(
             )
         try:
             parse_result = await gateway.parse_ticket(
-            issue.raw_text, project_slug, backend=backend,
-            valid_slugs=valid_slugs, feature_slugs=feature_slugs, module_slugs=module_slugs,
-        )
+                issue.raw_text, project_slug, backend=backend,
+                valid_slugs=valid_slugs, feature_slugs=feature_slugs, module_slugs=module_slugs,
+                feature_descriptions=feature_descriptions, module_descriptions=module_descriptions,
+                module_elements=module_elements,
+            )
         except LLMResponseError as exc:
             raise DREAnchorError(f"LLM anchor extraction failed: {exc}") from exc
         except LLMUnavailableError as exc:
@@ -281,11 +296,6 @@ async def retrieve(
             )
 
     anchor_count = len(feature_slugs) + len(error_sigs)
-    anchors = AnchorSet(
-        feature_slugs=feature_slugs,
-        error_signatures=error_sigs,
-        symptoms=symptoms,
-    )
 
     # Accumulators: keyed by logical ID string
     ki_counts: dict[str, int] = {}           # known_issue_id → match_count
@@ -294,11 +304,12 @@ async def retrieve(
     fix_meta: dict[str, dict[str, str]] = {} # fix_id → props
     file_counts: dict[str, int] = {}         # repo_path → match_count
     evidence: list[EvidenceAnchor] = []
+    resolved_module_slugs: list[str] = []    # slugs that resolved via Module fallback
 
     # @spec DRE-TRAV-001
     for slug in feature_slugs:
         try:
-            paths = await _traverse_feature_to_files(slug, project_slug, client)
+            paths, resolved_as = await _traverse_feature_to_files(slug, project_slug, client)
         except Exception as exc:
             raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
         matched_ids = []
@@ -306,8 +317,10 @@ async def retrieve(
             _accumulate_match_count(file_counts, path, 1)
             matched_ids.append(path)
         if matched_ids:
+            if resolved_as == "module":
+                resolved_module_slugs.append(slug)
             evidence.append(EvidenceAnchor(
-                anchor_type="feature",
+                anchor_type=resolved_as,
                 anchor_value=slug,
                 matched_node_ids=matched_ids,
             ))
@@ -355,11 +368,21 @@ async def retrieve(
         _accumulate_match_count(ki_counts, ki_id, weight)
         ki_meta.setdefault(ki_id, props)
 
+    # Build AnchorSet: reclassify slugs that resolved via Module fallback
+    resolved_feature_slugs = [s for s in feature_slugs if s not in resolved_module_slugs]
+    anchors = AnchorSet(
+        feature_slugs=resolved_feature_slugs,
+        module_slugs=resolved_module_slugs,
+        error_signatures=error_sigs,
+        symptoms=symptoms,
+    )
+
     # Compute confidence
     # @spec DRE-CONF-001
     matched_anchors = 0
     for slug in feature_slugs:
-        if any(ev.anchor_type == "feature" and ev.anchor_value == slug for ev in evidence):
+        # slug may have resolved as "feature" or "module" — either counts as matched
+        if any(ev.anchor_value == slug and ev.anchor_type in ("feature", "module") for ev in evidence):
             matched_anchors += 1
     for err in error_sigs:
         if any(ev.anchor_type == "error_signature" and ev.anchor_value == err for ev in evidence):
@@ -410,6 +433,7 @@ async def retrieve(
             message=c.get("message", ""),
             author_name=c.get("author_name", ""),
             timestamp=c.get("timestamp", ""),
+            files_touched=c.get("files_touched", []),
         )
         for c in raw_commits
     ]

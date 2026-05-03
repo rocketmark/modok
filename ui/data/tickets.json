@@ -1,5 +1,11 @@
 [
   {
+    "id": "STAGEHAND-11",
+    "subject": "tracker won't reinitialize",
+    "content": "when i click the reinit button, the tracker doesn't reinitialize.",
+    "created_at": "2026-05-03T20:39:50.941Z"
+  },
+  {
     "id": "STAGEHAND-9",
     "subject": "Add arrows for unclaimed source files (UI, client utilities, agent C)",
     "content": "After running `modok import-arrow`, 57 source files have no arrow coverage. Three natural groupings need arrow docs:\n\n## 1. Client UI subsystem (`client/stagehand_client/ui/`)\n- `ui/app.py`\n- `ui/main_window.py`\n- `ui/device_card.py`\n- `ui/dialogs.py`\n- `ui/feature_flags.py`\n- `ui/lh_panel.py`\n- `ui/rec_panel.py`\n- `ui/stream_panel.py`\n- `ui/tc_card.py`\n- `ui/widgets.py`\n\n## 2. Client utilities (`client/stagehand_client/`)\n- `log_format.py`\n- `math_utils.py`\n- `paths.py`\n- `event_log.py`\n- `lighthouse_ble.py`\n- `__init__.py`, `__main__.py`\n- `shtp_listener.py`\n\n## 3. Additional agent C source (`agent/src/`)\nFiles not currently in the `pi-agent` arrow:\n- `encoder.c` / `encoder.h`\n- `event.c` / `event.h` / `event_props.c`\n- `tracker.c` / `tracker.h` / `tracker_age.h` / `tracker_age_race_tests.c`\n- `main_loop_bridge.c` / `main_loop_bridge.h`\n- `recovery_props.c`\n- `shtp.h` / `shtp_mem_tests.c` / `shtp_props.c`\n- `version.h`\n\nThese may extend the existing `pi-agent` arrow or warrant a separate arrow for the C test/property infrastructure.\n\n## Also unclaimed (scripts — may not need arrows)\n- `client/scripts/` — dev utility scripts (analyze_shtp, capture_shtp, ltc_diag, etc.)\n- `scripts/` — install/provisioning scripts (bootstrap, prepare-sdcard, setup.sh, etc.)\n- `testsupport/` — C build test support\n- `spec/run_baseline.sh`, `spec/run_mutation_tests.sh`",

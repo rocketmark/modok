@@ -199,6 +199,8 @@ async def test_falls_back_to_llm_when_no_graph_anchors():
         mock_gw.parse_ticket.assert_called_once_with(
             "Tracker loses tracking", "stagehand", backend="local",
             valid_slugs=None, feature_slugs=[], module_slugs=None,
+            feature_descriptions=None, module_descriptions=None,
+            module_elements=None,
         )
         assert (
             "shtp-receiver" in packet.anchors.feature_slugs
@@ -933,6 +935,7 @@ def _make_query_side_effect(
     affects_features: list[str] | None = None,
     has_errors: list[str] | None = None,
     feature_files: dict[str, list[str]] | None = None,
+    module_files: dict[str, list[str]] | None = None,
     error_known_issues: dict[str, list[tuple[str, str, str]]] | None = None,
     ki_fixes: dict[str, list[tuple[str, str, str]]] | None = None,
     similarity_matches: list[tuple[str, str]] | None = None,
@@ -944,6 +947,7 @@ def _make_query_side_effect(
     affects_features = affects_features or []
     has_errors = has_errors or []
     feature_files = feature_files or {}
+    module_files = module_files or {}
     error_known_issues = error_known_issues or {}
     ki_fixes = ki_fixes or {}
     similarity_matches = similarity_matches or []
@@ -983,11 +987,30 @@ def _make_query_side_effect(
                 for i, err in enumerate(has_errors)
             ]
 
+        if "idFrom('module'" in cypher:
+            slug = params.get("feature_slug", "")
+            files = module_files.get(slug, [])
+            mod_dict = {"id": 0, "properties": {
+                "module_slug": slug, "project_slug": proj, "node_type": "Module", "name": slug,
+            }}
+            return [
+                [mod_dict, {"id": i + 1, "properties": {
+                    "repo_path": path, "project_slug": proj, "node_type": "File",
+                }}]
+                for i, path in enumerate(files)
+            ]
+
         if "IMPLEMENTED_BY" in cypher:
             slug = params.get("feature_slug", "")
             files = feature_files.get(slug, [])
+            feat_dict = {"id": 0, "properties": {
+                "feature_slug": slug, "project_slug": proj, "node_type": "Feature", "name": slug,
+            }}
+            mod_dict = {"id": 1, "properties": {
+                "module_slug": slug, "project_slug": proj, "node_type": "Module", "name": slug,
+            }}
             return [
-                [{"id": i, "properties": {
+                [feat_dict, mod_dict, {"id": i + 2, "properties": {
                     "repo_path": path, "project_slug": proj, "node_type": "File",
                 }}]
                 for i, path in enumerate(files)

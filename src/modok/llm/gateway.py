@@ -573,12 +573,26 @@ async def parse_ticket(
     valid_slugs: list[str] | None = None,
     feature_slugs: list[str] | None = None,
     module_slugs: list[str] | None = None,
+    feature_descriptions: dict[str, str] | None = None,
+    module_descriptions: dict[str, str] | None = None,
+    module_elements: dict[str, list[str]] | None = None,
 ) -> TicketParseResult:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
-    feature_slug_list = "\n".join(f"  - {s}" for s in (feature_slugs or [])) or "  (none registered)"
-    module_slug_list = "\n".join(f"  - {s}" for s in (module_slugs or [])) or "  (none registered)"
+
+    def _fmt_feature(slug: str) -> str:
+        desc = (feature_descriptions or {}).get(slug, "")
+        return f"  - {slug}: {desc}" if desc else f"  - {slug}"
+
+    def _fmt_module(slug: str) -> str:
+        desc = (module_descriptions or {}).get(slug, "")
+        elems = (module_elements or {}).get(slug, [])
+        elems_str = f"; code: {', '.join(elems)}" if elems else ""
+        return f"  - {slug}: {desc}{elems_str}" if desc or elems_str else f"  - {slug}"
+
+    feature_slug_list = "\n".join(_fmt_feature(s) for s in (feature_slugs or [])) or "  (none registered)"
+    module_slug_list = "\n".join(_fmt_module(s) for s in (module_slugs or [])) or "  (none registered)"
     messages = [
         {"role": "system", "content": prompts.PARSE_TICKET_SYSTEM.format(
             project_slug=project_slug,

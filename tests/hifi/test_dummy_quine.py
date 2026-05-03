@@ -285,13 +285,15 @@ async def test_query_implemented_by_returns_file_rows():
     await dq.write_edge(mod_id, "DEFINED_IN", fil_id)
 
     rows = await dq.query(
-        "MATCH (f:Feature {project_slug: $project_slug, feature_slug: $feature_slug}) "
-        "MATCH (f)-[:IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File) "
-        "RETURN file",
+        "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
+        "OPTIONAL MATCH (f)-[:IMPLEMENTED_BY]->(m) "
+        "OPTIONAL MATCH (m)-[:DEFINED_IN]->(file) "
+        "RETURN f, m, file",
         {"project_slug": "stagehand", "feature_slug": "shtp"},
     )
     assert len(rows) == 1
-    assert rows[0][0]["properties"]["repo_path"] == "agent/src/shtp.c"
+    # Row format: [feature_dict, module_dict, file_dict]
+    assert rows[0][2]["properties"]["repo_path"] == "agent/src/shtp.c"
 
 
 # @spec DQ-QD-004

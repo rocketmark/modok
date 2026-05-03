@@ -154,14 +154,21 @@ class DummyQuine:
         if feat_id is None:
             return []
         # Feature -IMPLEMENTED_BY-> Module -DEFINED_IN-> File
+        # Return 3-column rows: [feature_dict, module_dict, file_dict] matching RETURN f, m, file
+        feat_node = self._nodes.get(feat_id)
         results = []
         for (f1, et1, mod_id) in self._edges:
             if f1 == feat_id and et1 == "IMPLEMENTED_BY":
+                mod_node = self._nodes.get(mod_id)
                 for (f2, et2, file_id) in self._edges:
                     if f2 == mod_id and et2 == "DEFINED_IN":
-                        node = self._nodes.get(file_id)
-                        if node is not None and node.node_type == "File":
-                            results.append(self._node_to_row(file_id, node))
+                        file_node = self._nodes.get(file_id)
+                        if file_node is not None and file_node.node_type == "File":
+                            results.append([
+                                self._node_to_row(feat_id, feat_node)[0],
+                                self._node_to_row(mod_id, mod_node)[0],
+                                self._node_to_row(file_id, file_node)[0],
+                            ])
         return results
 
     def _dispatch_module_slug_to_files(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -175,37 +182,45 @@ class DummyQuine:
                 break
         if mod_id is None:
             return []
+        # Return 2-column rows: [module_dict, file_dict] matching RETURN m, file
+        mod_node = self._nodes.get(mod_id)
         results = []
         for (f, et, file_id) in self._edges:
             if f == mod_id and et == "DEFINED_IN":
-                node = self._nodes.get(file_id)
-                if node is not None and node.node_type == "File":
-                    results.append(self._node_to_row(file_id, node))
+                file_node = self._nodes.get(file_id)
+                if file_node is not None and file_node.node_type == "File":
+                    results.append([
+                        self._node_to_row(mod_id, mod_node)[0],
+                        self._node_to_row(file_id, file_node)[0],
+                    ])
         return results
 
-    def _dispatch_files_to_commits(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+    def _dispatch_file_to_commits(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        """Per-file commit lookup using idFrom('file', ...) pattern. Returns [file_dict, commit_dict] rows."""
         project_slug = params.get("project_slug")
-        file_paths = set(params.get("file_paths", []))
-        limit = params.get("limit", 10)
-        # Find File node IDs matching the given paths
-        file_ids = {
-            node_id
-            for node_id, node in self._nodes.items()
-            if node.node_type == "File" and node.repo_path in file_paths
-            and (project_slug is None or node.project_slug == project_slug)
-        }
-        # Find Commit nodes that TOUCH any of those files
-        seen_commits: set = set()
+        file_path = params.get("file_path")
+        # Find the File node
+        file_id = None
+        file_node = None
+        for node_id, node in self._nodes.items():
+            if (node.node_type == "File" and node.repo_path == file_path
+                    and (project_slug is None or node.project_slug == project_slug)):
+                file_id = node_id
+                file_node = node
+                break
+        if file_id is None:
+            return []
+        # Find Commit nodes that TOUCH this file: Commit -TOUCHES-> File
         results = []
         for (from_id, edge_type, to_id) in self._edges:
-            if edge_type == "TOUCHES" and to_id in file_ids and from_id not in seen_commits:
-                node = self._nodes.get(from_id)
-                if node is not None and node.node_type == "Commit":
-                    seen_commits.add(from_id)
-                    results.append(self._node_to_row(from_id, node))
-        # Sort by timestamp descending (lexicographic on ISO-8601 is correct)
-        results.sort(key=lambda r: r[0]["properties"].get("timestamp", ""), reverse=True)
-        return results[:limit]
+            if edge_type == "TOUCHES" and to_id == file_id:
+                commit_node = self._nodes.get(from_id)
+                if commit_node is not None and commit_node.node_type == "Commit":
+                    results.append([
+                        self._node_to_row(file_id, file_node)[0],
+                        self._node_to_row(from_id, commit_node)[0],
+                    ])
+        return results
 
     # @spec DQ-QD-004
     def _dispatch_error_to_known_issues(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -268,8 +283,9 @@ class DummyQuine:
         ("AFFECTS]->(f:Feature",            "_dispatch_affects_feature"),
         ("HAS_ERROR]->(e:ErrorSignature",   "_dispatch_has_error_signature"),
         ("IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)", "_dispatch_feature_to_files"),
-        ("module_slug: $feature_slug",       "_dispatch_module_slug_to_files"),
-        ("TOUCHES]->(f:File)",              "_dispatch_files_to_commits"),
+        ("idFrom('feature'",                "_dispatch_feature_to_files"),
+        ("idFrom('module'",                 "_dispatch_module_slug_to_files"),
+        ("idFrom('file'",                   "_dispatch_file_to_commits"),
         ("HAS_ERROR]-(ki:KnownIssue)",      "_dispatch_error_to_known_issues"),
         ("RESOLVED_BY]->(fix:Fix",          "_dispatch_ki_to_fixes"),
         ("HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue",

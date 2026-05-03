@@ -46,3 +46,12 @@ def write_modules_raw_yml(path: Path, modules: dict) -> None:
 def write_errors_raw_yml(path: Path, errors: dict) -> None:
     """Write errors checkpoint. Same structure as errors.yml."""
     write_errors_yml(path, errors)
+
+
+def write_elements_yml(path: Path, elements: dict[str, list[str]]) -> None:
+    """Write elements registry. elements is {module_slug: [identifier, ...]}."""
+    data = {"elements": elements}
+    path.write_text(
+        yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )

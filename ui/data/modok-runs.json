@@ -1,26 +1,105 @@
 {
-  "STAGEHAND-10": {
-    "ticket_id": "STAGEHAND-10",
+  "STAGEHAND-11": {
+    "ticket_id": "STAGEHAND-11",
     "status": "complete",
     "debug_packet": {
-      "issue_summary": "lighthouse disappears",
+      "issue_summary": "tracker won't reinitialize",
       "anchors": {
-        "feature_slugs": [
-          "lighthouse-ble"
+        "feature_slugs": [],
+        "module_slugs": [
+          "device-card"
         ],
-        "error_signatures": [],
+        "error_signatures": [
+          "tracker doesn't reinitialize"
+        ],
         "symptoms": [
-          "A lighthouse disappears from the client GUI, even though it remains active.",
-          "The user has to toggle the lighthouse (turn it off and back on) to make the client recognize it."
+          "The tracker fails to reinitialize when the reinit button is clicked."
         ]
       },
-      "anchor_count": 1,
+      "anchor_count": 2,
       "known_issues": [],
       "recent_fixes": [],
-      "relevant_files": [],
-      "recent_commits": [],
-      "evidence": [],
-      "confidence": 0
+      "relevant_files": [
+        {
+          "repo_path": "client/stagehand_client/ui/device_card.py",
+          "match_count": 1
+        }
+      ],
+      "recent_commits": [
+        {
+          "sha": "b34e3825bc8a3b79aeb77a3adcc623b05b4e84fe",
+          "message": "fixed resizing issue - need to fix the disappearing seperator",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-27T20:31:46-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "32bbb66e203a79352bc321d999603a39e5d099bc",
+          "message": "Fix broken window width from SetFixedSize; fix card collapse correctly",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T17:14:54-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "c70eb951e453d2638104ca62bb68d44e20984d16",
+          "message": "Fix card collapse and taskbar icon properly",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T17:00:41-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "4b34193abc8660e323b38f1a17be8001194820a0",
+          "message": "Fix card collapse and taskbar icon",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T16:42:30-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "21f16f18b62d6585a7495c1c625d8594a8a66bca",
+          "message": "Fix five UI issues found in first live run",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T16:25:50-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "ecde869b0f4c20beca7fa08f883dda25a65f263b",
+          "message": "fixed lint error",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T16:12:34-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        },
+        {
+          "sha": "de912bfe9d4b1f10a2dce0bdac8dd6e42bb0729e",
+          "message": "first pass at rewriting tkinter client in pyside6",
+          "author_name": "Mark Stalzer",
+          "timestamp": "2026-04-24T16:08:52-04:00",
+          "files_touched": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "anchor_type": "module",
+          "anchor_value": "device-card",
+          "matched_node_ids": [
+            "client/stagehand_client/ui/device_card.py"
+          ]
+        }
+      ],
+      "confidence": 0.5
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",

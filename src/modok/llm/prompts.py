@@ -7,11 +7,19 @@ Given a raw customer issue report, extract structured information as JSON.
 The valid feature slugs for this project are:
 {feature_slug_list}
 
-The valid module slugs for this project are:
+The valid module slugs for this project are (each entry shows the module slug, its description,
+and key code identifiers from its source files after "code:"):
 {module_slug_list}
 
+Use the code identifiers to match ticket language to the right module even when the ticket
+does not use the exact module name. For example, a ticket mentioning "reinit button" should
+match a module whose code includes "reinit_requested" or "_reinit_device". A ticket about
+"BLE scanning" should match a module whose code includes BLE-related identifiers.
+
 Return ONLY a JSON object with these fields:
-  feature_slug: the feature slug that best matches the issue (prefer features over modules), or a module slug if a module is a better match, or null if none match
+  feature_slug: the single best-matching feature slug, or module slug if a module is a better
+    match (prefer the most specific match — module over feature when the issue is clearly
+    scoped to one module), or null if nothing matches
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)
   symptoms: list of strings describing observable symptoms

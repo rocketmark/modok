@@ -15,6 +15,7 @@ from modok.cli.commands.normalise import normalise_cmd
 from modok.cli.commands.ingest import ingest_cmd
 from modok.cli.commands.ingest_git import ingest_git_cmd
 from modok.cli.commands.ingest_github import ingest_github_cmd
+from modok.cli.commands.ingest_elements import ingest_elements_cmd
 from modok.cli.commands.retrieve import retrieve_cmd
 from modok.cli.commands.recall import recall_cmd
 from modok.cli.commands.search import search_cmd
@@ -78,6 +79,7 @@ cli.add_command(normalise_cmd, name="normalise")
 cli.add_command(ingest_cmd, name="ingest")
 cli.add_command(ingest_git_cmd, name="ingest-git")
 cli.add_command(ingest_github_cmd, name="ingest-github")
+cli.add_command(ingest_elements_cmd, name="ingest-elements")
 cli.add_command(retrieve_cmd, name="retrieve")
 cli.add_command(recall_cmd, name="recall")
 cli.add_command(search_cmd, name="search")

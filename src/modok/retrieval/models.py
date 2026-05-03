@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 @dataclass
 class AnchorSet:
     feature_slugs: list[str] = field(default_factory=list)
+    module_slugs: list[str] = field(default_factory=list)
     error_signatures: list[str] = field(default_factory=list)
     symptoms: list[str] = field(default_factory=list)
 
