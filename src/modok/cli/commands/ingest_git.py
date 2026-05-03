@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from modok.cli.config import ModokConfig
+from modok.ingestion.discovery import discover_docs
 from modok.ingestion.git_history import ingest_git
 from modok.ingestion.registry import Registry
 from modok.quine.client import QuineClient
@@ -52,6 +53,16 @@ def ingest_git_cmd(
 
     registry = Registry(repo_root)
 
+    try:
+        registered_docs, _, _ = discover_docs(repo_root, registry)
+        doc_paths = [
+            str(d.path.relative_to(repo_root))
+            for d in registered_docs
+            if d.path.is_relative_to(repo_root)
+        ]
+    except Exception:
+        doc_paths = []
+
     # Pass raw config dict for last_git_sha persistence
     config_dict = {"projects": [
         {"slug": p.slug, "repo": p.repo, "last_git_sha": getattr(p, "last_git_sha", None)}
@@ -67,5 +78,6 @@ def ingest_git_cmd(
         full=full,
         since_date=since_date,
         max_commits=max_commits,
+        doc_paths=doc_paths,
     ))
     click.echo(f"Git history ingested for project '{project}': {commit_count} commits written.")

@@ -107,12 +107,17 @@ def parse_commit_log(log_output: str) -> list[CommitRecord]:
 # Registered file set
 # ---------------------------------------------------------------------------
 
-def build_registered_file_set(features: dict, arrow_index: dict) -> frozenset[str]:
+def build_registered_file_set(
+    features: dict,
+    arrow_index: dict,
+    doc_paths: list[str] | None = None,
+) -> frozenset[str]:
     """Build the set of file paths that qualify for commit filter (SI-GIT-004).
 
     Includes:
     - source_files from every feature entry in features.yml
     - arrow_doc, lld, and specs paths from the arrow index
+    - registered doc file paths (passed from discover_docs at ingest-git time)
     """
     paths: set[str] = set()
 
@@ -129,6 +134,10 @@ def build_registered_file_set(features: dict, arrow_index: dict) -> frozenset[st
             p = arrow.get(key)
             if p:
                 paths.add(p)
+
+    for p in doc_paths or []:
+        if p:
+            paths.add(p)
 
     return frozenset(paths)
 
@@ -333,6 +342,7 @@ async def ingest_git(
     full: bool = False,
     since_date: str | None = None,
     max_commits: int = 500,
+    doc_paths: list[str] | None = None,
 ) -> None:
     """Import git commits touching registered files into Quine as Commit nodes."""
     # SI-GIT-010: --full and --since are mutually exclusive
@@ -350,7 +360,7 @@ async def ingest_git(
         import yaml
         arrow_index = yaml.safe_load(arrow_index_path.read_text()) or {}
 
-    registered_files = build_registered_file_set(features_raw, arrow_index)
+    registered_files = build_registered_file_set(features_raw, arrow_index, doc_paths=doc_paths)
 
     # Determine incremental SHA (SI-GIT-007)
     since_sha = load_last_git_sha(config, project_slug)

@@ -288,6 +288,27 @@ async def _write_nodes_and_edges(
             )
             ctx.edges_written += 1
 
+    # --- File node for the doc itself + DEFINED_IN edge from module ---
+    # Docs are files too: surface them in retrieval traversal and commit history.
+    if feature_slug:
+        doc_file_node = File(
+            node_type="File",
+            project_slug=project_slug,
+            repo_path=doc_path_str,
+        )
+        await client.upsert_node(doc_file_node)
+        ctx.nodes_written += 1
+        doc_mod_slugs = list(fm.get("modules", []))
+        if not doc_mod_slugs and registry is not None:
+            doc_mod_slugs = registry.modules_for_feature(feature_slug)
+        for mod_slug in doc_mod_slugs:
+            await client.write_edge_by_parts(
+                ("module", project_slug, mod_slug),
+                "DEFINED_IN",
+                ("file", project_slug, doc_path_str),
+            )
+            ctx.edges_written += 1
+
     # --- DocSection nodes + DESCRIBED_BY edges (SI-HEAD-001, SI-HEAD-002) ---
     if feature_slug:
         for heading_text, heading_slug, line_start, line_end in headings:

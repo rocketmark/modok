@@ -270,6 +270,16 @@ def test_build_registered_file_set_includes_arrow_doc_paths():
 
 
 # @spec SI-GIT-004
+def test_build_registered_file_set_includes_doc_paths():
+    features = {}
+    arrow_index = {"arrows": []}
+    doc_paths = ["docs/developer-guide.md", "docs/setup.md"]
+    file_set = build_registered_file_set(features, arrow_index, doc_paths=doc_paths)
+    assert "docs/developer-guide.md" in file_set
+    assert "docs/setup.md" in file_set
+
+
+# @spec SI-GIT-004
 def test_build_registered_file_set_excludes_unregistered_files():
     features = {"pi-agent": {"name": "Pi Agent", "product_area": "tracking", "source_files": ["agent/src/main.c"]}}
     arrow_index = {"arrows": []}

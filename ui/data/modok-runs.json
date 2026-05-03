@@ -1,140 +1,39 @@
 {
-  "STAGEHAND-10": {
-    "ticket_id": "STAGEHAND-10",
+  "STAGEHAND-2": {
+    "ticket_id": "STAGEHAND-2",
     "status": "complete",
     "debug_packet": {
-      "issue_summary": "lighthouse disappears",
+      "issue_summary": "agent: tracker_lost_logged never resets after tracking recovers",
       "anchors": {
         "feature_slugs": [],
-        "module_slugs": [
-          "lighthouse-ble"
-        ],
+        "module_slugs": [],
         "error_signatures": [
-          "lighthouse disappears",
-          "lighthouse sees 2 but there are 3"
+          "tracker_lost_logged never resets after tracking recovers"
         ],
         "symptoms": [
-          "One lighthouse disappears from the client view.",
-          "The user must toggle the lighthouse power (turn it off and on) to make it reappear."
+          "The 'no pose updates for 30s' warning will not fire for any subsequent dropout in the same agent lifetime after the initial warning."
         ]
       },
-      "anchor_count": 3,
+      "anchor_count": 1,
       "known_issues": [],
       "recent_fixes": [],
-      "relevant_files": [
-        {
-          "repo_path": "client/stagehand_client/lighthouse_ble.py",
-          "match_count": 1
-        }
-      ],
-      "recent_commits": [
-        {
-          "sha": "01a066cb44c4f236f80ea2fbb284d12ef4921434",
-          "message": "rolled back client diagnostics. issue was windows bluetooth problem, not our code",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-22T17:41:19-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "e9e940fd48af4fea95e58a114b461bcb37d57f98",
-          "message": "client debugging for windows",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-22T17:29:20-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "58cf9302901a4de15b61dc544101bd2474d3d60f",
-          "message": "cleaned up 6 and 7 on client cleanup",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-22T17:04:26-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "89078227f46f82811b7e6d17ff4077ddb0cfd2fe",
-          "message": "fixed bleak issue for blue tooth control of light houses that caused a client crash",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-04-08T10:48:44-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "e14263911cf6f23d7fb2d745a191d73fe5b64019",
-          "message": "bug fix for lighthouse rescan",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-24T11:02:59-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "ebae9d93945b26cd48f558a0168ca6507d0e9d83",
-          "message": "fixed a test",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-16T15:51:05-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "6f680061c3f986f7bd4ca2fe1f023d5858c9dc52",
-          "message": "fixed test failures",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-16T15:29:14-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "7b7bf963e4c036b7570443af15d824bd486b23e3",
-          "message": "fixed lighthouse timeout issue",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-16T15:10:20-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "6a531337bd261b621504c9dc19d62c408502342f",
-          "message": "fix ruff format: wrap long ternary in mode notify fallback",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-13T17:46:44-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        },
-        {
-          "sha": "1e1d227c8a1bcf75fe7deacf44a634b3de71603b",
-          "message": "fix ruff format: two blank lines before top-level function",
-          "author_name": "Mark Stalzer",
-          "timestamp": "2026-03-13T17:44:22-04:00",
-          "files_touched": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        }
-      ],
-      "evidence": [
-        {
-          "anchor_type": "module",
-          "anchor_value": "lighthouse-ble",
-          "matched_node_ids": [
-            "client/stagehand_client/lighthouse_ble.py"
-          ]
-        }
-      ],
-      "confidence": 0.3333333333333333,
-      "summary": "Start by investigating `client/stagehand_client/lighthouse_ble.py`. The component seems to lose visibility of one connected lighthouse, requiring a power cycle on the client to resolve. Check recent commits, specifically around 2026-04-08, as they touched Bluetooth control, though the last changes were on 2026-04-22."
+      "relevant_files": [],
+      "recent_commits": [],
+      "evidence": [],
+      "confidence": 0,
+      "summary": "Examine `agent/src/main.c` as `tracker_lost_logged` is not being reset upon reacquiring tracking after a loss period. Currently, the reset only occurs when `announced` is false (first acquisition). Review the logic to ensure `tracker_lost_logged` is cleared any time a pose is successfully acquired while the system was previously marked as lost."
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",
     "ingest_partial": false,
     "retrieve_exit_code": 0,
     "retrieve_stderr": ""
+  },
+  "STAGEHAND-9": {
+    "ticket_id": "STAGEHAND-9",
+    "status": "failed",
+    "error": "issue_not_found",
+    "retrieve_exit_code": 1,
+    "retrieve_stderr": "Traceback (most recent call last):\n  File \"/opt/homebrew/anaconda3/bin/modok\", line 8, in <module>\n    sys.exit(cli())\n             ~~~^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/site-packages/click/core.py\", line 1161, in __call__\n    return self.main(*args, **kwargs)\n           ~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/site-packages/click/core.py\", line 1082, in main\n    rv = self.invoke(ctx)\n  File \"/opt/homebrew/anaconda3/lib/python3.13/site-packages/click/core.py\", line 1697, in invoke\n    return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/site-packages/click/core.py\", line 1443, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/site-packages/click/core.py\", line 788, in invoke\n    return __callback(*args, **kwargs)\n  File \"/Users/markstalzer/github/modok/src/modok/cli/commands/retrieve.py\", line 83, in retrieve_cmd\n    packet = asyncio.run(retrieve(\n        resolved_id, project, client,\n    ...<5 lines>...\n        module_elements=module_elements,\n    ))\n  File \"/opt/homebrew/anaconda3/lib/python3.13/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/anaconda3/lib/python3.13/asyncio/base_events.py\", line 725, in run_until_complete\n    return future.result()\n           ~~~~~~~~~~~~~^^\n  File \"/Users/markstalzer/github/modok/src/modok/retrieval/engine.py\", line 294, in retrieve\n    raise DREAnchorError(\n        f\"CustomerIssue id={issue_id}: LLM returned no anchor instances\"\n    )\nmodok.retrieval.errors.DREAnchorError: CustomerIssue id=64cea623-7829-315d-a9c8-f95d5a92a1ee: LLM returned no anchor instances\n"
   }
 }
