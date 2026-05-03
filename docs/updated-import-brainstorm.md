@@ -143,7 +143,50 @@ for a, b in combinations(file_sets, 2):
 
 ### Merge (one LLM call per flagged pair)
 
-Input: two slugs + their descriptions. Question: "which label is more user-facing?" Output: keep one slug, discard the other. Low stakes, single call per pair.
+Identical file sets is a necessary condition for duplication, not sufficient. Two candidates sharing the same files might be:
+
+- **True duplicates** — same concept, named differently by two sources (`fbx-writer` from filename + `fbx-export` from arrow doc → same thing, merge)
+- **Coincidental** — genuinely different conceptual views of the same code (`converter` and `orchestrator` both claiming `converter.py` → different concepts, flag for human review)
+
+The LLM call therefore has two sequential questions:
+1. "Are these the same concept, or do they represent different views of this code?" — if no, emit a `CONFLICT` flag and stop; do not merge
+2. If same concept: "Which label is more user-facing?" — emit the winning slug and a merged description if neither is perfect
+
+Input per pair: slug-A, name-A, description-A, slug-B, name-B, description-B, shared source files.
+Output: `same_concept: bool`, and if true: `keep: slug`, `description: str`.
+
+---
+
+## LLM Breakout — Human-Readable String Generation
+
+Two distinct places where an LLM call is appropriate. Both are narrow, low-stakes, and operate on already-structured input — not open-ended extraction.
+
+### Pass 1: Module name + description
+
+After mechanical extraction produces slug + source_files + primary_class, a single batched LLM call generates `name` and `description` for modules where:
+- The slug is ambiguous (`shtp-receiver` — is that "SHTP Receiver" or "Device Protocol Layer"?)
+- No `### Key Components` entry was found in any arrow doc for this file
+- The primary class name doesn't make the purpose clear
+
+Input per module: slug, primary_class, source_file path, arrow doc component description (if found).
+Output: `name` (short, user-facing), `description` (one sentence, what it does).
+
+Modules where title-casing the slug is obviously correct (`fbx-writer` → "FBX Writer") can skip the LLM call — apply a confidence filter before batching.
+
+### Pass 2: Dedup label merge
+
+After the set-math dedup pass identifies duplicate or subset pairs, a single LLM call per flagged pair picks the better label.
+
+Input: two slugs, their names, their descriptions.
+Output: which slug to keep, optionally a merged description if neither is perfect.
+
+### What does NOT go to LLM
+
+- Slug generation — always mechanical from filename
+- Source file lists — always from arrow docs + code map
+- Test file lists — always from `index.yaml`
+- Duplicate detection — pure set math, no LLM
+- Code map cross-check — deterministic path lookup
 
 ---
 
