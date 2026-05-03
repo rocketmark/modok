@@ -708,11 +708,9 @@ async def test_confidence_is_matched_over_total():
 
 @pytest.mark.asyncio
 async def test_confidence_zero_when_llm_returns_no_anchors():
-    # @spec DRE-CONF-002
     # When LLM extraction succeeds but returns zero anchor instances,
-    # the DRE raises DREAnchorError (no anchors to traverse with).
+    # the DRE returns a 0-confidence empty packet rather than raising.
     from modok.retrieval.engine import retrieve
-    from modok.retrieval.errors import DREAnchorError
 
     issue = make_customer_issue(raw_text="vague complaint")
     mock_client = AsyncMock()
@@ -733,8 +731,11 @@ async def test_confidence_zero_when_llm_returns_no_anchors():
 
     with patch("modok.retrieval.engine.gateway") as mock_gw:
         mock_gw.parse_ticket = AsyncMock(return_value=empty_result)
-        with pytest.raises(DREAnchorError):
-            await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+        mock_gw.summarise_packet = AsyncMock(return_value="")
+        packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+    assert packet.confidence == 0.0
+    assert packet.anchors.feature_slugs == []
+    assert packet.anchors.error_signatures == []
 
 
 @given(

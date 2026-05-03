@@ -14,6 +14,7 @@ from modok.ingestion.registry import Registry
 from modok.quine.client import QuineClient
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import (
+    DREAnchorError,
     DREGraphUnavailableError,
     DRELLMUnavailableError,
     DRENotFoundError,
@@ -91,6 +92,8 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         ))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")
+    except DREAnchorError as exc:
+        raise click.ClickException(f"anchor extraction failed: {exc}")
     except (DREGraphUnavailableError, DRELLMUnavailableError):
         raise SystemExit(2)
 

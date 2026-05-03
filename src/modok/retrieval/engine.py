@@ -289,11 +289,8 @@ async def retrieve(
         error_sigs = list(parse_result.error_signatures)
         symptoms = list(parse_result.symptoms)
 
-        # @spec DRE-CONF-002: zero anchor instances after extraction → error
-        if not feature_slugs and not error_sigs:
-            raise DREAnchorError(
-                f"CustomerIssue id={issue_id}: LLM returned no anchor instances"
-            )
+        # Zero anchors is valid — ticket may not match any registered feature or module.
+        # Fall through and return a 0-confidence empty packet.
 
     anchor_count = len(feature_slugs) + len(error_sigs)
 
