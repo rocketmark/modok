@@ -34,6 +34,20 @@ export interface RecentCommit {
   files_touched: string[]
 }
 
+export interface EvidenceItem {
+  type: string
+  score: number
+  explanation: string
+}
+
+export interface ScoredCandidate {
+  path: string
+  kind: 'source' | 'test'
+  score: number
+  confidence: 'high' | 'medium' | 'low'
+  evidence: EvidenceItem[]
+}
+
 export interface DebugPacket {
   issue: IssueSummary
   affected_areas: AffectedArea[]
@@ -42,5 +56,6 @@ export interface DebugPacket {
   known_issues: KnownIssueRef[]
   prior_fixes: PriorFix[]
   recent_commits?: RecentCommit[]
+  scored_candidates?: ScoredCandidate[]
   summary?: string
 }

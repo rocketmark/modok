@@ -45,6 +45,22 @@ class RecentCommit:
 
 
 @dataclass
+class EvidenceItem:
+    type: str
+    score: float
+    explanation: str
+
+
+@dataclass
+class ScoredCandidate:
+    path: str
+    kind: str  # "source" | "test"
+    score: float
+    confidence: str  # "high" | "medium" | "low"
+    evidence: list[EvidenceItem] = field(default_factory=list)
+
+
+@dataclass
 class DebugPacket:
     issue: IssueSummary
     affected_areas: list[AffectedArea]
@@ -53,4 +69,5 @@ class DebugPacket:
     known_issues: list[KnownIssueRef]
     prior_fixes: list[PriorFix]
     recent_commits: list[RecentCommit] = field(default_factory=list)
+    scored_candidates: list[ScoredCandidate] = field(default_factory=list)
     summary: str = ""

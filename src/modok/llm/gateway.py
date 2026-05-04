@@ -117,15 +117,18 @@ async def _ollama_chat_completion(
     endpoint: str,
     model: str,
     timeout: float,
+    temperature: float | None = None,
 ) -> str:
     """Native Ollama API — disables thinking, requests JSON output."""
-    body = {
+    body: dict = {
         "model": model,
         "messages": messages,
         "stream": False,
         "think": False,
         "format": "json",
     }
+    if temperature is not None:
+        body["options"] = {"temperature": temperature}
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             resp = await client.post(
@@ -152,17 +155,20 @@ async def _chat_completion(
     model: str,
     timeout: float,
     api_key: str = "",
+    temperature: float | None = None,
 ) -> str:
     """OpenAI-compatible API — used for remote backends."""
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    body = {
+    body: dict = {
         "model": model,
         "messages": messages,
         "response_format": response_format,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -196,6 +202,7 @@ async def _call_with_retry(
     api_key: str,
     max_retries: int,
     native_ollama: bool = False,
+    temperature: float | None = None,
 ) -> str:
     last_exc: Exception = LLMUnavailableError("no attempts made")
     for attempt in range(max_retries + 1):
@@ -206,6 +213,7 @@ async def _call_with_retry(
                     endpoint=endpoint,
                     model=model,
                     timeout=timeout,
+                    temperature=temperature,
                 )
             return await _chat_completion(
                 messages=messages,
@@ -214,6 +222,7 @@ async def _call_with_retry(
                 model=model,
                 timeout=timeout,
                 api_key=api_key,
+                temperature=temperature,
             )
         except (asyncio.TimeoutError, LLMUnavailableError) as exc:
             last_exc = exc
@@ -594,9 +603,16 @@ async def parse_ticket(
     module_elements: dict[str, list[str]] | None = None,
     module_source_files: dict[str, list[str]] | None = None,
 ) -> TicketParseResult:
+    _MAX_TICKET_CHARS = 1500
+
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
+
+    # Truncate long tickets — anchor information is in the summary/header.
+    # File listings in ticket bodies are already handled by _pre_match_modules.
+    if len(raw_text) > _MAX_TICKET_CHARS:
+        raw_text = raw_text[:_MAX_TICKET_CHARS] + "\n[...truncated]"
 
     def _fmt_feature(slug: str) -> str:
         desc = (feature_descriptions or {}).get(slug, "")
@@ -636,6 +652,7 @@ async def parse_ticket(
             api_key=api_key,
             max_retries=max_retries,
             native_ollama=False,
+            temperature=0,
         )
     else:
         endpoint = cfg.get("local_endpoint", "http://localhost:11434")
@@ -649,6 +666,7 @@ async def parse_ticket(
             api_key="",
             max_retries=max_retries,
             native_ollama=True,
+            temperature=0,
         )
     result = _parse_and_validate(raw, _validate_ticket)
     if valid_slugs:

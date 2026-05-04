@@ -1,4 +1,4 @@
-import type { DebugPacket } from '@/types/debug-packet'
+import type { DebugPacket, ScoredCandidate } from '@/types/debug-packet'
 import { PacketSection } from './PacketSection'
 import { RawJsonCollapsible } from './RawJsonCollapsible'
 
@@ -6,9 +6,44 @@ interface Props {
   packet: DebugPacket
 }
 
+const CONFIDENCE_STYLES: Record<string, string> = {
+  high: 'bg-red-50 text-red-700 border-red-200',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  low: 'bg-slate-50 text-slate-500 border-slate-200',
+}
+
+function CandidateRow({ candidate }: { candidate: ScoredCandidate }) {
+  const badge = CONFIDENCE_STYLES[candidate.confidence] ?? CONFIDENCE_STYLES.low
+  return (
+    <li className="border border-slate-100 rounded p-2 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${badge}`}>
+          {candidate.confidence}
+        </span>
+        <span className="font-mono text-xs text-slate-700 flex-1 truncate">{candidate.path}</span>
+        <span className="text-xs text-slate-400 flex-shrink-0">score {candidate.score}</span>
+      </div>
+      {candidate.evidence.length > 0 && (
+        <ul className="space-y-0.5">
+          {candidate.evidence.map((ev, i) => (
+            <li key={i} className={`text-xs flex gap-1.5 ${ev.score < 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              <span className={ev.score < 0 ? 'text-orange-300' : 'text-slate-300'}>·</span>
+              <span className="flex-shrink-0 font-medium">{ev.type}</span>
+              <span className="flex-1">{ev.explanation}</span>
+              {ev.score < 0 && (
+                <span className="flex-shrink-0 font-mono">{ev.score}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 // @spec DEMO-MODOK-004, DEMO-MODOK-005, DEMO-MODOK-006, DEMO-MODOK-011
 export function DebugPacketView({ packet }: Props) {
-  const { issue, affected_areas, relevant_files, relevant_tests, known_issues, prior_fixes, recent_commits, summary } = packet
+  const { issue, affected_areas, relevant_files, relevant_tests, known_issues, prior_fixes, recent_commits, scored_candidates, summary } = packet
   const anchors = issue.anchors
   const hasAnchors =
     anchors.features.length > 0 ||
@@ -62,6 +97,16 @@ export function DebugPacketView({ packet }: Props) {
               </span>
             ))}
           </div>
+        </PacketSection>
+      )}
+
+      {scored_candidates && scored_candidates.length > 0 && (
+        <PacketSection title="Top Suspects">
+          <ul className="space-y-2">
+            {scored_candidates.map((c, i) => (
+              <CandidateRow key={i} candidate={c} />
+            ))}
+          </ul>
         </PacketSection>
       )}
 
@@ -135,7 +180,7 @@ export function DebugPacketView({ packet }: Props) {
         </PacketSection>
       )}
 
-      <RawJsonCollapsible data={packet} />
+      <RawJsonCollapsible data={packet} defaultOpen={!summary} />
     </div>
   )
 }

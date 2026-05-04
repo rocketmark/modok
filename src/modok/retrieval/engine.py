@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 from modok.llm import gateway
 from modok.llm.errors import LLMResponseError, LLMUnavailableError
@@ -17,11 +18,13 @@ from modok.retrieval.errors import (
 from modok.retrieval.models import (
     AffectedArea,
     DebugPacket,
+    EvidenceItem,
     IssueAnchors,
     IssueSummary,
     KnownIssueRef,
     PriorFix,
     RecentCommit,
+    ScoredCandidate,
 )
 
 _KI_CAP = 10
@@ -38,6 +41,20 @@ def _is_test_path(path: str) -> bool:
     parts = path.replace("\\", "/").split("/")
     filename = parts[-1] if parts else path
     return filename.startswith("test_") or "tests" in parts
+
+
+_SOURCE_EXTS = {'.py', '.c', '.h', '.cpp', '.hpp', '.js', '.ts', '.jsx', '.tsx', '.rs', '.go', '.java', '.rb', '.swift'}
+
+
+def _is_source_path(path: str) -> bool:
+    return os.path.splitext(path)[1].lower() in _SOURCE_EXTS
+
+
+def _path_actionability_multiplier(path: str) -> float:
+    """Penalize non-source files (docs, specs, markdown) that can't contain bugs."""
+    if _is_source_path(path) or _is_test_path(path):
+        return 1.0
+    return 0.25
 
 
 def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> list[str]:
@@ -68,6 +85,70 @@ def _compute_confidence(matched: int, total: int) -> float:
 
 def _accumulate_match_count(counts: dict[str, int], key: str, delta: int) -> None:
     counts[key] = counts.get(key, 0) + delta
+
+
+def _add_evidence(
+    evidence_map: dict[str, list[EvidenceItem]],
+    path: str,
+    item: EvidenceItem,
+) -> None:
+    if path not in evidence_map:
+        evidence_map[path] = []
+    evidence_map[path].append(item)
+
+
+def _score_candidate(items: list[EvidenceItem]) -> float:
+    by_type: dict[str, list[float]] = {}
+    penalties = 0.0
+    for item in items:
+        if item.score < 0:
+            penalties += item.score
+        else:
+            by_type.setdefault(item.type, []).append(item.score)
+    total = 0.0
+    for scores in by_type.values():
+        scores.sort(reverse=True)
+        total += sum(s * (0.5 ** i) for i, s in enumerate(scores))
+    total += 3.0 * min(len(by_type) - 1, 4)
+    total += penalties
+    return round(total, 1)
+
+
+def _confidence_label(score: float) -> str:
+    if score >= 20.0:
+        return "high"
+    if score >= 10.0:
+        return "medium"
+    return "low"
+
+
+def _build_scored_candidates(
+    evidence_map: dict[str, list[EvidenceItem]],
+    kind: str,
+    cap: int,
+) -> list[ScoredCandidate]:
+    candidates = []
+    for path, items in evidence_map.items():
+        multiplier = _path_actionability_multiplier(path)
+        all_items = list(items)
+        if multiplier < 1.0:
+            raw = _score_candidate(items)
+            penalty_score = round(raw * (multiplier - 1.0), 1)
+            all_items.append(EvidenceItem(
+                type="doc_penalty",
+                score=penalty_score,
+                explanation=f"Non-source file (×{multiplier} actionability penalty)",
+            ))
+        s = _score_candidate(all_items)
+        candidates.append(ScoredCandidate(
+            path=path,
+            kind=kind,
+            score=s,
+            confidence=_confidence_label(s),
+            evidence=all_items,
+        ))
+    candidates.sort(key=lambda c: c.score, reverse=True)
+    return candidates[:cap]
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +400,7 @@ async def retrieve(
     module_descriptions: dict[str, str] | None = None,
     module_elements: dict[str, list[str]] | None = None,
     module_source_files: dict[str, list[str]] | None = None,
+    on_progress: Callable[[str, "DebugPacket"], None] | None = None,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -336,6 +418,23 @@ async def retrieve(
             f"CustomerIssue id={issue_id} belongs to project '{issue.project_slug}', "
             f"not '{project_slug}'"
         )
+
+    # Emit early event so the UI can show the ticket title immediately, before LLM runs
+    if on_progress is not None:
+        on_progress("loading", DebugPacket(
+            issue=IssueSummary(
+                summary=issue.summary,
+                anchors=IssueAnchors(features=[], errors=[], symptoms=[]),
+            ),
+            affected_areas=[],
+            relevant_files=[],
+            relevant_tests=[],
+            known_issues=[],
+            prior_fixes=[],
+            recent_commits=[],
+            scored_candidates=[],
+            summary="",
+        ))
 
     # Anchor extraction — graph-first
     # @spec DRE-ANCH-001, DRE-ANCH-002, DRE-ANCH-003
@@ -385,8 +484,8 @@ async def retrieve(
     ki_meta: dict[str, dict[str, str]] = {}
     fix_counts: dict[str, int] = {}
     fix_meta: dict[str, dict[str, str]] = {}
-    file_counts: dict[str, int] = {}       # source files
-    test_file_counts: dict[str, int] = {}  # test files
+    file_evidence: dict[str, list[EvidenceItem]] = {}       # source files
+    test_file_evidence: dict[str, list[EvidenceItem]] = {}  # test files
     matched_anchors = 0
     resolved_module_slugs: list[str] = []
     resolved_feature_slugs: list[str] = []
@@ -403,9 +502,17 @@ async def retrieve(
         if src_paths or tst_paths:
             matched_anchors += 1
             for path in src_paths:
-                _accumulate_match_count(file_counts, path, 1)
+                _add_evidence(file_evidence, path, EvidenceItem(
+                    type="feature_anchor",
+                    score=7.0,
+                    explanation=f"Source file for anchor '{slug}'",
+                ))
             for path in tst_paths:
-                _accumulate_match_count(test_file_counts, path, 1)
+                _add_evidence(test_file_evidence, path, EvidenceItem(
+                    type="test_coverage",
+                    score=8.0,
+                    explanation=f"Test file for anchor '{slug}'",
+                ))
             if resolved_as == "module":
                 resolved_module_slugs.append(slug)
             else:
@@ -447,14 +554,17 @@ async def retrieve(
 
     # Seed explicitly mentioned files from LLM parse into the right bucket
     for fpath in mentioned_files:
+        item = EvidenceItem(
+            type="ticket_mention",
+            score=10.0,
+            explanation="File explicitly mentioned in ticket text",
+        )
         if _is_test_path(fpath):
-            if fpath not in test_file_counts:
-                test_file_counts[fpath] = 1
+            _add_evidence(test_file_evidence, fpath, item)
         else:
-            if fpath not in file_counts:
-                file_counts[fpath] = 1
+            _add_evidence(file_evidence, fpath, item)
 
-    # Sort and cap
+    # Sort and cap ki/fix (unchanged)
     # @spec DRE-SCORE-003, DRE-SCORE-004
     ki_items = _sort_and_cap(
         [{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP
@@ -462,15 +572,10 @@ async def retrieve(
     fix_items = _sort_and_cap(
         [{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP
     )
-    file_items = _sort_and_cap(
-        [{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP
-    )
-    test_file_items = _sort_and_cap(
-        [{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP
-    )
 
-    relevant_files = [item["id"] for item in file_items]
-    relevant_tests = [item["id"] for item in test_file_items]
+    # Preliminary file lists (pre-commit evidence) for commit traversal
+    prelim_source = list(file_evidence.keys())
+    prelim_tests = list(test_file_evidence.keys())
 
     known_issues = [
         KnownIssueRef(
@@ -500,8 +605,70 @@ async def retrieve(
     for slug in resolved_module_slugs:
         affected_areas.append(AffectedArea(type="module", id=f"module:{slug}", name=slug))
 
-    all_file_paths = relevant_files + relevant_tests
+    all_file_paths = prelim_source + prelim_tests
     raw_commits = await _traverse_files_to_recent_commits(all_file_paths, project_slug, client)
+
+    # Add recent_commit evidence for source/test files already in the evidence maps.
+    # Skip non-source files (docs, markdown) — doc maintenance commits are not bug signals.
+    for c in raw_commits:
+        sha_short = c.get("sha", "")[:7]
+        for fpath in c.get("files_touched", []):
+            if fpath in test_file_evidence:
+                _add_evidence(test_file_evidence, fpath, EvidenceItem(
+                    type="recent_commit",
+                    score=4.0,
+                    explanation=f"Touched in recent commit {sha_short}",
+                ))
+            elif fpath in file_evidence and _is_source_path(fpath):
+                _add_evidence(file_evidence, fpath, EvidenceItem(
+                    type="recent_commit",
+                    score=4.0,
+                    explanation=f"Touched in recent commit {sha_short}",
+                ))
+
+    # Build scored candidates and derive ordered file lists
+    source_candidates = _build_scored_candidates(file_evidence, "source", _FILE_CAP)
+    test_candidates = _build_scored_candidates(test_file_evidence, "test", _FILE_CAP)
+    scored_candidates = sorted(
+        source_candidates + test_candidates, key=lambda c: c.score, reverse=True
+    )
+
+    relevant_files = [c.path for c in source_candidates]
+    relevant_tests = [c.path for c in test_candidates]
+
+    issue_obj = IssueSummary(
+        summary=issue.summary,
+        anchors=IssueAnchors(
+            features=resolved_feature_slugs,
+            errors=error_sigs,
+            symptoms=symptoms,
+        ),
+    )
+    recent_commits_list = [
+        RecentCommit(
+            sha=c.get("sha", ""),
+            timestamp=c.get("timestamp", ""),
+            author_name=c.get("author_name", ""),
+            message=c.get("message", ""),
+            files_touched=c.get("files_touched", []),
+        )
+        for c in raw_commits
+    ]
+
+    # Emit partial packet before the slow LLM summary call
+    if on_progress is not None:
+        on_progress("partial", DebugPacket(
+            issue=issue_obj,
+            affected_areas=affected_areas,
+            relevant_files=relevant_files,
+            relevant_tests=relevant_tests,
+            known_issues=known_issues,
+            prior_fixes=prior_fixes,
+            recent_commits=recent_commits_list,
+            scored_candidates=scored_candidates,
+            summary="",
+        ))
+
     raw_text = issue.raw_text or issue.summary
     try:
         summary = await gateway.summarise_packet(
@@ -522,28 +689,13 @@ async def retrieve(
         summary = issue.summary
 
     return DebugPacket(
-        issue=IssueSummary(
-            summary=issue.summary,
-            anchors=IssueAnchors(
-                features=resolved_feature_slugs,
-                errors=error_sigs,
-                symptoms=symptoms,
-            ),
-        ),
+        issue=issue_obj,
         affected_areas=affected_areas,
         relevant_files=relevant_files,
         relevant_tests=relevant_tests,
         known_issues=known_issues,
         prior_fixes=prior_fixes,
-        recent_commits=[
-            RecentCommit(
-                sha=c.get("sha", ""),
-                timestamp=c.get("timestamp", ""),
-                author_name=c.get("author_name", ""),
-                message=c.get("message", ""),
-                files_touched=c.get("files_touched", []),
-            )
-            for c in raw_commits
-        ],
+        recent_commits=recent_commits_list,
+        scored_candidates=scored_candidates,
         summary=summary,
     )

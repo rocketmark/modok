@@ -67,7 +67,7 @@ def make_config(
 
 VALID_TICKET_RESPONSE = """\
 {
-  "feature_slug": "shtp-receiver",
+  "feature_slugs": ["shtp-receiver"],
   "error_signatures": ["shtp-version-mismatch"],
   "environment": {"platform": "windows"},
   "symptoms": ["pose dropout"],
@@ -212,7 +212,7 @@ def test_auto_escalates_at_most_once(max_retries):
                 remote_calls.append(1)
             return bad_response
 
-        async def fake_chat_local(messages=None, endpoint="", model="", timeout=30):
+        async def fake_chat_local(messages=None, endpoint="", model="", timeout=30, **kwargs):
             return bad_response
 
         with patch("modok.llm.gateway._load_config", return_value=cfg):
@@ -595,7 +595,7 @@ async def test_valid_json_returns_typed_ticket_parse_result():
             result = await parse_ticket("text", "stagehand", backend="local")
 
     assert isinstance(result, TicketParseResult)
-    assert result.feature_slug == "shtp-receiver"
+    assert "shtp-receiver" in result.feature_slugs
     assert result.confidence == 0.85
 
 
@@ -688,7 +688,7 @@ async def test_parse_ticket_returns_all_required_fields():
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("customer reported pose dropout", "stagehand")
 
-    assert result.feature_slug == "shtp-receiver"
+    assert "shtp-receiver" in result.feature_slugs
     assert "shtp-version-mismatch" in result.error_signatures
     assert result.environment == {"platform": "windows"}
     assert result.raw_response != ""

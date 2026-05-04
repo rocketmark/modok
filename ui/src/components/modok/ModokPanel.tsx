@@ -39,13 +39,19 @@ export function ModokPanel({ ticketId: _ticketId, run, onRun, onClear, isRunning
         )}
       </div>
 
-      {isRunning ? (
+      {isRunning && !run.debug_packet ? (
         <div role="status" className="flex items-center gap-2 text-sm text-slate-500">
           <span className="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           Running…
         </div>
-      ) : run.status === 'complete' && run.debug_packet ? (
+      ) : (isRunning || run.status === 'complete') && run.debug_packet ? (
         <>
+          {isRunning && (
+            <div className="mb-4 flex items-center gap-2 text-xs text-slate-400">
+              <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              Generating summary…
+            </div>
+          )}
           {run.ingest_partial && (
             <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
               Ingestion completed with errors — results may be incomplete.

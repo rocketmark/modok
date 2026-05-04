@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import sys
 
 import click
 
@@ -26,7 +27,8 @@ from modok.retrieval.errors import (
 @click.option("--source", default=None, help="Source system (e.g. zendesk).")
 @click.option("--ticket", default=None, help="Ticket ID.")
 @click.option("--node-id", "node_id", default=None, type=int, help="Quine node ID (power-user).")
-def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: int | None) -> None:
+@click.option("--stream", "stream_mode", is_flag=True, default=False, help="Emit NDJSON progress lines before the final result.")
+def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: int | None, stream_mode: bool) -> None:
     # Mutual exclusivity checks (before any graph operation)
     has_source_ticket = source is not None or ticket is not None
     has_node_id = node_id is not None
@@ -82,6 +84,10 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         ))
         resolved_id = rows[0][0]
 
+    def _on_progress(step: str, partial) -> None:
+        sys.stdout.write(json.dumps({"step": step, "data": dataclasses.asdict(partial)}) + "\n")
+        sys.stdout.flush()
+
     try:
         packet = asyncio.run(retrieve(
             resolved_id, project, client,
@@ -92,6 +98,7 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
             module_descriptions=module_descriptions,
             module_elements=module_elements,
             module_source_files=module_source_files,
+            on_progress=_on_progress if stream_mode else None,
         ))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")
@@ -100,4 +107,8 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
     except (DREGraphUnavailableError, DRELLMUnavailableError):
         raise SystemExit(2)
 
-    click.echo(json.dumps(dataclasses.asdict(packet)))
+    if stream_mode:
+        sys.stdout.write(json.dumps({"step": "complete", "data": dataclasses.asdict(packet)}) + "\n")
+        sys.stdout.flush()
+    else:
+        click.echo(json.dumps(dataclasses.asdict(packet)))

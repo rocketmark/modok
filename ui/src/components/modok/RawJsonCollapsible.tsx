@@ -4,11 +4,12 @@ import { useState } from 'react'
 
 interface Props {
   data: unknown
+  defaultOpen?: boolean
 }
 
 // @spec DEMO-MODOK-006
-export function RawJsonCollapsible({ data }: Props) {
-  const [open, setOpen] = useState(false)
+export function RawJsonCollapsible({ data, defaultOpen = false }: Props) {
+  const [open, setOpen] = useState(defaultOpen)
 
   return (
     <div className="mt-2">

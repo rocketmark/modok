@@ -73,11 +73,40 @@ export default function TicketPage() {
 
   const handleRun = useCallback(async () => {
     setIsRunning(true)
+    setCurrentRun({ ticket_id: ticketId, status: 'running', ran_at: new Date().toISOString() })
     try {
       const res = await fetch(`/api/tickets/${ticketId}/modok`, { method: 'POST' })
-      const run: ModokRun = await res.json()
-      setCurrentRun(run)
-      setRuns((prev) => ({ ...prev, [ticketId]: run }))
+      if (!res.ok || !res.body) {
+        const fallback: ModokRun = { ticket_id: ticketId, status: 'failed', error: 'timeout_or_crash' }
+        setCurrentRun(fallback)
+        setRuns((prev) => ({ ...prev, [ticketId]: fallback }))
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop()!
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6)) as { type: string; packet?: ModokRun['debug_packet']; run?: ModokRun }
+            if (event.type === 'partial' && event.packet) {
+              setCurrentRun((prev) => ({ ...prev!, status: 'running', debug_packet: event.packet }))
+            } else if (event.type === 'complete' && event.run) {
+              setCurrentRun(event.run)
+              setRuns((prev) => ({ ...prev, [ticketId]: event.run! }))
+            }
+          } catch { /* ignore malformed events */ }
+        }
+      }
     } finally {
       setIsRunning(false)
     }
