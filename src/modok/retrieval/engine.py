@@ -77,6 +77,7 @@ def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> 
 _CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
 
 
+# @spec DRE-TOKEN-001
 def _tokenize(name: str) -> set[str]:
     """Split a camelCase/snake_case/kebab-case identifier into lowercase tokens (length > 2)."""
     parts = re.split(r'[_\-\s]+', name)
@@ -88,6 +89,7 @@ def _tokenize(name: str) -> set[str]:
     return tokens
 
 
+# @spec DRE-TOKEN-002, DRE-TOKEN-003
 def _build_anchor_tokens(
     feature_slugs: list[str],
     error_sigs: list[str],
@@ -99,6 +101,7 @@ def _build_anchor_tokens(
     return tokens
 
 
+# @spec DRE-FUNC-001
 def _matching_defs(hunk_data: list[dict], anchor_tokens: set[str]) -> list[str]:
     """Return def names from hunk_data whose tokens overlap with anchor_tokens."""
     matched: list[str] = []
@@ -137,6 +140,7 @@ def _add_evidence(
     evidence_map[path].append(item)
 
 
+# @spec DRE-CAND-001, DRE-CAND-002
 def _score_candidate(items: list[EvidenceItem]) -> float:
     by_type: dict[str, list[float]] = {}
     penalties = 0.0
@@ -154,6 +158,7 @@ def _score_candidate(items: list[EvidenceItem]) -> float:
     return round(total, 1)
 
 
+# @spec DRE-CAND-003
 def _confidence_label(score: float) -> str:
     if score >= 20.0:
         return "high"
@@ -162,6 +167,7 @@ def _confidence_label(score: float) -> str:
     return "low"
 
 
+# @spec DRE-CAND-004
 def _build_scored_candidates(
     evidence_map: dict[str, list[EvidenceItem]],
     kind: str,
@@ -467,7 +473,7 @@ async def retrieve(
             f"not '{project_slug}'"
         )
 
-    # Emit early event so the UI can show the ticket title immediately, before LLM runs
+    # @spec DRE-STREAM-001
     if on_progress is not None:
         on_progress("loading", DebugPacket(
             issue=IssueSummary(
@@ -553,13 +559,13 @@ async def retrieve(
                 _add_evidence(file_evidence, path, EvidenceItem(
                     type="feature_anchor",
                     score=7.0,
-                    explanation=f"Source file for anchor '{slug}'",
+                    explanation=slug,
                 ))
             for path in tst_paths:
                 _add_evidence(test_file_evidence, path, EvidenceItem(
                     type="test_coverage",
                     score=8.0,
-                    explanation=f"Test file for anchor '{slug}'",
+                    explanation=slug,
                 ))
             if resolved_as == "module":
                 resolved_module_slugs.append(slug)
@@ -658,12 +664,9 @@ async def retrieve(
 
     anchor_tokens = _build_anchor_tokens(feature_slugs, error_sigs, symptoms)
 
-    # Element anchor matching — boost files that contain registered elements whose names
-    # token-match anchor terms (e.g. "reinit button" → element "reinit_requested").
-    # Also expands anchor_tokens with matching element tokens for richer function_anchor_match.
-    # Use symptom/error tokens only (not feature/module slug tokens) to avoid matching every
-    # element whose name contains the module name itself (e.g. "DeviceCard" in device-card module).
+    # @spec DRE-TOKEN-002
     symptom_error_tokens = _build_anchor_tokens([], error_sigs, symptoms)
+    # @spec DRE-ELEM-001, DRE-ELEM-002, DRE-ELEM-003, DRE-ELEM-004
     matched_elements: list[str] = []
     if symptom_error_tokens and module_elements and module_source_files:
         for slug in resolved_module_slugs:
@@ -681,14 +684,17 @@ async def retrieve(
                         _add_evidence(ev_map, fpath, EvidenceItem(
                             type="element_anchor_match",
                             score=6.0,
-                            explanation=f"Contains element {elem_names} — matches anchor terms",
+                            explanation=elem_names,
                         ))
                 for elem in slug_matches:
                     anchor_tokens.update(_tokenize(elem))
 
-    # Add recent_commit evidence for source/test files already in the evidence maps.
-    # Skip non-source files (docs, markdown) — doc maintenance commits are not bug signals.
-    # Also add function_anchor_match evidence when a modified function name overlaps an anchor term.
+    # @spec DRE-TOKEN-003
+    func_anchor_tokens = symptom_error_tokens.copy()
+    for elem in matched_elements:
+        func_anchor_tokens.update(_tokenize(elem))
+
+    # @spec DRE-FUNC-001, DRE-FUNC-002, DRE-FUNC-003
     for c in raw_commits:
         sha_short = c.get("sha", "")[:7]
         for fpath in c.get("files_touched", []):
@@ -702,15 +708,15 @@ async def retrieve(
                 score=4.0,
                 explanation=f"Touched in recent commit {sha_short}",
             ))
-            if anchor_tokens:
+            if func_anchor_tokens:
                 hunk_data = c.get("file_hunk_data", {}).get(fpath, [])
-                matched = _matching_defs(hunk_data, anchor_tokens)
+                matched = _matching_defs(hunk_data, func_anchor_tokens)
                 if matched:
                     names = ", ".join(matched[:3])
                     _add_evidence(evidence_map, fpath, EvidenceItem(
                         type="function_anchor_match",
                         score=6.0,
-                        explanation=f"Defines {names} in {sha_short} — matches issue anchor terms",
+                        explanation=f"{names} · {sha_short}",
                     ))
 
     # Build scored candidates and derive ordered file lists
@@ -742,7 +748,7 @@ async def retrieve(
         for c in raw_commits
     ]
 
-    # Emit partial packet before the slow LLM summary call
+    # @spec DRE-STREAM-002
     if on_progress is not None:
         on_progress("partial", DebugPacket(
             issue=issue_obj,
@@ -756,6 +762,7 @@ async def retrieve(
             summary="",
         ))
 
+    # @spec DRE-SUMM-001, DRE-SUMM-002
     raw_text = issue.raw_text or issue.summary
     try:
         summary = await gateway.summarise_packet(

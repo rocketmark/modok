@@ -788,6 +788,7 @@ async def propose_similarity(
     return _parse_and_validate(raw, _validate_similarity)
 
 
+# @spec LLM-SUMM-001, LLM-SUMM-002, LLM-SUMM-003, LLM-SUMM-004
 async def summarise_packet(
     issue_text: str,
     module_slugs: list[str],

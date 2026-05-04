@@ -1676,3 +1676,304 @@ def test_total_propose_metadata_calls_never_exceed_two(cegis_enabled):
 
     _asyncio.run(run())
     assert call_count <= 2
+
+
+# ---------------------------------------------------------------------------
+# LLM-SUMM-001 — summarise_packet sends all required fields including matched_elements
+# ---------------------------------------------------------------------------
+
+VALID_SUMMARY_RESPONSE = '{"summary": "The reinit_requested signal in device_card.py fails on USB reconnect."}'
+
+
+# @spec LLM-SUMM-001
+@pytest.mark.asyncio
+async def test_summarise_packet_sends_all_required_fields():
+    from modok.llm.gateway import summarise_packet
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            await summarise_packet(
+                issue_text="Tracker drops after USB reset",
+                module_slugs=["device-card"],
+                error_signatures=["usb-reset-error"],
+                symptoms=["reinit fails"],
+                relevant_files=["ui/device_card.py"],
+                relevant_tests=["tests/test_device_card.py"],
+                matched_elements=["reinit_requested"],
+                recent_commits=[{"timestamp": "2024-01-15T10:00:00Z", "author_name": "Dev", "message": "fix reinit"}],
+                known_issues=["USB reset causes pose dropout"],
+                backend="local",
+            )
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    user_content = next(m["content"] for m in messages if m.get("role") == "user")
+    assert "Tracker drops after USB reset" in user_content
+    assert "device-card" in user_content
+    assert "usb-reset-error" in user_content
+    assert "reinit fails" in user_content
+    assert "reinit_requested" in user_content
+    assert "ui/device_card.py" in user_content
+    assert "USB reset causes pose dropout" in user_content
+
+
+# @spec LLM-SUMM-001
+@pytest.mark.asyncio
+async def test_summarise_packet_includes_matched_elements_in_user_content():
+    from modok.llm.gateway import summarise_packet
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            await summarise_packet(
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=["reinit_requested", "DeviceCard"],
+                recent_commits=[],
+                known_issues=[],
+                backend="local",
+            )
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    user_content = next(m["content"] for m in messages if m.get("role") == "user")
+    assert "reinit_requested" in user_content
+    assert "DeviceCard" in user_content
+
+
+# ---------------------------------------------------------------------------
+# LLM-SUMM-002 — system prompt includes element priority ordering
+# ---------------------------------------------------------------------------
+
+# @spec LLM-SUMM-002
+def test_summarise_packet_system_prompt_names_element_priority():
+    from modok.llm import prompts
+
+    prompt = prompts.SUMMARISE_PACKET_SYSTEM
+    # Priority 1 must be matched elements
+    assert "matched element" in prompt.lower() or "Matched element" in prompt
+    # Explicit instruction to name elements when present
+    assert "name" in prompt.lower()
+
+
+# @spec LLM-SUMM-002
+@pytest.mark.asyncio
+async def test_summarise_packet_sends_system_prompt_with_priority_instruction():
+    from modok.llm.gateway import summarise_packet
+    from modok.llm import prompts
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            await summarise_packet(
+                issue_text="issue", module_slugs=[], error_signatures=[],
+                symptoms=[], relevant_files=[], relevant_tests=[],
+                matched_elements=[], recent_commits=[], known_issues=[],
+            )
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    system_content = next(m["content"] for m in messages if m.get("role") == "system")
+    assert any(word in system_content for word in prompts.SUMMARISE_PACKET_SYSTEM.split()[:5])
+
+
+# ---------------------------------------------------------------------------
+# LLM-SUMM-003 — uses SUMMARISE_PACKET_SYSTEM; validates {"summary": "..."} before returning string
+# ---------------------------------------------------------------------------
+
+# @spec LLM-SUMM-003
+@pytest.mark.asyncio
+async def test_summarise_packet_uses_summarise_packet_system_prompt():
+    from modok.llm.gateway import summarise_packet
+    from modok.llm import prompts
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            await summarise_packet(
+                issue_text="issue", module_slugs=[], error_signatures=[],
+                symptoms=[], relevant_files=[], relevant_tests=[],
+                matched_elements=[], recent_commits=[], known_issues=[],
+            )
+
+    messages = mock_chat.call_args.kwargs.get("messages", [])
+    system_content = next(m["content"] for m in messages if m.get("role") == "system")
+    assert system_content == prompts.SUMMARISE_PACKET_SYSTEM
+
+
+# @spec LLM-SUMM-003
+@pytest.mark.asyncio
+async def test_summarise_packet_returns_plain_string_extracted_from_json():
+    from modok.llm.gateway import summarise_packet
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = '{"summary": "The reinit_requested signal fails."}'
+            result = await summarise_packet(
+                issue_text="issue", module_slugs=[], error_signatures=[],
+                symptoms=[], relevant_files=[], relevant_tests=[],
+                matched_elements=[], recent_commits=[], known_issues=[],
+            )
+
+    assert isinstance(result, str)
+    assert result == "The reinit_requested signal fails."
+
+
+# @spec LLM-SUMM-003
+@pytest.mark.asyncio
+async def test_summarise_packet_raises_response_error_when_summary_key_absent():
+    from modok.llm.gateway import summarise_packet
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = '{"not_summary": "wrong"}'
+            with pytest.raises(LLMResponseError):
+                await summarise_packet(
+                    issue_text="issue", module_slugs=[], error_signatures=[],
+                    symptoms=[], relevant_files=[], relevant_tests=[],
+                    matched_elements=[], recent_commits=[], known_issues=[],
+                )
+
+
+# ---------------------------------------------------------------------------
+# LLM-SUMM-004 — summarise_packet never writes; returns plain string only
+# ---------------------------------------------------------------------------
+
+# @spec LLM-SUMM-004
+def test_summarise_packet_not_in_write_path():
+    import inspect
+    import modok.llm.gateway as gw_mod
+
+    src = inspect.getsource(gw_mod)
+    summ_src = src.split("async def summarise_packet")[1].split("async def ")[0]
+    assert "upsert_node" not in summ_src
+    assert "write_edge" not in summ_src
+    assert "write_text" not in summ_src
+    assert "open(" not in summ_src
+
+
+# @spec LLM-SUMM-004
+@pytest.mark.asyncio
+async def test_summarise_packet_return_type_is_str():
+    from modok.llm.gateway import summarise_packet
+
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            result = await summarise_packet(
+                issue_text="issue", module_slugs=[], error_signatures=[],
+                symptoms=[], relevant_files=[], relevant_tests=[],
+                matched_elements=[], recent_commits=[], known_issues=[],
+            )
+
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# LLM-SUMM-004 — summarise_packet uses timeout_summarise_packet
+# ---------------------------------------------------------------------------
+
+# @spec LLM-RETRY-004, LLM-SUMM-001
+@pytest.mark.asyncio
+async def test_summarise_packet_uses_summarise_timeout():
+    from modok.llm.gateway import summarise_packet
+
+    cfg = make_config(timeout_seconds=30)
+    cfg["timeout_summarise_packet"] = 45
+
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = VALID_SUMMARY_RESPONSE
+            await summarise_packet(
+                issue_text="issue", module_slugs=[], error_signatures=[],
+                symptoms=[], relevant_files=[], relevant_tests=[],
+                matched_elements=[], recent_commits=[], known_issues=[],
+            )
+
+    assert mock_chat.call_args.kwargs.get("timeout") == 45
+
+
+# ---------------------------------------------------------------------------
+# LLM-TICKET-005 — legacy feature_slug (singular) normalized to feature_slugs list
+# ---------------------------------------------------------------------------
+
+# @spec LLM-TICKET-005
+@pytest.mark.asyncio
+async def test_legacy_feature_slug_string_normalized_to_list():
+    from modok.llm.gateway import parse_ticket
+
+    legacy_response = """\
+{
+  "feature_slug": "shtp-receiver",
+  "error_signatures": ["shtp-version-mismatch"],
+  "environment": {},
+  "symptoms": [],
+  "confidence": 0.8
+}
+"""
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = legacy_response
+            result = await parse_ticket("text", "stagehand", backend="local")
+
+    assert isinstance(result.feature_slugs, list)
+    assert "shtp-receiver" in result.feature_slugs
+
+
+# @spec LLM-TICKET-005
+@pytest.mark.asyncio
+async def test_legacy_feature_slug_does_not_duplicate_when_also_in_feature_slugs():
+    from modok.llm.gateway import parse_ticket
+
+    both_response = """\
+{
+  "feature_slugs": ["shtp-receiver"],
+  "feature_slug": "shtp-receiver",
+  "error_signatures": [],
+  "environment": {},
+  "symptoms": [],
+  "confidence": 0.8
+}
+"""
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = both_response
+            result = await parse_ticket("text", "stagehand", backend="local")
+
+    assert result.feature_slugs.count("shtp-receiver") == 1
+
+
+# @spec LLM-TICKET-005
+@pytest.mark.asyncio
+async def test_legacy_feature_slug_null_produces_empty_list():
+    from modok.llm.gateway import parse_ticket
+
+    null_slug_response = """\
+{
+  "feature_slug": null,
+  "error_signatures": [],
+  "environment": {},
+  "symptoms": [],
+  "confidence": 0.0
+}
+"""
+    with patch("modok.llm.gateway._load_config", return_value=make_config()):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = null_slug_response
+            result = await parse_ticket("text", "stagehand", backend="local")
+
+    assert isinstance(result.feature_slugs, list)
+    assert result.feature_slugs == []
+
+
+# @spec LLM-PROMPT-002 — summarise_packet uses a distinct system prompt
+def test_summarise_packet_system_prompt_distinct_from_other_prompts():
+    import modok.llm.prompts as prompts_mod
+
+    assert hasattr(prompts_mod, "SUMMARISE_PACKET_SYSTEM")
+    assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PARSE_TICKET_SYSTEM
+    assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PROPOSE_METADATA_SYSTEM
+    assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PROPOSE_SIMILARITY_SYSTEM

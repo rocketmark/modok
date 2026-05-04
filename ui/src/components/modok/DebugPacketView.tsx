@@ -34,19 +34,19 @@ function CandidateRow({
   const badge = CONFIDENCE_STYLES[candidate.confidence] ?? CONFIDENCE_STYLES.low
 
   const recentCommitEvidence = candidate.evidence.filter(ev => ev.type === 'recent_commit')
-  const otherEvidence = candidate.evidence.filter(ev => ev.type !== 'recent_commit')
+  const funcMatchEvidence = candidate.evidence.filter(ev => ev.type === 'function_anchor_match')
+  const otherEvidence = candidate.evidence.filter(ev => ev.type !== 'recent_commit' && ev.type !== 'function_anchor_match')
+
+  // Map sha → matched function names; explanation format is "fn1, fn2 · sha"
+  const fnBySha: Record<string, string> = {}
+  for (const ev of funcMatchEvidence) {
+    const parts = ev.explanation.split(' · ')
+    if (parts.length >= 2) fnBySha[parts[1]] = parts[0]
+  }
 
   const mostRecentSha = recentCommitEvidence[0] ? shaFrom(recentCommitEvidence[0].explanation) : ''
   const mostRecentMeta = commitMeta[mostRecentSha]
   const additionalEvidence = recentCommitEvidence.slice(1)
-
-  // Pull touched function from function_anchor_match if it names the most recent commit
-  const anchorMatch = candidate.evidence.find(
-    ev => ev.type === 'function_anchor_match' && ev.explanation.includes(mostRecentSha)
-  )
-  const touchedFn = anchorMatch
-    ? (anchorMatch.explanation.split('Defines ')[1]?.split(' in ')[0] ?? null)
-    : null
 
   return (
     <li className="border border-slate-100 rounded p-2 space-y-1.5">
@@ -68,40 +68,39 @@ function CandidateRow({
             </li>
           ))}
           {recentCommitEvidence.length > 0 && (
-            <li className="text-xs flex gap-1.5 text-slate-500">
-              <span className="text-slate-300">·</span>
-              <span className="flex-shrink-0 font-medium">recent_commit</span>
-              <div className="flex-1 space-y-0.5">
-                <div>
+            <li className="text-xs text-slate-500 space-y-0.5">
+              <div className="flex gap-1.5">
+                <span className="text-slate-300">·</span>
+                <span className="font-medium">recent_commit</span>
+              </div>
+              <ul className="space-y-0.5 ml-3">
+                <li>
                   <span className="font-mono">{mostRecentSha}</span>
                   {mostRecentMeta && (
                     <>
                       <span className="text-slate-400"> · {fmtDate(mostRecentMeta.timestamp)} · {mostRecentMeta.author_name}</span>
-                      {touchedFn && <span className="text-slate-400"> · fn: {touchedFn}</span>}
+                      {fnBySha[mostRecentSha] && <span className="text-slate-400"> · fn: {fnBySha[mostRecentSha]}</span>}
                       <span className="text-slate-600"> — {mostRecentMeta.message.slice(0, 60)}{mostRecentMeta.message.length > 60 ? '…' : ''}</span>
                     </>
                   )}
-                </div>
-                {additionalEvidence.length > 0 && (
-                  <ul className="space-y-0.5 text-slate-400">
-                    {additionalEvidence.map((ev, i) => {
-                      const sha = shaFrom(ev.explanation)
-                      const meta = commitMeta[sha]
-                      return (
-                        <li key={i}>
-                          <span className="font-mono">{sha}</span>
-                          {meta && (
-                            <>
-                              <span> · {fmtDate(meta.timestamp)} · {meta.author_name}</span>
-                              <span> — {meta.message.slice(0, 60)}{meta.message.length > 60 ? '…' : ''}</span>
-                            </>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
+                </li>
+                {additionalEvidence.map((ev, i) => {
+                  const sha = shaFrom(ev.explanation)
+                  const meta = commitMeta[sha]
+                  return (
+                    <li key={i} className="text-slate-400">
+                      <span className="font-mono">{sha}</span>
+                      {meta && (
+                        <>
+                          <span> · {fmtDate(meta.timestamp)} · {meta.author_name}</span>
+                          {fnBySha[sha] && <span> · fn: {fnBySha[sha]}</span>}
+                          <span> — {meta.message.slice(0, 60)}{meta.message.length > 60 ? '…' : ''}</span>
+                        </>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
             </li>
           )}
         </ul>

@@ -9,7 +9,7 @@ Guiding principles:
 - **Developer aesthetic.** Light mode, calm palette, cards with thin borders. Feels like Linear or Vercel, not a support portal.
 - **No left navigation.** A top bar carries MODOK branding and a global search. Nothing else competes with the content.
 - **Subprocess bridge, not embedded library.** The Next.js API routes call the `modok` CLI via `child_process.spawn`. This keeps the Node process and the Python process cleanly separated. Errors surface through exit codes and stderr, not exceptions.
-- **Synchronous CLI calls.** The browser waits while ingest + retrieve run. A spinner with stage labels ("Running ingest…" / "Running retrieve…") provides feedback. Async/SSE streaming is deferred.
+- **SSE streaming for retrieve.** `modok retrieve` emits NDJSON progress lines. The bridge reads them line-by-line and pushes partial `DebugPacket` updates to the client via a `ReadableStream`, so the UI renders candidates before the LLM summary arrives.
 - **Mock mode for demos without Quine.** `MODOK_MOCK=1` returns a fixture packet, making the UI demoable offline.
 
 ## Tech Stack
@@ -216,12 +216,12 @@ If `ui/config.json` is absent or missing required fields, `lib/config.ts` throws
    - Capture stdout and stderr. Wait for exit.
    - Exit 2: write `failed`, return `{ error: "quine_unreachable" }`. Do not proceed.
    - Exit 3: set `ingest_partial = true`. Proceed to retrieve.
-8. Spawn: `modok retrieve --project <slug> --source <modok_source> --ticket <ticket-id>`
-   - `shell: false`, explicit args array, 60s timeout. On timeout: SIGTERM, write `failed / timeout`, return `{ error: "timeout" }`.
-   - Capture stdout and stderr. Wait for exit.
+8. Spawn: `modok retrieve --project <slug> --source <modok_source> --ticket <ticket-id>` via `spawnLineStreaming`.
+   - `shell: false`, explicit args array, 60s timeout. On timeout: SIGTERM, write `failed / timeout`.
+   - Each stdout line is parsed as NDJSON `{ step, data }`. Lines where `step !== "complete"` are emitted as `{ type: "partial", packet: data }` to the client stream, enabling incremental rendering.
    - Exit 1: write `failed`, return `{ error: "issue_not_found" }`.
    - Exit 2: write `failed`, return `{ error: "quine_unreachable" }`.
-   - Exit 0 with non-JSON stdout: write `failed`, return `{ error: "parse_error", raw_stdout }`.
+   - Exit 0 with no valid final packet: if a partial packet was received, return it as best-effort `complete`; otherwise write `failed / parse_error`.
 9. Write `complete` ModokRun (debug packet, both exit codes, both stderrs, `ingest_partial` flag) to `data/modok-runs.json`.
 10. Return the ModokRun.
 
@@ -289,15 +289,35 @@ The Notes section is omitted if there are no notes. Each note is separated by a 
 
 The MODOK panel renders sections in this order:
 
-1. **Issue Summary** — `debug_packet.issue.summary`
-2. **Anchors** — features, errors, symptoms as badge lists
-3. **Relevant Docs** — doc refs with type badge
-4. **Code Files** — file paths as monospace chips
-5. **Known Issues** — title + status badge
-6. **Prior Fixes** — title + fix kind badge
-7. **Raw JSON** — collapsible `<pre>` block, collapsed by default; shown even on `parse_error` (raw stdout)
+1. **LLM Summary** — `debug_packet.summary`; shown only when non-empty; slate-50 callout box above the issue title.
+2. **Issue title** — `debug_packet.issue.summary` as bold text.
+3. **Anchors** — features, errors, symptoms as labelled lines; section omitted if all three are empty.
+4. **Affected Areas** — feature/module slugs as pill badges (⬡ for feature, ○ for module).
+5. **Top Suspects** — `scored_candidates` rendered as `CandidateRow` items (see below).
+6. **Code Files** — `relevant_files` as monospace chips.
+7. **Test Files** — `relevant_tests` as monospace chips.
+8. **Known Issues** — summary text per issue.
+9. **Prior Fixes** — commit SHA chip + summary per fix.
+10. **Recent Commits** — SHA chip, date, author, message for each commit.
+11. **Raw JSON** — collapsible `<pre>` block; collapsed when `summary` is non-empty, open otherwise; shown even on `parse_error` (raw stdout).
 
 Sections with no content are omitted entirely.
+
+### CandidateRow
+
+Each `ScoredCandidate` renders as a list item with:
+
+- **Header row**: confidence badge (colour-coded: red=high, amber=medium, slate=low), file path (monospace, truncated), score.
+- **Evidence list** — items other than `recent_commit` and `function_anchor_match` render as `· {type} {explanation}`. Penalty items (score < 0) are rendered in orange with the score shown.
+- **Recent commits block** — if any `recent_commit` evidence exists:
+  - Label row: `· recent_commit`
+  - All commits listed below the label, left-aligned at the same indent.
+  - Most recent commit: SHA, date, author, function match annotation (if any), commit message (truncated to 60 chars).
+  - Additional commits: same format, rendered in a lighter colour.
+  - Function match annotation (`· fn: {names}`) is shown inline on whichever commit's SHA matches a `function_anchor_match` explanation.
+- `function_anchor_match` evidence items are not shown as standalone rows; their function name and SHA are extracted and displayed inline with the matching commit row.
+
+The SHA-to-metadata lookup uses `recent_commits` from the packet keyed by 7-character SHA prefix.
 
 ## Seed Tickets
 
@@ -318,7 +338,9 @@ Five tickets checked in to `data/tickets.json`, ordered newest-first. Each has a
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
 | CLI invocation method | `child_process.spawn`, no shell, explicit args array | `exec` with shell string | Eliminates shell injection. `spawn` gives separate stdout/stderr streams. |
-| Sync vs async CLI calls | Synchronous — wait for both spawns, return result | SSE streaming; async job with polling | Demo context. A 5–10s wait with a spinner is acceptable. SSE adds meaningful complexity for marginal UX gain. |
+| CLI call strategy | Ingest is synchronous (wait for exit); retrieve uses `spawnLineStreaming` for NDJSON SSE progress | All-sync; all-async | Ingest has no streaming output. Retrieve emits partial packets; streaming lets the UI render candidates while the LLM summary generates. |
+| `function_anchor_match` display | Inline with the matching commit row, not as a standalone evidence item | Separate evidence row | Showing function name next to the commit that introduced it is more readable than an orphaned evidence line. |
+| `doc_penalty` evidence colour | Orange text with score shown | Same grey as positive evidence | Penalty items are negative signals; distinguishing them visually prevents confusion with positive evidence. |
 | Ticket schema | Minimal: id, subject, content, created_at | Full CRM schema with severity, status, customer, source | This is a demo shell, not a ticketing product. Minimal schema is faster to fill, easier to read, and puts focus on the MODOK output. |
 | Ticket sort order | Newest-first (array prepend on create) | Oldest-first; manual reorder | Newest-on-top is the natural inbox pattern. New tickets are the active work. |
 | Ticket persistence | Local JSON files in `ui/data/` | SQLite; in-memory only | JSON files are inspectable and portable. No native binary dependency. In-memory loses state on restart. |
@@ -334,10 +356,12 @@ Five tickets checked in to `data/tickets.json`, ordered newest-first. Each has a
 
 ## Open Questions & Future Decisions
 
+### Resolved
+1. ✅ SSE streaming for retrieve — `spawnLineStreaming` emits partial packets; UI renders candidates before summary arrives.
+
 ### Deferred
-1. **SSE progress streaming** — show `ingest` and `retrieve` as sequential live stages instead of a spinner. Deferred: synchronous is sufficient for the demo.
-2. **Search result → ticket linking** — show a "View ticket" link in the result sheet when a node is referenced by a known ticket. Deferred: requires indexing node-to-ticket relationships.
-3. **Mock packet variety** — one global fixture vs. one fixture per ticket. Deferred: one global fixture is fine for v1.
+1. **Search result → ticket linking** — show a "View ticket" link in the result sheet when a node is referenced by a known ticket. Deferred: requires indexing node-to-ticket relationships.
+2. **Mock packet variety** — one global fixture vs. one fixture per ticket. Deferred: one global fixture is fine for v1.
 
 ## References
 

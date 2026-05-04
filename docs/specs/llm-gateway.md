@@ -1,6 +1,6 @@
 # LLM Gateway Specs
 
-Specs for `modok.llm` — the abstract LLM boundary that returns proposals for ticket parsing, metadata suggestion, and similarity matching.
+Specs for `modok.llm` — the abstract LLM boundary that returns proposals for ticket parsing, metadata suggestion, similarity matching, and debug packet summarisation.
 
 LLD: `docs/llds/llm-gateway.md`
 
@@ -31,7 +31,7 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **LLM-RETRY-001** [U]: On a timeout or 5xx response, the system shall retry up to `max_retries` times with a 1-second fixed delay between attempts, on the same backend. Retry does not trigger backend escalation — escalation is triggered only by validation failure (LLM-BACK-003).
 - [x] **LLM-RETRY-002** [U]: On a 4xx response, the system shall raise `LLMGatewayError` immediately without retrying.
 - [x] **LLM-RETRY-003** [U]: After all retries are exhausted without a valid response, the system shall raise `LLMUnavailableError`.
-- [x] **LLM-RETRY-004** [U]: `parse_ticket` calls shall use `timeout_parse_ticket` (default 30s) per attempt. `propose_metadata` and `propose_similarity` calls shall use `timeout_propose_metadata` and `timeout_propose_similarity` respectively (default 15s each). When a per-call-type timeout key is absent from config, the system shall fall back to `timeout_seconds`.
+- [x] **LLM-RETRY-004** [U]: `parse_ticket` and `summarise_packet` calls shall use `timeout_parse_ticket` and `timeout_summarise_packet` respectively (default 30s each). `propose_metadata` and `propose_similarity` calls shall use `timeout_propose_metadata` and `timeout_propose_similarity` respectively (default 15s each). When a per-call-type timeout key is absent from config, the system shall fall back to `timeout_seconds`.
 - [x] **LLM-RETRY-005** [P]: The total number of network attempts for any single gateway call shall never exceed `max_retries + 1`.
 
 ---
@@ -49,10 +49,11 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Ticket Parsing
 
-- [x] **LLM-TICKET-001** [U]: `parse_ticket` shall send the raw ticket text and project slug to the LLM and return a `TicketParseResult` containing `feature_slug`, `error_signatures`, `environment`, `symptoms`, `confidence`, and `raw_response`.
+- [x] **LLM-TICKET-001** [U]: `parse_ticket` shall send the raw ticket text and project slug to the LLM and return a `TicketParseResult` containing `feature_slugs` (list), `error_signatures`, `environment`, `symptoms`, `confidence`, `raw_response`, and `mentioned_files`.
 - [x] **LLM-TICKET-002** [U]: When the model does not report a confidence value, `TicketParseResult.confidence` shall default to `0.0`.
-- [x] **LLM-TICKET-003** [U]: `parse_ticket` shall use the frozen system prompt template from `modok.llm.prompts` and shall not construct prompts dynamically beyond interpolating `project_slug` into the template.
+- [x] **LLM-TICKET-003** [U]: `parse_ticket` shall accept optional context parameters (`valid_slugs`, `feature_slugs`, `module_slugs`, `feature_descriptions`, `module_descriptions`, `module_elements`, `module_source_files`) interpolated into the prompt to guide slug selection. When `valid_slugs` is provided, returned `feature_slugs` shall be filtered to only those present in `valid_slugs`.
 - [x] **LLM-TICKET-004** [U]: `parse_ticket` shall never write to Quine or to any file; it returns a result struct only.
+- [x] **LLM-TICKET-005** [U]: When the model returns a legacy `feature_slug` (singular string) instead of `feature_slugs` (list), the system shall accept both and normalise to a list before returning.
 
 ---
 
@@ -109,6 +110,15 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
+## Packet Summary
+
+- [x] **LLM-SUMM-001** [U]: `summarise_packet` shall send `issue_text`, `module_slugs`, `error_signatures`, `symptoms`, `matched_elements`, `relevant_files`, `relevant_tests`, `recent_commits` (up to 5), and `known_issues` to the LLM and return a single plain string containing one diagnostic sentence.
+- [x] **LLM-SUMM-002** [U]: The `summarise_packet` system prompt shall instruct the LLM to prioritize signals in this order: matched elements (named explicitly) > named errors or known issues > relevant files > recent commits. When `matched_elements` is non-empty, the summary shall name at least one element explicitly.
+- [x] **LLM-SUMM-003** [U]: `summarise_packet` shall use the frozen `SUMMARISE_PACKET_SYSTEM` prompt from `modok.llm.prompts`. The response shall be a JSON object `{"summary": "..."}` validated before the string is extracted and returned.
+- [x] **LLM-SUMM-004** [U]: `summarise_packet` shall never write to Quine or to any file; it returns a plain string only.
+
+---
+
 ## Gateway Write Boundary
 
 - [x] **LLM-WRITE-001** [U]: No gateway function shall call `upsert_node`, `write_edge`, or any Quine client method.
@@ -120,4 +130,4 @@ See `docs/testing-standard.md` for full definitions.
 ## Prompt Discipline
 
 - [x] **LLM-PROMPT-001** [U]: All prompt templates shall be defined as module-level string constants in `modok.llm.prompts`; no prompt text shall be constructed at runtime outside of field interpolation.
-- [x] **LLM-PROMPT-002** [U]: Each of the three call types (`parse_ticket`, `propose_metadata`, `propose_similarity`) shall use a distinct system prompt template.
+- [x] **LLM-PROMPT-002** [U]: Each of the four call types (`parse_ticket`, `propose_metadata`, `propose_similarity`, `summarise_packet`) shall use a distinct system prompt template.

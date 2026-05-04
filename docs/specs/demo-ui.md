@@ -88,12 +88,25 @@ LLD: `docs/llds/demo-ui.md`
 - [x] **DEMO-MODOK-003** [U]: While the Build Debug Packet POST request is in flight, the "Build Debug Packet" button shall not be clickable.
 - [x] **DEMO-MODOK-004** [U, E2E]: When the Build Debug Packet POST request completes successfully, the MODOK panel shall render the debug packet without a full page reload.
 - [x] **DEMO-MODOK-011** [U, E2E]: While `ModokRun.status` for the current ticket is `"complete"` (including on initial page load), the MODOK panel shall display the previously returned debug packet.
-- [x] **DEMO-MODOK-005** [U]: The debug packet shall render sections in this order: Issue Summary, Anchors, Relevant Docs, Code Files, Known Issues, Prior Fixes, Raw JSON.
+- [x] **DEMO-MODOK-005** [U]: The debug packet shall render sections in this order: LLM Summary (if non-empty), Issue title, Anchors, Affected Areas, Top Suspects, Code Files, Test Files, Known Issues, Prior Fixes, Recent Commits, Raw JSON.
 - [x] **DEMO-MODOK-006** [U]: Sections of the debug packet that contain no items shall be omitted entirely from the rendered output.
 - [x] **DEMO-MODOK-007** [U]: The Raw JSON section shall be a collapsible block containing a `<pre>`-formatted JSON string, collapsed by default.
 - [x] **DEMO-MODOK-008** [U]: When `ModokRun.status` is `"failed"`, the MODOK panel shall display an error message corresponding to `ModokRun.error` (see error key table in LLD).
 - [x] **DEMO-MODOK-009** [U]: When `ModokRun.ingest_partial` is `true`, the MODOK panel shall display a warning banner above the debug packet reading "Ingestion completed with errors — results may be incomplete."
 - [x] **DEMO-MODOK-010** [U]: When `ModokRun.error` is `"parse_error"`, the MODOK panel shall render the Raw JSON section with the raw stdout content even though it is not valid JSON.
+- [x] **DEMO-MODOK-012** [U]: When `debug_packet.summary` is a non-empty string, the MODOK panel shall render it in a callout box above the issue title. When `summary` is empty or absent, the callout shall be omitted.
+- [x] **DEMO-MODOK-013** [U]: The Affected Areas section shall render each `AffectedArea` as a pill badge. Features shall display a `⬡` prefix; modules shall display a `○` prefix.
+- [x] **DEMO-MODOK-014** [U]: The Top Suspects section shall render each `ScoredCandidate` as a `CandidateRow` showing: a confidence badge (colour-coded high/medium/low), the file path truncated to one line, and the numeric score.
+- [x] **DEMO-MODOK-015** [U]: Within a `CandidateRow`, evidence items other than `recent_commit`, `function_anchor_match`, and `doc_penalty` shall render as `· {type} {explanation}`. Items with a negative score shall render in orange with the score value shown. `doc_penalty` items shall not be displayed (the penalty's effect is already visible in the candidate's lower overall score).
+- [x] **DEMO-MODOK-016** [U]: Within a `CandidateRow`, when `recent_commit` evidence is present, commits shall render in a block below a `· recent_commit` label, all left-aligned at the same indent. Each commit shall show the 7-char SHA, formatted date, author name, and commit message truncated to 60 characters.
+- [x] **DEMO-MODOK-017** [U]: Within a `CandidateRow`, `function_anchor_match` evidence shall not appear as a standalone row. Instead, for each commit whose 7-char SHA matches the SHA in a `function_anchor_match` explanation (format `"{names} · {sha}"` as defined in DRE-FUNC-002), the matched function names shall be shown inline as `· fn: {names}` on that commit's row.
+
+---
+
+## MODOK Streaming
+
+- [x] **DEMO-STREAM-001** [U]: When `modok retrieve` emits an NDJSON line with `step` equal to `"loading"`, the MODOK panel shall update to show the issue title immediately, before anchor extraction or scoring completes.
+- [x] **DEMO-STREAM-002** [U]: When `modok retrieve` emits an NDJSON line with any `step` other than `"complete"`, the MODOK panel shall render the partial `DebugPacket` from that line's `data` field, replacing any previously shown partial state.
 
 ---
 

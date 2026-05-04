@@ -4,20 +4,21 @@
 
 The LLM Gateway is MODOK's controlled boundary between mechanical graph operations and language model inference. Every LLM call in the system routes through this component.
 
-Three uses exist in v1:
+Four uses exist:
 
-1. **Ticket parsing** — convert freeform customer issue text into structured YAML (feature slug, error signatures, environment, symptoms).
+1. **Ticket parsing** — convert freeform customer issue text into structured anchors (feature slugs, error signatures, symptoms, mentioned files).
 2. **Metadata proposal** — suggest missing frontmatter fields for a doc when `--fix` is specified.
 3. **Similarity proposal** — given a new CustomerIssue, suggest candidate KnownIssue matches with evidence anchors.
+4. **Packet summary** — given a resolved debug packet (files, errors, symptoms, matched elements), produce a single diagnostic sentence naming the most specific available signal.
 
-One rule governs all three: **the gateway returns proposals, never writes**. No gateway output touches Quine or doc files directly; the caller owns the write decision.
+One rule governs all four: **the gateway returns proposals, never writes**. No gateway output touches Quine or doc files directly; the caller owns the write decision.
 
 ## Interface
 
 The gateway exposes a single async function per use case:
 
 ```python
-async def parse_ticket(raw_text: str, project_slug: str) -> TicketParseResult
+async def parse_ticket(raw_text: str, project_slug: str, ...) -> TicketParseResult
 async def propose_metadata(
     doc_path: Path,
     frontmatter: dict,
@@ -25,9 +26,23 @@ async def propose_metadata(
     repair_context: list[dict] | None = None,   # counterexamples from prior failed attempt
 ) -> MetadataProposal
 async def propose_similarity(issue: CustomerIssue, candidates: list[KnownIssueSummary]) -> list[SimilarityProposal]
+async def summarise_packet(
+    issue_text: str,
+    module_slugs: list[str],
+    error_signatures: list[str],
+    symptoms: list[str],
+    relevant_files: list[str],
+    relevant_tests: list[str],
+    matched_elements: list[str],
+    recent_commits: list[dict],
+    known_issues: list[str],
+    backend: str = "local",
+) -> str
 ```
 
 `propose_similarity` requires the caller to pass `candidates` — a pre-fetched list of `KnownIssueSummary` structs (id, summary, error_signatures). The gateway does not query Quine; the Diagnostic Retrieval Engine fetches candidates and passes them in. This keeps the gateway stateless.
+
+`summarise_packet` returns a single plain string (the one-sentence summary). `matched_elements` is a list of registered element names that were confirmed to match the ticket's symptom/error tokens; when present, the prompt instructs the LLM to name them explicitly in the summary.
 
 ```python
 @dataclass
@@ -37,7 +52,7 @@ class KnownIssueSummary:
     error_signatures: list[str]
 ```
 
-All three are thin wrappers around `_chat_completion(messages, response_format)`, which handles backend selection, retry, and timeout.
+All four are thin wrappers around `_chat_completion(messages, response_format)`, which handles backend selection, retry, and timeout.
 
 ## Backend Model
 
@@ -69,6 +84,7 @@ timeout_seconds = 30          # default; overridden per call type below
 timeout_parse_ticket    = 30  # background-safe; can be slow
 timeout_propose_metadata = 15 # interactive (--fix workflow); must feel fast
 timeout_propose_similarity = 15  # interactive; surfaced to user
+timeout_summarise_packet   = 30  # background; called after retrieval
 max_retries     = 2
 cegis_fix_enabled = true
 cegis_max_iterations_propose_metadata = 1   # one repair attempt; total max 2 LLM calls
@@ -102,13 +118,20 @@ Each call type has a fixed system prompt template stored in `modok/llm/prompts.p
 ```python
 @dataclass
 class TicketParseResult:
-    feature_slug: str | None
+    feature_slugs: list[str]   # validated against valid_slugs if provided; legacy "feature_slug" field accepted
     error_signatures: list[str]
     environment: dict[str, str]
     symptoms: list[str]
     confidence: float          # 0.0–1.0; model self-reported; 0.0 if absent
     raw_response: str          # in-memory only; caller logs if desired; not persisted by gateway
+    mentioned_files: list[str] # file paths explicitly named in ticket text; empty list if none
 ```
+
+`parse_ticket` accepts optional context parameters forwarded from the DRE: `valid_slugs`, `feature_slugs`, `module_slugs`, `feature_descriptions`, `module_descriptions`, `module_elements`, `module_source_files`. These are interpolated into the prompt to guide the LLM toward valid slugs and reduce hallucination. The gateway validates that returned `feature_slugs` are in `valid_slugs` when provided.
+
+### `summarise_packet` return
+
+Returns a plain `str` — a single diagnostic sentence. The system prompt instructs the LLM to prioritize signals in this order: matched elements (named explicitly) > named errors or known issues > relevant files > recent commits. The response is a JSON object `{"summary": "..."}` parsed and validated before the string is returned.
 
 ### `MetadataProposal`
 
@@ -281,7 +304,9 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 | `propose_similarity` caller supplies candidates | Caller pre-fetches `KnownIssueSummary` list and passes to gateway | Gateway queries Quine directly | Gateway stays stateless; retrieval logic belongs in the retrieval engine |
 | `LLMResponseError` is hard exception | Always raise; caller handles degradation | Gateway returns empty/partial result | Caller knows its UX context; swallowing errors in the gateway hides failures |
 | `raw_response` persistence | In-memory only; returned in result struct | Gateway persists to audit log | Persistence is a future audit-log concern; current callers only need it for debug logging |
-| Per-call-type timeouts | 15s interactive (`propose_metadata`, `propose_similarity`), 30s background (`parse_ticket`) | Single global timeout | Interactive paths must feel fast; ticket parsing is background-safe |
+| Per-call-type timeouts | 15s interactive (`propose_metadata`, `propose_similarity`), 30s background (`parse_ticket`, `summarise_packet`) | Single global timeout | Interactive paths must feel fast; background calls can be slower |
+| `matched_elements` in `summarise_packet` | Passed explicitly by DRE; named in prompt priority list | Derive from files only | Without element names the LLM focuses on the file path; naming the element produces a more actionable summary |
+| `summarise_packet` returns plain string | `str` return | `SummaryResult` dataclass | No additional metadata from the summary call is needed by callers; a plain string avoids a wrapper type |
 | `repair_context` in `propose_metadata` | Optional parameter; gateway includes counterexamples in repair prompt when present | Separate `repair_metadata` function; always include repair context | Single function keeps the interface simple; `None` repair_context = initial call, non-None = repair call; no behavioral difference from gateway's perspective beyond prompt construction |
 | CEGIS repair iteration cap | 1 (total 2 LLM calls max per field set) | Unlimited; 2 or 3 iterations | One repair is sufficient to distinguish "model can self-correct" from "prompt needs improvement"; more iterations delay interactive `--fix` UX with diminishing returns |
 | Verifier location | `modok/ingestion/verifier.py`; not in gateway | `modok/llm/verifier.py` | Registry access required for slug/enum validation; gateway is stateless and registry-unaware |
