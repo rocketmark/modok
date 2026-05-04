@@ -233,7 +233,7 @@ async def test_touches_edge_written_for_each_touched_file(tmp_path):
 
 # @spec SI-GIT-003
 @pytest.mark.asyncio
-async def test_touches_edge_carries_change_type_property(tmp_path):
+async def test_touches_edge_written_without_properties(tmp_path):
     from modok.ingestion.git_history import write_commit_to_quine
 
     commit = CommitRecord(
@@ -249,11 +249,12 @@ async def test_touches_edge_carries_change_type_property(tmp_path):
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
+    # Edge is written without properties (Quine does not persist relationship properties)
     assert client.write_edge_by_parts.call_count == 1
     call = client.write_edge_by_parts.call_args
+    assert call.args[1] == "TOUCHES"
     props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
-    assert isinstance(props, dict)
-    assert props.get("change_type") == "A"
+    assert props is None
 
 
 # ---------------------------------------------------------------------------
@@ -836,9 +837,10 @@ index aaa..bbb 100644
 
 
 @pytest.mark.asyncio
-async def test_touches_edge_carries_hunks_when_file_hunks_populated():
+async def test_commit_node_carries_file_hunks_when_populated():
     import json
     from modok.ingestion.git_history import write_commit_to_quine
+    from modok.quine.models import Commit as CommitNode
 
     commit = CommitRecord(
         sha="d" * 40,
@@ -858,19 +860,21 @@ async def test_touches_edge_carries_hunks_when_file_hunks_populated():
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
-    call = client.write_edge_by_parts.call_args
-    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
-    assert "hunks" in props
-    hunks = json.loads(props["hunks"])
-    assert len(hunks) == 1
+    upserted = [c.args[0] for c in client.upsert_node.call_args_list]
+    commit_nodes = [n for n in upserted if isinstance(n, CommitNode)]
+    assert len(commit_nodes) == 1
+    parsed = json.loads(commit_nodes[0].file_hunks)
+    assert "src/shtp.py" in parsed
+    hunks = parsed["src/shtp.py"]
     assert hunks[0]["lines"] == [10, 12]
     assert hunks[0]["function"] == "class Shtp:"
     assert hunks[0]["defs"] == ["handle_packet"]
 
 
 @pytest.mark.asyncio
-async def test_touches_edge_omits_hunks_when_no_file_hunks():
+async def test_commit_node_file_hunks_empty_when_no_hunk_data():
     from modok.ingestion.git_history import write_commit_to_quine
+    from modok.quine.models import Commit as CommitNode
 
     commit = CommitRecord(
         sha="e" * 40,
@@ -886,6 +890,6 @@ async def test_touches_edge_omits_hunks_when_no_file_hunks():
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
-    call = client.write_edge_by_parts.call_args
-    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
-    assert "hunks" not in props
+    upserted = [c.args[0] for c in client.upsert_node.call_args_list]
+    commit_nodes = [n for n in upserted if isinstance(n, CommitNode)]
+    assert commit_nodes[0].file_hunks == ""

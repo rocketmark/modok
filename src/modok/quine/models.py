@@ -132,6 +132,7 @@ class Commit(QuineNode):
     author_email: str
     message: str
     branch: str | None = None
+    file_hunks: str = ""  # JSON: {file_path: [{lines, function, defs}]}
 
 
 _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {

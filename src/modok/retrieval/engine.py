@@ -245,7 +245,7 @@ async def _traverse_files_to_recent_commits(
         rows = await client.query(
             f"MATCH (f) WHERE id(f) = idFrom('{node_kind}', $project_slug, $file_path) "
             "OPTIONAL MATCH (c)-[e:TOUCHES]->(f) "
-            "RETURN f, c, e",
+            "RETURN f, c",
             {"project_slug": project_slug, "file_path": file_path},
         )
         for row in rows:
@@ -259,17 +259,15 @@ async def _traverse_files_to_recent_commits(
                 seen[sha] = dict(props)
                 seen[sha]["files_touched"] = []
                 seen[sha]["file_hunk_data"] = {}
-            if file_path not in seen[sha]["files_touched"]:
-                seen[sha]["files_touched"].append(file_path)
-            # Extract hunk data from the TOUCHES edge properties
-            if len(row) >= 3 and row[2] and isinstance(row[2], dict):
-                edge_props = row[2].get("properties", {})
-                hunks_json = edge_props.get("hunks")
-                if hunks_json and file_path not in seen[sha]["file_hunk_data"]:
+                # Parse file_hunks stored on the Commit node
+                raw = props.get("file_hunks", "")
+                if raw:
                     try:
-                        seen[sha]["file_hunk_data"][file_path] = json.loads(hunks_json)
+                        seen[sha]["file_hunk_data"] = json.loads(raw)
                     except (json.JSONDecodeError, TypeError):
                         pass
+            if file_path not in seen[sha]["files_touched"]:
+                seen[sha]["files_touched"].append(file_path)
     all_commits = list(seen.values())
     all_commits.sort(key=lambda c: c.get("timestamp", ""), reverse=True)
     return all_commits[:limit]
@@ -660,6 +658,34 @@ async def retrieve(
 
     anchor_tokens = _build_anchor_tokens(feature_slugs, error_sigs, symptoms)
 
+    # Element anchor matching — boost files that contain registered elements whose names
+    # token-match anchor terms (e.g. "reinit button" → element "reinit_requested").
+    # Also expands anchor_tokens with matching element tokens for richer function_anchor_match.
+    # Use symptom/error tokens only (not feature/module slug tokens) to avoid matching every
+    # element whose name contains the module name itself (e.g. "DeviceCard" in device-card module).
+    symptom_error_tokens = _build_anchor_tokens([], error_sigs, symptoms)
+    matched_elements: list[str] = []
+    if symptom_error_tokens and module_elements and module_source_files:
+        for slug in resolved_module_slugs:
+            elements = module_elements.get(slug, [])
+            files = module_source_files.get(slug, [])
+            slug_matches = [elem for elem in elements if _tokenize(elem) & symptom_error_tokens]
+            if slug_matches and files:
+                matched_elements.extend(slug_matches)
+                elem_names = ", ".join(slug_matches[:3])
+                for fpath in files:
+                    ev_map = test_file_evidence if fpath in test_file_evidence else (
+                        file_evidence if fpath in file_evidence else None
+                    )
+                    if ev_map is not None:
+                        _add_evidence(ev_map, fpath, EvidenceItem(
+                            type="element_anchor_match",
+                            score=6.0,
+                            explanation=f"Contains element {elem_names} — matches anchor terms",
+                        ))
+                for elem in slug_matches:
+                    anchor_tokens.update(_tokenize(elem))
+
     # Add recent_commit evidence for source/test files already in the evidence maps.
     # Skip non-source files (docs, markdown) — doc maintenance commits are not bug signals.
     # Also add function_anchor_match evidence when a modified function name overlaps an anchor term.
@@ -684,7 +710,7 @@ async def retrieve(
                     _add_evidence(evidence_map, fpath, EvidenceItem(
                         type="function_anchor_match",
                         score=6.0,
-                        explanation=f"Defines {names} — matches issue anchor terms",
+                        explanation=f"Defines {names} in {sha_short} — matches issue anchor terms",
                     ))
 
     # Build scored candidates and derive ordered file lists
@@ -739,6 +765,7 @@ async def retrieve(
             symptoms=symptoms,
             relevant_files=relevant_files,
             relevant_tests=relevant_tests,
+            matched_elements=matched_elements,
             recent_commits=[
                 {"timestamp": c.get("timestamp", ""), "author_name": c.get("author_name", ""), "message": c.get("message", "")}
                 for c in raw_commits

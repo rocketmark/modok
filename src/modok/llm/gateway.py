@@ -795,6 +795,7 @@ async def summarise_packet(
     symptoms: list[str],
     relevant_files: list[str],
     relevant_tests: list[str],
+    matched_elements: list[str],
     recent_commits: list[dict],
     known_issues: list[str],
     backend: str = "local",
@@ -813,12 +814,14 @@ async def summarise_packet(
     errors_line = "; ".join(error_signatures) if error_signatures else "(none)"
     symptoms_line = "; ".join(symptoms) if symptoms else "(none)"
     issues_line = "; ".join(known_issues) if known_issues else "none"
+    elements_line = ", ".join(matched_elements) if matched_elements else "(none)"
 
     user_content = (
         f"Issue: {issue_text}\n\n"
         f"Module: {modules_line}\n"
         f"Errors: {errors_line}\n"
-        f"Symptoms: {symptoms_line}\n\n"
+        f"Symptoms: {symptoms_line}\n"
+        f"Matched elements: {elements_line}\n\n"
         f"Files:\n{files_block}\n\n"
         f"Tests:\n{tests_block}\n\n"
         f"Recent commits:\n{commits_block}\n\n"

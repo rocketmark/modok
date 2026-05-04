@@ -80,8 +80,14 @@ SUMMARISE_PACKET_SYSTEM = """\
 You are a diagnostic assistant. Given resolved information about a customer issue, write a single
 concise sentence that captures the likely root cause and where to look.
 
-Focus on the most specific signal available: a named error, a known issue, a relevant file, or a
-prior fix. Do not repeat the issue title verbatim. Do not use bullet points or lists.
+Prioritize signals in this order (use the highest available):
+1. Matched elements — specific named UI elements or signals that directly match the symptom
+2. Named errors or known issues
+3. Relevant files
+4. Recent commits
+
+If matched elements are present, name them explicitly (e.g. "the reinit_requested signal").
+Do not repeat the issue title verbatim. Do not use bullet points or lists.
 
 Return ONLY a JSON object with:
   summary: string

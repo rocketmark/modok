@@ -421,6 +421,16 @@ async def write_commit_to_quine(
     """Write one Commit node, upsert File nodes for touched paths, and write TOUCHES edges."""
     from modok.quine.models import Commit as CommitNode, File as FileNode, TestFile as TestFileNode
     from modok.retrieval.engine import _is_test_path
+
+    file_hunks_json = json.dumps({
+        file_path: [
+            {"lines": list(h.lines), "function": h.function_context, "defs": h.added_defs}
+            for h in hunks
+        ]
+        for file_path, hunks in commit.file_hunks.items()
+        if hunks
+    }) if commit.file_hunks else ""
+
     commit_node = CommitNode(
         node_type="Commit",
         project_slug=project_slug,
@@ -430,24 +440,13 @@ async def write_commit_to_quine(
         author_email=commit.author_email,
         message=commit.message,
         branch=commit.branch,
+        file_hunks=file_hunks_json,
     )
     await client.upsert_node(commit_node)
 
-    for file_path, change_type in commit.touched_files:
+    for file_path, _change_type in commit.touched_files:
         # SI-GIT-003: upsert a minimal node so the TOUCHES edge always resolves,
         # even when ingest-docs hasn't run yet for this file's feature.
-        edge_props: dict[str, Any] = {"change_type": change_type}
-        hunks = commit.file_hunks.get(file_path)
-        if hunks:
-            edge_props["hunks"] = json.dumps([
-                {
-                    "lines": list(h.lines),
-                    "function": h.function_context,
-                    "defs": h.added_defs,
-                }
-                for h in hunks
-            ])
-
         if _is_test_path(file_path):
             node = TestFileNode(node_type="TestFile", project_slug=project_slug, repo_path=file_path)
             await client.upsert_node(node)
@@ -455,7 +454,6 @@ async def write_commit_to_quine(
                 ("commit", project_slug, commit.sha),
                 "TOUCHES",
                 ("test-file", project_slug, file_path),
-                properties=edge_props,
             )
         else:
             node = FileNode(node_type="File", project_slug=project_slug, repo_path=file_path)
@@ -464,7 +462,6 @@ async def write_commit_to_quine(
                 ("commit", project_slug, commit.sha),
                 "TOUCHES",
                 ("file", project_slug, file_path),
-                properties=edge_props,
             )
 
 

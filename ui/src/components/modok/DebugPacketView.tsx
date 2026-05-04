@@ -1,4 +1,4 @@
-import type { DebugPacket, ScoredCandidate } from '@/types/debug-packet'
+import type { DebugPacket, RecentCommit, ScoredCandidate } from '@/types/debug-packet'
 import { PacketSection } from './PacketSection'
 import { RawJsonCollapsible } from './RawJsonCollapsible'
 
@@ -12,8 +12,42 @@ const CONFIDENCE_STYLES: Record<string, string> = {
   low: 'bg-slate-50 text-slate-500 border-slate-200',
 }
 
-function CandidateRow({ candidate }: { candidate: ScoredCandidate }) {
+function fmtDate(ts: string): string {
+  try {
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  } catch {
+    return ts.slice(0, 10)
+  }
+}
+
+function shaFrom(explanation: string): string {
+  return explanation.split('commit ')[1] ?? ''
+}
+
+function CandidateRow({
+  candidate,
+  commitMeta,
+}: {
+  candidate: ScoredCandidate
+  commitMeta: Record<string, RecentCommit>
+}) {
   const badge = CONFIDENCE_STYLES[candidate.confidence] ?? CONFIDENCE_STYLES.low
+
+  const recentCommitEvidence = candidate.evidence.filter(ev => ev.type === 'recent_commit')
+  const otherEvidence = candidate.evidence.filter(ev => ev.type !== 'recent_commit')
+
+  const mostRecentSha = recentCommitEvidence[0] ? shaFrom(recentCommitEvidence[0].explanation) : ''
+  const mostRecentMeta = commitMeta[mostRecentSha]
+  const additionalEvidence = recentCommitEvidence.slice(1)
+
+  // Pull touched function from function_anchor_match if it names the most recent commit
+  const anchorMatch = candidate.evidence.find(
+    ev => ev.type === 'function_anchor_match' && ev.explanation.includes(mostRecentSha)
+  )
+  const touchedFn = anchorMatch
+    ? (anchorMatch.explanation.split('Defines ')[1]?.split(' in ')[0] ?? null)
+    : null
+
   return (
     <li className="border border-slate-100 rounded p-2 space-y-1.5">
       <div className="flex items-center gap-2">
@@ -23,18 +57,53 @@ function CandidateRow({ candidate }: { candidate: ScoredCandidate }) {
         <span className="font-mono text-xs text-slate-700 flex-1 truncate">{candidate.path}</span>
         <span className="text-xs text-slate-400 flex-shrink-0">score {candidate.score}</span>
       </div>
-      {candidate.evidence.length > 0 && (
+      {(otherEvidence.length > 0 || recentCommitEvidence.length > 0) && (
         <ul className="space-y-0.5">
-          {candidate.evidence.map((ev, i) => (
+          {otherEvidence.map((ev, i) => (
             <li key={i} className={`text-xs flex gap-1.5 ${ev.score < 0 ? 'text-orange-500' : 'text-slate-500'}`}>
               <span className={ev.score < 0 ? 'text-orange-300' : 'text-slate-300'}>·</span>
               <span className="flex-shrink-0 font-medium">{ev.type}</span>
               <span className="flex-1">{ev.explanation}</span>
-              {ev.score < 0 && (
-                <span className="flex-shrink-0 font-mono">{ev.score}</span>
-              )}
+              {ev.score < 0 && <span className="flex-shrink-0 font-mono">{ev.score}</span>}
             </li>
           ))}
+          {recentCommitEvidence.length > 0 && (
+            <li className="text-xs flex gap-1.5 text-slate-500">
+              <span className="text-slate-300">·</span>
+              <span className="flex-shrink-0 font-medium">recent_commit</span>
+              <div className="flex-1 space-y-0.5">
+                <div>
+                  <span className="font-mono">{mostRecentSha}</span>
+                  {mostRecentMeta && (
+                    <>
+                      <span className="text-slate-400"> · {fmtDate(mostRecentMeta.timestamp)} · {mostRecentMeta.author_name}</span>
+                      {touchedFn && <span className="text-slate-400"> · fn: {touchedFn}</span>}
+                      <span className="text-slate-600"> — {mostRecentMeta.message.slice(0, 60)}{mostRecentMeta.message.length > 60 ? '…' : ''}</span>
+                    </>
+                  )}
+                </div>
+                {additionalEvidence.length > 0 && (
+                  <ul className="space-y-0.5 text-slate-400">
+                    {additionalEvidence.map((ev, i) => {
+                      const sha = shaFrom(ev.explanation)
+                      const meta = commitMeta[sha]
+                      return (
+                        <li key={i}>
+                          <span className="font-mono">{sha}</span>
+                          {meta && (
+                            <>
+                              <span> · {fmtDate(meta.timestamp)} · {meta.author_name}</span>
+                              <span> — {meta.message.slice(0, 60)}{meta.message.length > 60 ? '…' : ''}</span>
+                            </>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            </li>
+          )}
         </ul>
       )}
     </li>
@@ -44,6 +113,11 @@ function CandidateRow({ candidate }: { candidate: ScoredCandidate }) {
 // @spec DEMO-MODOK-004, DEMO-MODOK-005, DEMO-MODOK-006, DEMO-MODOK-011
 export function DebugPacketView({ packet }: Props) {
   const { issue, affected_areas, relevant_files, relevant_tests, known_issues, prior_fixes, recent_commits, scored_candidates, summary } = packet
+
+  const commitMeta: Record<string, RecentCommit> = {}
+  for (const c of recent_commits ?? []) {
+    commitMeta[c.sha.slice(0, 7)] = c
+  }
   const anchors = issue.anchors
   const hasAnchors =
     anchors.features.length > 0 ||
@@ -104,7 +178,7 @@ export function DebugPacketView({ packet }: Props) {
         <PacketSection title="Top Suspects">
           <ul className="space-y-2">
             {scored_candidates.map((c, i) => (
-              <CandidateRow key={i} candidate={c} />
+              <CandidateRow key={i} candidate={c} commitMeta={commitMeta} />
             ))}
           </ul>
         </PacketSection>
