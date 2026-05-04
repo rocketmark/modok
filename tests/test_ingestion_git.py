@@ -17,10 +17,12 @@ from hypothesis import strategies as st
 
 from modok.ingestion.git_history import (
     CommitRecord,
+    HunkRecord,
     build_registered_file_set,
     load_last_git_sha,
     parse_commit_log,
     save_last_git_sha,
+    _parse_diff,
 )
 from modok.ingestion.registry import Registry
 
@@ -683,3 +685,207 @@ def test_since_replaces_6_month_window_not_max_commits():
     assert "2023-01-01" in since_str
     # The 6-month relative window keyword should NOT appear when --since is given
     assert "6 months" not in since_str or "month" not in since_str.lower()
+
+
+# ---------------------------------------------------------------------------
+# Diff parsing — _parse_diff / HunkRecord
+# ---------------------------------------------------------------------------
+
+_PYTHON_DIFF = """\
+diff --git a/src/shtp.py b/src/shtp.py
+index abc1234..def5678 100644
+--- a/src/shtp.py
++++ b/src/shtp.py
+@@ -10,3 +10,5 @@ class ShtpHandler:
++    def handle_packet(self, pkt):
++        return pkt
+ existing_line = True
+-old_line = True
++new_line = True
+@@ -50,1 +52,2 @@ class ShtpHandler:
++def parse_header(buf):
++    pass
+"""
+
+_MULTI_FILE_DIFF = """\
+diff --git a/agent/src/shtp.c b/agent/src/shtp.c
+index aaa..bbb 100644
+--- a/agent/src/shtp.c
++++ b/agent/src/shtp.c
+@@ -5,2 +5,3 @@ static void init(void) {
++    int x = 1;
++    return x;
+ }
+diff --git a/agent/src/util.c b/agent/src/util.c
+index ccc..ddd 100644
+--- a/agent/src/util.c
++++ b/agent/src/util.c
+@@ -1,1 +1,3 @@
++int helper(int a) {
++    return a;
++}
+"""
+
+_GO_DIFF = """\
+diff --git a/pkg/server.go b/pkg/server.go
+index 111..222 100644
+--- a/pkg/server.go
++++ b/pkg/server.go
+@@ -20,2 +20,4 @@ func (s *Server) Start() {
++func HandleRequest(w http.ResponseWriter, r *http.Request) {
++    w.WriteHeader(200)
++}
++
+"""
+
+_RUST_DIFF = """\
+diff --git a/src/lib.rs b/src/lib.rs
+index aaa..bbb 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,1 +1,3 @@
++pub fn compute(x: i32) -> i32 {
++    x * 2
++}
+"""
+
+
+def test_parse_diff_returns_file_keys():
+    result = _parse_diff(_PYTHON_DIFF)
+    assert "src/shtp.py" in result
+
+
+def test_parse_diff_extracts_hunk_line_range():
+    result = _parse_diff(_PYTHON_DIFF)
+    hunks = result["src/shtp.py"]
+    assert hunks[0].lines == (10, 14)   # +10,5 → lines 10..14
+    assert hunks[1].lines == (52, 53)   # +52,2 → lines 52..53
+
+
+def test_parse_diff_extracts_function_context_from_header():
+    result = _parse_diff(_PYTHON_DIFF)
+    # git puts "class ShtpHandler:" in the @@ context
+    assert result["src/shtp.py"][0].function_context == "class ShtpHandler:"
+
+
+def test_parse_diff_detects_python_function_defs():
+    result = _parse_diff(_PYTHON_DIFF)
+    all_defs = [d for h in result["src/shtp.py"] for d in h.added_defs]
+    assert "handle_packet" in all_defs
+    assert "parse_header" in all_defs
+
+
+def test_parse_diff_does_not_flag_plain_added_lines_as_defs():
+    result = _parse_diff(_PYTHON_DIFF)
+    # "new_line = True" and "return pkt" should not be detected as defs
+    all_defs = [d for h in result["src/shtp.py"] for d in h.added_defs]
+    assert "new_line" not in all_defs
+    assert "return" not in all_defs
+
+
+def test_parse_diff_multiple_files():
+    result = _parse_diff(_MULTI_FILE_DIFF)
+    assert "agent/src/shtp.c" in result
+    assert "agent/src/util.c" in result
+
+
+def test_parse_diff_detects_go_function():
+    result = _parse_diff(_GO_DIFF)
+    defs = [d for h in result.get("pkg/server.go", []) for d in h.added_defs]
+    assert "HandleRequest" in defs
+
+
+def test_parse_diff_detects_rust_function():
+    result = _parse_diff(_RUST_DIFF)
+    defs = [d for h in result.get("src/lib.rs", []) for d in h.added_defs]
+    assert "compute" in defs
+
+
+def test_parse_diff_empty_string_returns_empty():
+    assert _parse_diff("") == {}
+
+
+def test_parse_diff_no_added_lines_has_empty_defs():
+    delete_only_diff = """\
+diff --git a/src/old.py b/src/old.py
+index aaa..bbb 100644
+--- a/src/old.py
++++ b/src/old.py
+@@ -1,3 +1,0 @@
+-def removed():
+-    pass
+"""
+    result = _parse_diff(delete_only_diff)
+    if "src/old.py" in result:
+        for h in result["src/old.py"]:
+            assert h.added_defs == []
+
+
+def test_parse_diff_hunk_count_of_one_when_omitted():
+    # @@ -5 +5 @@ means count=1
+    single_line_diff = """\
+diff --git a/foo.py b/foo.py
+index aaa..bbb 100644
+--- a/foo.py
++++ b/foo.py
+@@ -5 +5 @@ some_context
++x = 1
+"""
+    result = _parse_diff(single_line_diff)
+    assert result["foo.py"][0].lines == (5, 5)
+
+
+@pytest.mark.asyncio
+async def test_touches_edge_carries_hunks_when_file_hunks_populated():
+    import json
+    from modok.ingestion.git_history import write_commit_to_quine
+
+    commit = CommitRecord(
+        sha="d" * 40,
+        timestamp="2024-01-15T10:30:00+00:00",
+        author_name="Alice",
+        author_email="alice@example.com",
+        message="add handler",
+        branch="main",
+        touched_files=[("src/shtp.py", "M")],
+        file_hunks={
+            "src/shtp.py": [
+                HunkRecord(lines=(10, 12), function_context="class Shtp:", added_defs=["handle_packet"])
+            ]
+        },
+    )
+    client = AsyncMock()
+
+    await write_commit_to_quine(commit, client=client, project_slug="stagehand")
+
+    call = client.write_edge_by_parts.call_args
+    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
+    assert "hunks" in props
+    hunks = json.loads(props["hunks"])
+    assert len(hunks) == 1
+    assert hunks[0]["lines"] == [10, 12]
+    assert hunks[0]["function"] == "class Shtp:"
+    assert hunks[0]["defs"] == ["handle_packet"]
+
+
+@pytest.mark.asyncio
+async def test_touches_edge_omits_hunks_when_no_file_hunks():
+    from modok.ingestion.git_history import write_commit_to_quine
+
+    commit = CommitRecord(
+        sha="e" * 40,
+        timestamp="2024-01-15T10:30:00+00:00",
+        author_name="Alice",
+        author_email="alice@example.com",
+        message="tweak config",
+        branch="main",
+        touched_files=[("src/shtp.py", "M")],
+        # file_hunks defaults to {}
+    )
+    client = AsyncMock()
+
+    await write_commit_to_quine(commit, client=client, project_slug="stagehand")
+
+    call = client.write_edge_by_parts.call_args
+    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
+    assert "hunks" not in props

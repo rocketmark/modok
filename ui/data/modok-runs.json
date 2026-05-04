@@ -1,1 +1,204 @@
-{}
+{
+  "STAGEHAND-10": {
+    "ticket_id": "STAGEHAND-10",
+    "status": "complete",
+    "debug_packet": {
+      "issue": {
+        "summary": "lighthouse disappears",
+        "anchors": {
+          "features": [],
+          "errors": [],
+          "symptoms": [
+            "A lighthouse disappears from the client, even though it is physically on and active.",
+            "The user has to manually turn the lighthouse off and back on to resolve the issue."
+          ]
+        }
+      },
+      "affected_areas": [
+        {
+          "type": "module",
+          "id": "module:lighthouse-ble",
+          "name": "lighthouse-ble"
+        }
+      ],
+      "relevant_files": [
+        "client/stagehand_client/lighthouse_ble.py",
+        "docs/arrows/client-utilities.md"
+      ],
+      "relevant_tests": [],
+      "known_issues": [],
+      "prior_fixes": [],
+      "recent_commits": [
+        {
+          "sha": "08c6d0f8e11191d5556d45f8cb10e529041acbe1",
+          "timestamp": "2026-05-03T13:43:30-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "cleaned modok headers",
+          "files_touched": [
+            "docs/arrows/client-utilities.md"
+          ]
+        },
+        {
+          "sha": "ff2cf43b3139e3e13a61ac2f07be608dccfcd6c5",
+          "timestamp": "2026-05-03T12:17:23-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "added arrows for pi agent, client ui, and client utilities",
+          "files_touched": [
+            "docs/arrows/client-utilities.md"
+          ]
+        },
+        {
+          "sha": "01a066cb44c4f236f80ea2fbb284d12ef4921434",
+          "timestamp": "2026-04-22T17:41:19-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "rolled back client diagnostics. issue was windows bluetooth problem, not our code",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "e9e940fd48af4fea95e58a114b461bcb37d57f98",
+          "timestamp": "2026-04-22T17:29:20-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "client debugging for windows",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "58cf9302901a4de15b61dc544101bd2474d3d60f",
+          "timestamp": "2026-04-22T17:04:26-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "cleaned up 6 and 7 on client cleanup",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "89078227f46f82811b7e6d17ff4077ddb0cfd2fe",
+          "timestamp": "2026-04-08T10:48:44-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed bleak issue for blue tooth control of light houses that caused a client crash",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "e14263911cf6f23d7fb2d745a191d73fe5b64019",
+          "timestamp": "2026-03-24T11:02:59-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "bug fix for lighthouse rescan",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "ebae9d93945b26cd48f558a0168ca6507d0e9d83",
+          "timestamp": "2026-03-16T15:51:05-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed a test",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "6f680061c3f986f7bd4ca2fe1f023d5858c9dc52",
+          "timestamp": "2026-03-16T15:29:14-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed test failures",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        },
+        {
+          "sha": "7b7bf963e4c036b7570443af15d824bd486b23e3",
+          "timestamp": "2026-03-16T15:10:20-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed lighthouse timeout issue",
+          "files_touched": [
+            "client/stagehand_client/lighthouse_ble.py"
+          ]
+        }
+      ],
+      "scored_candidates": [
+        {
+          "path": "client/stagehand_client/lighthouse_ble.py",
+          "kind": "source",
+          "score": 18,
+          "confidence": "medium",
+          "evidence": [
+            {
+              "type": "feature_anchor",
+              "score": 7,
+              "explanation": "Source file for anchor 'lighthouse-ble'"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit 01a066c"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit e9e940f"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit 58cf930"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit 8907822"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit e142639"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit ebae9d9"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit 6f68006"
+            },
+            {
+              "type": "recent_commit",
+              "score": 4,
+              "explanation": "Touched in recent commit 7b7bf96"
+            }
+          ]
+        },
+        {
+          "path": "docs/arrows/client-utilities.md",
+          "kind": "source",
+          "score": 1.8,
+          "confidence": "low",
+          "evidence": [
+            {
+              "type": "feature_anchor",
+              "score": 7,
+              "explanation": "Source file for anchor 'lighthouse-ble'"
+            },
+            {
+              "type": "doc_penalty",
+              "score": -5.2,
+              "explanation": "Non-source file (×0.25 actionability penalty)"
+            }
+          ]
+        }
+      ],
+      "summary": "The transient loss of a detected lighthouse, requiring a client toggle, likely resides in the logic of client/stagehand_client/lighthouse_ble.py."
+    },
+    "ingest_exit_code": 0,
+    "ingest_stderr": "",
+    "ingest_partial": false,
+    "retrieve_exit_code": 0,
+    "retrieve_stderr": ""
+  }
+}

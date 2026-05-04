@@ -69,7 +69,7 @@ def ingest_git_cmd(
         for p in config.projects
     ]}
 
-    commit_count = asyncio.run(ingest_git(
+    commit_count, edges_with_hunks, defs_found = asyncio.run(ingest_git(
         project_slug=project,
         repo_root=repo_root,
         registry=registry,
@@ -80,4 +80,9 @@ def ingest_git_cmd(
         max_commits=max_commits,
         doc_paths=doc_paths,
     ))
-    click.echo(f"Git history ingested for project '{project}': {commit_count} commits written.")
+    click.echo(
+        f"Git history ingested for project '{project}': "
+        f"{commit_count} commits written, "
+        f"{edges_with_hunks} file-touches with hunk data, "
+        f"{defs_found} function definitions found."
+    )

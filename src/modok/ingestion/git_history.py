@@ -8,6 +8,8 @@ Specs: SI-GIT-001 through SI-GIT-010.
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -20,6 +22,13 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 @dataclass
+class HunkRecord:
+    lines: tuple[int, int]        # [new_start, new_end] in post-patch file (1-indexed)
+    function_context: str | None  # text git extracted from the @@ header (heuristic)
+    added_defs: list[str]         # function/method names first defined in this hunk
+
+
+@dataclass
 class CommitRecord:
     sha: str
     timestamp: str         # ISO-8601 author date
@@ -28,6 +37,7 @@ class CommitRecord:
     message: str           # first line only, max 120 chars
     branch: str | None     # branch name at ingest time; None if detached HEAD
     touched_files: list[tuple[str, str]] = field(default_factory=list)  # (path, change_type)
+    file_hunks: dict[str, list[HunkRecord]] = field(default_factory=dict)  # path → hunks
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +187,109 @@ def _build_git_log_command(
 
 
 # ---------------------------------------------------------------------------
+# Diff parsing — hunk extraction
+# ---------------------------------------------------------------------------
+
+# Matches the +new_start[,new_count] portion of a @@ hunk header, plus any
+# trailing function-context text that git extracts with its own heuristics.
+_HUNK_HEADER_RE = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@[ \t]*(.*)')
+
+# Detects function/method definition lines across Python, JS/TS, Go, and Rust.
+# Applied to each `+` line (leading whitespace stripped) to find new definitions.
+_FUNC_DEF_RE = re.compile(
+    r'^(?:'
+    r'(?:async\s+)?def\s+(\w+)'                                    # Python
+    r'|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)'  # JS/TS
+    r'|func\s+(?:\(\w[^)]*\)\s+)?(\w+)'                           # Go (with optional receiver)
+    r'|(?:pub(?:\s+\w+)?\s+)?fn\s+(\w+)'                          # Rust
+    r')\s*[(<\[]',
+    re.ASCII,
+)
+
+
+def _make_hunk(
+    start: int,
+    end: int,
+    func_ctx: str | None,
+    added_lines: list[str],
+) -> HunkRecord:
+    added_defs: list[str] = []
+    for raw in added_lines:
+        m = _FUNC_DEF_RE.match(raw.lstrip())
+        if m:
+            name = next((g for g in m.groups() if g is not None), None)
+            if name:
+                added_defs.append(name)
+    return HunkRecord(lines=(start, end), function_context=func_ctx, added_defs=added_defs)
+
+
+def _parse_diff(diff_output: str) -> dict[str, list[HunkRecord]]:
+    """Parse unified diff output into per-file hunk records."""
+    file_hunks: dict[str, list[HunkRecord]] = {}
+    current_file: str | None = None
+    pending_hunks: list[HunkRecord] = []
+
+    hunk_start = 0
+    hunk_end = 0
+    func_ctx: str | None = None
+    added_lines: list[str] = []
+    in_hunk = False
+
+    for line in diff_output.splitlines():
+        if line.startswith('diff --git '):
+            if in_hunk:
+                pending_hunks.append(_make_hunk(hunk_start, hunk_end, func_ctx, added_lines))
+                in_hunk = False
+            if current_file and pending_hunks:
+                file_hunks[current_file] = list(pending_hunks)
+            current_file = None
+            pending_hunks = []
+            added_lines = []
+        elif line.startswith('+++ b/'):
+            current_file = line[6:]
+        elif line.startswith('+++ /dev/null'):
+            current_file = None
+        elif line.startswith('@@ '):
+            if in_hunk:
+                pending_hunks.append(_make_hunk(hunk_start, hunk_end, func_ctx, added_lines))
+            added_lines = []
+            m = _HUNK_HEADER_RE.match(line)
+            if m:
+                hunk_start = int(m.group(1))
+                raw_count = m.group(2)
+                new_count = int(raw_count) if raw_count is not None else 1
+                hunk_end = max(hunk_start, hunk_start + new_count - 1)
+                ctx = m.group(3).strip()
+                func_ctx = ctx if ctx else None
+                in_hunk = True
+            else:
+                in_hunk = False
+        elif line.startswith('+') and not line.startswith('+++'):
+            if in_hunk:
+                added_lines.append(line[1:])
+
+    if in_hunk:
+        pending_hunks.append(_make_hunk(hunk_start, hunk_end, func_ctx, added_lines))
+    if current_file and pending_hunks:
+        file_hunks[current_file] = pending_hunks
+
+    return file_hunks
+
+
+def get_diff_hunks(sha: str, repo_root: Path) -> dict[str, list[HunkRecord]]:
+    """Return parsed hunk records for every file touched by a commit."""
+    result = subprocess.run(
+        ['git', 'diff-tree', '--no-commit-id', '-r', '--unified=0', '-p', sha],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return {}
+    return _parse_diff(result.stdout)
+
+
+# ---------------------------------------------------------------------------
 # Git subprocess helpers
 # ---------------------------------------------------------------------------
 
@@ -323,6 +436,18 @@ async def write_commit_to_quine(
     for file_path, change_type in commit.touched_files:
         # SI-GIT-003: upsert a minimal node so the TOUCHES edge always resolves,
         # even when ingest-docs hasn't run yet for this file's feature.
+        edge_props: dict[str, Any] = {"change_type": change_type}
+        hunks = commit.file_hunks.get(file_path)
+        if hunks:
+            edge_props["hunks"] = json.dumps([
+                {
+                    "lines": list(h.lines),
+                    "function": h.function_context,
+                    "defs": h.added_defs,
+                }
+                for h in hunks
+            ])
+
         if _is_test_path(file_path):
             node = TestFileNode(node_type="TestFile", project_slug=project_slug, repo_path=file_path)
             await client.upsert_node(node)
@@ -330,7 +455,7 @@ async def write_commit_to_quine(
                 ("commit", project_slug, commit.sha),
                 "TOUCHES",
                 ("test-file", project_slug, file_path),
-                properties={"change_type": change_type},
+                properties=edge_props,
             )
         else:
             node = FileNode(node_type="File", project_slug=project_slug, repo_path=file_path)
@@ -339,7 +464,7 @@ async def write_commit_to_quine(
                 ("commit", project_slug, commit.sha),
                 "TOUCHES",
                 ("file", project_slug, file_path),
-                properties={"change_type": change_type},
+                properties=edge_props,
             )
 
 
@@ -404,7 +529,14 @@ async def ingest_git(
         c.branch = current_branch
 
     # Write all commits, then update last_git_sha (SI-GIT-007 atomicity)
+    edges_with_hunks = 0
+    defs_found = 0
     for commit in commits:
+        commit.file_hunks = get_diff_hunks(commit.sha, repo_root)
+        for hunks in commit.file_hunks.values():
+            if hunks:
+                edges_with_hunks += 1
+                defs_found += sum(len(h.added_defs) for h in hunks)
         await write_commit_to_quine(commit, client=client, project_slug=project_slug)
 
     # Only update after all writes succeed
@@ -412,4 +544,4 @@ async def ingest_git(
         config_path = Path.home() / ".modok" / "config.toml"
         save_last_git_sha(config_path, project_slug, head_sha)
 
-    return len(commits)
+    return len(commits), edges_with_hunks, defs_found
