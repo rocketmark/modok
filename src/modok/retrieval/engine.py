@@ -240,6 +240,7 @@ async def retrieve(
     feature_descriptions: dict[str, str] | None = None,
     module_descriptions: dict[str, str] | None = None,
     module_elements: dict[str, list[str]] | None = None,
+    module_source_files: dict[str, list[str]] | None = None,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -278,7 +279,7 @@ async def retrieve(
                 issue.raw_text, project_slug, backend=backend,
                 valid_slugs=valid_slugs, feature_slugs=feature_slugs, module_slugs=module_slugs,
                 feature_descriptions=feature_descriptions, module_descriptions=module_descriptions,
-                module_elements=module_elements,
+                module_elements=module_elements, module_source_files=module_source_files,
             )
         except LLMResponseError as exc:
             raise DREAnchorError(f"LLM anchor extraction failed: {exc}") from exc

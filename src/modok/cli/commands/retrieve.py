@@ -53,6 +53,7 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         feature_descriptions = registry.feature_descriptions()
         module_descriptions = registry.module_descriptions()
         module_elements = registry.module_elements()
+        module_source_files = registry.all_module_source_files()
     except Exception:
         feature_slugs = None
         module_slugs = None
@@ -60,6 +61,7 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
         feature_descriptions = None
         module_descriptions = None
         module_elements = None
+        module_source_files = None
 
     client = QuineClient(base_url=config.quine.url)
     if not asyncio.run(client.ping()):
@@ -89,6 +91,7 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
             feature_descriptions=feature_descriptions,
             module_descriptions=module_descriptions,
             module_elements=module_elements,
+            module_source_files=module_source_files,
         ))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")

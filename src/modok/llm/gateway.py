@@ -582,6 +582,7 @@ async def parse_ticket(
     feature_descriptions: dict[str, str] | None = None,
     module_descriptions: dict[str, str] | None = None,
     module_elements: dict[str, list[str]] | None = None,
+    module_source_files: dict[str, list[str]] | None = None,
 ) -> TicketParseResult:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
@@ -593,9 +594,11 @@ async def parse_ticket(
 
     def _fmt_module(slug: str) -> str:
         desc = (module_descriptions or {}).get(slug, "")
+        files = (module_source_files or {}).get(slug, [])
         elems = (module_elements or {}).get(slug, [])
+        files_str = f"; files: {', '.join(files[:10])}" if files else ""
         elems_str = f"; code: {', '.join(elems)}" if elems else ""
-        return f"  - {slug}: {desc}{elems_str}" if desc or elems_str else f"  - {slug}"
+        return f"  - {slug}: {desc}{files_str}{elems_str}" if (desc or files_str or elems_str) else f"  - {slug}"
 
     feature_slug_list = "\n".join(_fmt_feature(s) for s in (feature_slugs or [])) or "  (none registered)"
     module_slug_list = "\n".join(_fmt_module(s) for s in (module_slugs or [])) or "  (none registered)"

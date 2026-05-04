@@ -200,7 +200,7 @@ async def test_falls_back_to_llm_when_no_graph_anchors():
             "Tracker loses tracking", "stagehand", backend="local",
             valid_slugs=None, feature_slugs=[], module_slugs=None,
             feature_descriptions=None, module_descriptions=None,
-            module_elements=None,
+            module_elements=None, module_source_files=None,
         )
         assert (
             "shtp-receiver" in packet.anchors.feature_slugs

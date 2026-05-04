@@ -8,18 +8,21 @@ The valid feature slugs for this project are:
 {feature_slug_list}
 
 The valid module slugs for this project are (each entry shows the module slug, its description,
-and key code identifiers from its source files after "code:"):
+source files after "files:", and key code identifiers from its source files after "code:"):
 {module_slug_list}
 
-Use the code identifiers to match ticket language to the right module even when the ticket
-does not use the exact module name. For example, a ticket mentioning "reinit button" should
-match a module whose code includes "reinit_requested" or "_reinit_device". A ticket about
-"BLE scanning" should match a module whose code includes BLE-related identifiers.
+Use ALL available signals to match the ticket to the right module:
+- Source file paths: if the ticket mentions a file (e.g. "agent/src/main.c"), match the module
+  whose "files:" list includes that path.
+- Code identifiers: if the ticket mentions a variable, function, or symbol name, match the module
+  whose "code:" list includes that identifier. For example, "reinit button" → module with
+  "reinit_requested"; "tracker_lost_logged" → module whose files or code include that name.
+- Description: match by conceptual area when no file or identifier signal is present.
+
+Prefer the most specific match — module over feature when the issue is clearly scoped to one module.
 
 Return ONLY a JSON object with these fields:
-  feature_slug: the single best-matching feature slug, or module slug if a module is a better
-    match (prefer the most specific match — module over feature when the issue is clearly
-    scoped to one module), or null if nothing matches
+  feature_slug: the single best-matching feature slug or module slug, or null if nothing matches
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)
   symptoms: list of strings describing observable symptoms
