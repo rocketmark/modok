@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any, Callable
@@ -66,6 +67,45 @@ def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> 
     for slug, files in module_source_files.items():
         if any(f in mentioned for f in files):
             matched.append(slug)
+    return matched
+
+
+# ---------------------------------------------------------------------------
+# Function-anchor matching helpers
+# ---------------------------------------------------------------------------
+
+_CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
+
+
+def _tokenize(name: str) -> set[str]:
+    """Split a camelCase/snake_case/kebab-case identifier into lowercase tokens (length > 2)."""
+    parts = re.split(r'[_\-\s]+', name)
+    tokens: set[str] = set()
+    for part in parts:
+        for sub in _CAMEL_SPLIT_RE.split(part):
+            if len(sub) > 2:
+                tokens.add(sub.lower())
+    return tokens
+
+
+def _build_anchor_tokens(
+    feature_slugs: list[str],
+    error_sigs: list[str],
+    symptoms: list[str],
+) -> set[str]:
+    tokens: set[str] = set()
+    for term in feature_slugs + error_sigs + symptoms:
+        tokens.update(_tokenize(term))
+    return tokens
+
+
+def _matching_defs(hunk_data: list[dict], anchor_tokens: set[str]) -> list[str]:
+    """Return def names from hunk_data whose tokens overlap with anchor_tokens."""
+    matched: list[str] = []
+    for hunk in hunk_data:
+        for def_name in hunk.get("defs", []):
+            if _tokenize(def_name) & anchor_tokens:
+                matched.append(def_name)
     return matched
 
 
@@ -204,8 +244,8 @@ async def _traverse_files_to_recent_commits(
         node_kind = "test-file" if _is_test_path(file_path) else "file"
         rows = await client.query(
             f"MATCH (f) WHERE id(f) = idFrom('{node_kind}', $project_slug, $file_path) "
-            "OPTIONAL MATCH (c)-[:TOUCHES]->(f) "
-            "RETURN f, c",
+            "OPTIONAL MATCH (c)-[e:TOUCHES]->(f) "
+            "RETURN f, c, e",
             {"project_slug": project_slug, "file_path": file_path},
         )
         for row in rows:
@@ -218,8 +258,18 @@ async def _traverse_files_to_recent_commits(
             if sha not in seen:
                 seen[sha] = dict(props)
                 seen[sha]["files_touched"] = []
+                seen[sha]["file_hunk_data"] = {}
             if file_path not in seen[sha]["files_touched"]:
                 seen[sha]["files_touched"].append(file_path)
+            # Extract hunk data from the TOUCHES edge properties
+            if len(row) >= 3 and row[2] and isinstance(row[2], dict):
+                edge_props = row[2].get("properties", {})
+                hunks_json = edge_props.get("hunks")
+                if hunks_json and file_path not in seen[sha]["file_hunk_data"]:
+                    try:
+                        seen[sha]["file_hunk_data"][file_path] = json.loads(hunks_json)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
     all_commits = list(seen.values())
     all_commits.sort(key=lambda c: c.get("timestamp", ""), reverse=True)
     return all_commits[:limit]
@@ -608,23 +658,34 @@ async def retrieve(
     all_file_paths = prelim_source + prelim_tests
     raw_commits = await _traverse_files_to_recent_commits(all_file_paths, project_slug, client)
 
+    anchor_tokens = _build_anchor_tokens(feature_slugs, error_sigs, symptoms)
+
     # Add recent_commit evidence for source/test files already in the evidence maps.
     # Skip non-source files (docs, markdown) — doc maintenance commits are not bug signals.
+    # Also add function_anchor_match evidence when a modified function name overlaps an anchor term.
     for c in raw_commits:
         sha_short = c.get("sha", "")[:7]
         for fpath in c.get("files_touched", []):
-            if fpath in test_file_evidence:
-                _add_evidence(test_file_evidence, fpath, EvidenceItem(
-                    type="recent_commit",
-                    score=4.0,
-                    explanation=f"Touched in recent commit {sha_short}",
-                ))
-            elif fpath in file_evidence and _is_source_path(fpath):
-                _add_evidence(file_evidence, fpath, EvidenceItem(
-                    type="recent_commit",
-                    score=4.0,
-                    explanation=f"Touched in recent commit {sha_short}",
-                ))
+            evidence_map = test_file_evidence if fpath in test_file_evidence else (
+                file_evidence if fpath in file_evidence and _is_source_path(fpath) else None
+            )
+            if evidence_map is None:
+                continue
+            _add_evidence(evidence_map, fpath, EvidenceItem(
+                type="recent_commit",
+                score=4.0,
+                explanation=f"Touched in recent commit {sha_short}",
+            ))
+            if anchor_tokens:
+                hunk_data = c.get("file_hunk_data", {}).get(fpath, [])
+                matched = _matching_defs(hunk_data, anchor_tokens)
+                if matched:
+                    names = ", ".join(matched[:3])
+                    _add_evidence(evidence_map, fpath, EvidenceItem(
+                        type="function_anchor_match",
+                        score=6.0,
+                        explanation=f"Defines {names} — matches issue anchor terms",
+                    ))
 
     # Build scored candidates and derive ordered file lists
     source_candidates = _build_scored_candidates(file_evidence, "source", _FILE_CAP)
