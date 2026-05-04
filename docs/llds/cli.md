@@ -75,7 +75,7 @@ No `<path>` argument — repo root is derived from the project's `repo` in `~/.m
 
 ### `modok ingest-git`
 
-Ingests git commits touching registered files into Quine as `Commit` nodes with `TOUCHES` edges to `File` nodes.
+Ingests git commits touching registered files into Quine as `Commit` nodes with `TOUCHES` edges to `File` nodes. **Requires `modok ingest` to have run first** — `TOUCHES` edges are only written to `File` nodes already in the graph.
 
 1. Pings Quine; exits `2` if unreachable.
 2. Loads registries and builds the registered file set from `features.yml` and the arrow index.
@@ -115,7 +115,7 @@ See `docs/llds/github-ingestion.md` for full design.
 
 ### `modok ingest-elements`
 
-Extracts code identifiers from each module's source files and writes them to `registries/elements.yml`. Run this after adding or changing module source files so that the diagnostic retrieval engine can map ticket language to modules even when the ticket does not use the exact module name.
+Extracts code identifiers from each module's source files and writes them to `registries/elements.yml`. Run this after `modok ingest` and `modok ingest-git` — it enriches the registry used at query time by `modok retrieve` but does not depend on those commands having run. Re-run any time module source files are added, removed, or substantially renamed.
 
 1. Loads registries from `{repo_root}/registries/`.
 2. For each module in `modules.yml` that has a `source_files` list, calls `extract_module_elements(source_files, repo_root)` to extract identifiers:
@@ -125,7 +125,7 @@ Extracts code identifiers from each module's source files and writes them to `re
 3. Writes `registries/elements.yml` with shape `{module_slug: [identifier, ...]}`.
 4. If any module entries in `modules.yml` contain a stale `elements` key (written by an older version), strips those keys and rewrites `modules.yml`.
 
-Does **not** require Quine to be running. Does **not** write to the graph — `elements.yml` is read by the registry at startup and forwarded to the LLM gateway when `modok retrieve` runs.
+Does **not** require Quine to be running. Does **not** write to the graph — `elements.yml` is read at startup and forwarded to the LLM gateway when `modok retrieve` runs.
 
 Exit codes: `0` on success, `1` if the project is not in config or the registries directory is missing.
 

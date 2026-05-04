@@ -59,17 +59,30 @@ def _extract_python(path: Path) -> list[str]:
     return names
 
 
+_C_TYPE_KEYWORDS = {"int", "bool", "char", "float", "double", "long", "short",
+                    "unsigned", "signed", "size_t", "uint8_t", "uint16_t", "uint32_t",
+                    "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t"}
+
+
 def _extract_c(path: Path) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return []
-    pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
     seen: set[str] = set()
     names: list[str] = []
-    for m in pattern.finditer(text):
-        name = m.group(1)
-        if name not in _C_KEYWORDS and not name.startswith("_") and name not in seen:
+
+    def _add(name: str) -> None:
+        if name not in _C_KEYWORDS and name not in _C_TYPE_KEYWORDS and not name.startswith("_") and name not in seen:
             seen.add(name)
             names.append(name)
+
+    # Function calls and definitions: identifier followed by (
+    for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', text):
+        _add(m.group(1))
+
+    # Static variable declarations: static [type] identifier;  or  static [type] identifier =
+    for m in re.finditer(r'\bstatic\s+\w+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=;]', text):
+        _add(m.group(1))
+
     return names

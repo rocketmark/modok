@@ -304,6 +304,12 @@ If the project does not have arrow docs, edit `registries/features.yml` and `reg
 
 ## Step 12 — Run first ingestion
 
+Run the three ingestion commands **in this order**. Each one builds on the previous:
+
+1. `modok ingest` — reads docs and writes the static knowledge graph (Feature, Module, File, DocSection nodes and their edges). Must run first because the other two commands depend on File nodes being present.
+2. `modok ingest-git` — walks git log and writes Commit nodes with `TOUCHES` edges to File nodes. Requires File nodes from step 1.
+3. `modok ingest-elements` — extracts code identifiers from source files and writes `registries/elements.yml`. Does not touch the graph; enriches the registry used by `modok retrieve` at query time.
+
 **Ingest docs:**
 
 ```bash

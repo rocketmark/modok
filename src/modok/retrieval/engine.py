@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from modok.llm import gateway
@@ -26,6 +27,22 @@ from modok.retrieval.models import (
 _KI_CAP = 10
 _FIX_CAP = 10
 _FILE_CAP = 20
+
+_FILE_PATH_RE = re.compile(
+    r'\b([\w.-]+/[\w./-]+\.(?:c|h|cpp|hpp|py|js|ts|md|sh|yaml|yml))\b'
+)
+
+
+def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> list[str]:
+    """Return module slugs whose source files are explicitly mentioned in text."""
+    mentioned = {m.group(1) for m in _FILE_PATH_RE.finditer(text)}
+    if not mentioned:
+        return []
+    matched: list[str] = []
+    for slug, files in module_source_files.items():
+        if any(f in mentioned for f in files):
+            matched.append(slug)
+    return matched
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +292,10 @@ async def retrieve(
             raise DREAnchorError(
                 f"CustomerIssue id={issue_id} has no graph anchors and no raw_text"
             )
+
+        # File-path pre-match: deterministic, no LLM tokens needed.
+        pre_matched = _pre_match_modules(issue.raw_text, module_source_files or {})
+
         try:
             parse_result = await gateway.parse_ticket(
                 issue.raw_text, project_slug, backend=backend,
@@ -287,7 +308,13 @@ async def retrieve(
         except LLMUnavailableError as exc:
             raise DRELLMUnavailableError(f"LLM gateway unreachable: {exc}") from exc
 
-        feature_slugs = [parse_result.feature_slug] if parse_result.feature_slug else []
+        # Merge: pre-matched modules take priority; LLM slug supplements if not already covered.
+        merged: list[str] = list(pre_matched)
+        llm_slug = parse_result.feature_slug
+        if llm_slug and llm_slug not in merged:
+            merged.append(llm_slug)
+        feature_slugs = merged
+
         error_sigs = list(parse_result.error_signatures)
         symptoms = list(parse_result.symptoms)
         mentioned_files = list(parse_result.mentioned_files)
