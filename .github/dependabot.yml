@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Python: requirements.txt, pyproject.toml, poetry.lock, pipenv, uv, etc.
+  # For Poetry/Pipenv/uv, GitHub still uses package-ecosystem: "pip".
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # TypeScript / JavaScript: npm, pnpm, or yarn projects.
+  # Dependabot uses package-ecosystem: "npm" for npm, pnpm, and yarn.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      typescript-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Optional but recommended: keep GitHub Actions versions up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
