@@ -128,6 +128,8 @@ def _print_tabular(
             click.echo(f"  [Module] {props.get('module_slug', '')}  {props.get('name', '')}")
         elif node_type == "File":
             click.echo(f"  [File] {props.get('repo_path', '')}")
+        elif node_type == "TestFile":
+            click.echo(f"  [TestFile] {props.get('repo_path', '')}")
         elif node_type == "Feature":
             click.echo(f"  [Feature] {props.get('feature_slug', '')}  {props.get('name', '')}")
         elif node_type == "KnownIssue":

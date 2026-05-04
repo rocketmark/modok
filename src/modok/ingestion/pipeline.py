@@ -27,7 +27,7 @@ from modok.ingestion.report import IngestionReport
 from modok.llm.gateway import propose_metadata
 from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
-    Doc, Feature, Module, File, DocSection, ErrorSignature,
+    Doc, Feature, Module, File, TestFile, DocSection, ErrorSignature,
     KnownIssue, Fix,
 )
 
@@ -273,17 +273,24 @@ async def _write_nodes_and_edges(
     # which module within the feature is matched.
     if feature_slug:
         for fpath in fm.get("test_files", []):
-            file_node = File(
-                node_type="File",
+            # Remove any stale DEFINED_IN edges pointing to the old File node for
+            # this path (left over from before TestFile was a separate node type).
+            await client.query(
+                "MATCH ()-[r:DEFINED_IN]->(f) "
+                "WHERE id(f) = idFrom('file', $project_slug, $repo_path) DELETE r",
+                {"project_slug": project_slug, "repo_path": fpath},
+            )
+            test_file_node = TestFile(
+                node_type="TestFile",
                 project_slug=project_slug,
                 repo_path=fpath,
             )
-            await client.upsert_node(file_node)
+            await client.upsert_node(test_file_node)
             ctx.nodes_written += 1
             await client.write_edge_by_parts(
                 ("feature", project_slug, feature_slug),
                 "HAS_TEST",
-                ("file", project_slug, fpath),
+                ("test-file", project_slug, fpath),
             )
             ctx.edges_written += 1
 

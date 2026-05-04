@@ -1495,7 +1495,7 @@ modok:
     has_test_edges = [c for c in edge_calls if c[1] == "HAS_TEST"]
     assert len(has_test_edges) == 1
     assert has_test_edges[0][0] == ("feature", "stagehand", "shtp-receiver")
-    assert has_test_edges[0][2] == ("file", "stagehand", "agent/tests/test_shtp.c")
+    assert has_test_edges[0][2] == ("test-file", "stagehand", "agent/tests/test_shtp.c")
 
     # Test file must NOT appear with DEFINED_IN
     defined_in_paths = [c[2][2] for c in edge_calls if c[1] == "DEFINED_IN"]

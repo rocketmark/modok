@@ -21,7 +21,8 @@ _MODULE_CYPHER = """
 MATCH (m) WHERE id(m) = idFrom('module', $project_slug, $module_slug)
 OPTIONAL MATCH (f)-[:IMPLEMENTED_BY]->(m)
 OPTIONAL MATCH (m)-[:DEFINED_IN]->(file)
-RETURN m, f, file
+OPTIONAL MATCH (f)-[:HAS_TEST]->(tfile)
+RETURN m, f, file, tfile
 """
 
 
@@ -110,6 +111,8 @@ def _print_tabular(
             click.echo(f"  [Module] {props.get('module_slug', '')}  {props.get('name', '')}")
         elif node_type == "File":
             click.echo(f"  [File] {props.get('repo_path', '')}")
+        elif node_type == "TestFile":
+            click.echo(f"  [TestFile] {props.get('repo_path', '')}")
         elif node_type == "Feature":
             click.echo(f"  [Feature] {props.get('feature_slug', '')}  {props.get('name', '')}")
         elif node_type == "KnownIssue":

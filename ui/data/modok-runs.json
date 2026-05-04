@@ -11,45 +11,32 @@
             "SHTP event dropped error"
           ],
           "symptoms": [
-            "Getting an SHTP event dropped error in the event log"
+            "SHTP event dropped error in the event log"
           ]
         }
       },
       "affected_areas": [
         {
           "type": "module",
-          "id": "module:shtp-listener",
-          "name": "shtp-listener"
+          "id": "module:event-log",
+          "name": "event-log"
         },
         {
           "type": "module",
           "id": "module:shtp-receiver",
           "name": "shtp-receiver"
-        },
-        {
-          "type": "module",
-          "id": "module:event-log",
-          "name": "event-log"
         }
       ],
       "relevant_files": [
         "docs/arrows/client-utilities.md",
-        "client/shtp_listener.py",
+        "client/stagehand_client/event_log.py",
         "docs/specs/client-protocol-layer-specs.md",
         "docs/llds/client-protocol-layer.md",
         "docs/arrows/client-protocol-layer.md",
-        "client/tests/test_hardware_hifi_live.py",
-        "client/tests/test_discovery.py",
-        "client/tests/test_pi_identity.py",
-        "client/tests/test_memory_safety.py",
-        "client/tests/test_shtp_crosslang.py",
-        "client/tests/test_shtp_properties.py",
-        "client/tests/test_shtp_receiver.py",
         "client/stagehand_client/net_util.py",
         "client/stagehand_client/discovery.py",
         "client/stagehand_client/pi_identity.py",
-        "client/stagehand_client/shtp_receiver.py",
-        "client/stagehand_client/event_log.py"
+        "client/stagehand_client/shtp_receiver.py"
       ],
       "relevant_tests": [],
       "known_issues": [],
@@ -152,7 +139,7 @@
           ]
         }
       ],
-      "summary": "The SHTP event dropped error likely originates within the `shtp-listener` or `shtp-receiver` components, requiring investigation of `client/stagehand_client/shtp_receiver.py`."
+      "summary": "The SHTP event drop error in `shtp-receiver` likely stems from an underlying communication or serialization issue, investigate the protocol layer specifications in `docs/specs/client-protocol-layer-specs.md`."
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",

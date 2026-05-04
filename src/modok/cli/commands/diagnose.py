@@ -38,7 +38,7 @@ _TEST_FILES_CYPHER = """
 MATCH (f)
 WHERE f.project_slug = $project_slug AND f.feature_slug = $feature_slug AND f.node_type = 'Feature'
 MATCH (f)-[:HAS_TEST]->(file)
-WHERE file.node_type = 'File'
+WHERE file.node_type = 'TestFile'
 RETURN file
 """
 

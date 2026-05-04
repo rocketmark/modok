@@ -306,7 +306,8 @@ async def write_commit_to_quine(
     project_slug: str,
 ) -> None:
     """Write one Commit node, upsert File nodes for touched paths, and write TOUCHES edges."""
-    from modok.quine.models import Commit as CommitNode, File as FileNode
+    from modok.quine.models import Commit as CommitNode, File as FileNode, TestFile as TestFileNode
+    from modok.retrieval.engine import _is_test_path
     commit_node = CommitNode(
         node_type="Commit",
         project_slug=project_slug,
@@ -320,20 +321,26 @@ async def write_commit_to_quine(
     await client.upsert_node(commit_node)
 
     for file_path, change_type in commit.touched_files:
-        # SI-GIT-003: upsert a minimal File node so the TOUCHES edge always resolves,
+        # SI-GIT-003: upsert a minimal node so the TOUCHES edge always resolves,
         # even when ingest-docs hasn't run yet for this file's feature.
-        file_node = FileNode(
-            node_type="File",
-            project_slug=project_slug,
-            repo_path=file_path,
-        )
-        await client.upsert_node(file_node)
-        await client.write_edge_by_parts(
-            ("commit", project_slug, commit.sha),
-            "TOUCHES",
-            ("file", project_slug, file_path),
-            properties={"change_type": change_type},
-        )
+        if _is_test_path(file_path):
+            node = TestFileNode(node_type="TestFile", project_slug=project_slug, repo_path=file_path)
+            await client.upsert_node(node)
+            await client.write_edge_by_parts(
+                ("commit", project_slug, commit.sha),
+                "TOUCHES",
+                ("test-file", project_slug, file_path),
+                properties={"change_type": change_type},
+            )
+        else:
+            node = FileNode(node_type="File", project_slug=project_slug, repo_path=file_path)
+            await client.upsert_node(node)
+            await client.write_edge_by_parts(
+                ("commit", project_slug, commit.sha),
+                "TOUCHES",
+                ("file", project_slug, file_path),
+                properties={"change_type": change_type},
+            )
 
 
 # ---------------------------------------------------------------------------

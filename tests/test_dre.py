@@ -47,7 +47,7 @@ def make_ticket_parse_result(
     symptoms: list[str] | None = None,
 ) -> TicketParseResult:
     return TicketParseResult(
-        feature_slug=feature_slug,
+        feature_slugs=[feature_slug] if feature_slug else [],
         error_signatures=error_signatures or ["shtp-version-mismatch"],
         environment={},
         symptoms=symptoms or ["pose dropout"],
@@ -287,7 +287,7 @@ async def test_symptoms_in_anchor_set_not_in_packet_results():
             feature_slug=None,
             error_signatures=["shtp-err"],
             symptoms=["pose dropout", "jitter"],
-        )
+        )  # feature_slug=None → feature_slugs=[]
         mock_gw.parse_ticket = AsyncMock(return_value=result)
         mock_gw.summarise_packet = AsyncMock(return_value=[])
         packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
@@ -726,7 +726,7 @@ async def test_confidence_zero_when_llm_returns_no_anchors():
     )
 
     empty_result = TicketParseResult(
-        feature_slug=None,
+        feature_slugs=[],
         error_signatures=[],
         environment={},
         symptoms=[],

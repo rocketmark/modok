@@ -120,8 +120,9 @@ async def _traverse_files_to_recent_commits(
         return []
     seen: dict[str, dict] = {}
     for file_path in file_paths:
+        node_kind = "test-file" if _is_test_path(file_path) else "file"
         rows = await client.query(
-            "MATCH (f) WHERE id(f) = idFrom('file', $project_slug, $file_path) "
+            f"MATCH (f) WHERE id(f) = idFrom('{node_kind}', $project_slug, $file_path) "
             "OPTIONAL MATCH (c)-[:TOUCHES]->(f) "
             "RETURN f, c",
             {"project_slug": project_slug, "file_path": file_path},
@@ -171,6 +172,7 @@ async def _traverse_feature_to_files(
     test_rows = await client.query(
         "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
         "OPTIONAL MATCH (f)-[:HAS_TEST]->(file) "
+        "WHERE file.node_type = 'TestFile' "
         "RETURN file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
@@ -197,7 +199,24 @@ async def _traverse_feature_to_files(
         if len(row) > 1 and row[1] and isinstance(row[1], dict)
         and row[1].get("properties", {}).get("repo_path")
     ]
-    return module_paths, [], "module"
+
+    # Walk up to the parent Feature to get its HAS_TEST → TestFile edges.
+    test_rows = await client.query(
+        "MATCH (m) WHERE id(m) = idFrom('module', $project_slug, $feature_slug) "
+        "OPTIONAL MATCH (f)-[:IMPLEMENTED_BY]->(m) "
+        "OPTIONAL MATCH (f)-[:HAS_TEST]->(tfile) "
+        "WHERE tfile.node_type = 'TestFile' "
+        "RETURN tfile",
+        {"project_slug": project_slug, "feature_slug": feature_slug},
+    )
+    module_test_paths = [
+        row[0]["properties"]["repo_path"]
+        for row in test_rows
+        if row and row[0] and isinstance(row[0], dict)
+        and row[0].get("properties", {}).get("repo_path")
+    ]
+
+    return module_paths, module_test_paths, "module"
 
 
 async def _traverse_error_to_known_issues(

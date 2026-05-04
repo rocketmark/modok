@@ -34,6 +34,12 @@ class File(QuineNode):
     repo_path: str
 
 
+class TestFile(QuineNode):
+    node_type: Literal["TestFile"]
+    project_slug: str
+    repo_path: str
+
+
 class Doc(QuineNode):
     node_type: Literal["Doc"]
     project_slug: str
@@ -133,6 +139,7 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Feature": Feature,
     "Module": Module,
     "File": File,
+    "TestFile": TestFile,
     "DocSection": DocSection,
     "ErrorSignature": ErrorSignature,
     "KnownIssue": KnownIssue,
