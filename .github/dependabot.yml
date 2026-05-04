@@ -19,7 +19,7 @@ updates:
   # TypeScript / JavaScript: npm, pnpm, or yarn projects.
   # Dependabot uses package-ecosystem: "npm" for npm, pnpm, and yarn.
   - package-ecosystem: "npm"
-    directory: "/"
+    directory: "/ui"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
