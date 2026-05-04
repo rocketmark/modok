@@ -15,13 +15,12 @@ from modok.retrieval.errors import (
     DRENotFoundError,
 )
 from modok.retrieval.models import (
-    AnchorSet,
-    CommitRef,
+    AffectedArea,
     DebugPacket,
-    EvidenceAnchor,
-    FileRef,
-    FixRef,
+    IssueAnchors,
+    IssueSummary,
     KnownIssueRef,
+    PriorFix,
 )
 
 _KI_CAP = 10
@@ -31,6 +30,13 @@ _FILE_CAP = 20
 _FILE_PATH_RE = re.compile(
     r'\b([\w.-]+/[\w./-]+\.(?:c|h|cpp|hpp|py|js|ts|md|sh|yaml|yml))\b'
 )
+
+
+def _is_test_path(path: str) -> bool:
+    """Return True if path looks like a test file by convention."""
+    parts = path.replace("\\", "/").split("/")
+    filename = parts[-1] if parts else path
+    return filename.startswith("test_") or "tests" in parts
 
 
 def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> list[str]:
@@ -111,7 +117,6 @@ async def _traverse_files_to_recent_commits(
     """Return up to `limit` most recent commits touching any of the given files."""
     if not file_paths:
         return []
-    # sha → commit props dict; we accumulate files_touched across per-file queries
     seen: dict[str, dict] = {}
     for file_path in file_paths:
         rows = await client.query(
@@ -141,11 +146,12 @@ async def _traverse_feature_to_files(
     feature_slug: str,
     project_slug: str,
     client: QuineClient,
-) -> tuple[list[str], str]:
-    """Return (file_paths, resolved_as) where resolved_as is 'feature' or 'module'.
+) -> tuple[list[str], list[str], str]:
+    """Return (source_paths, test_paths, resolved_as).
 
-    Tries the slug as a Feature first. If no results, tries it as a Module slug
-    so that module-level anchors (e.g. 'lighthouse-ble') still resolve to files.
+    resolved_as is 'feature' or 'module'. Source files come via
+    Feature->IMPLEMENTED_BY->Module->DEFINED_IN->File; test files via
+    Feature->HAS_TEST->File. Falls back to Module slug if Feature has no files.
     """
     rows = await client.query(
         "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
@@ -154,15 +160,30 @@ async def _traverse_feature_to_files(
         "RETURN f, m, file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    paths = [
+    source_paths = [
         row[2]["properties"]["repo_path"]
         for row in rows
         if len(row) > 2 and row[2] and isinstance(row[2], dict)
         and row[2].get("properties", {}).get("repo_path")
     ]
-    if paths:
-        return paths, "feature"
-    # Fallback: treat slug as a Module slug (same query pattern as modok recall)
+
+    test_rows = await client.query(
+        "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
+        "OPTIONAL MATCH (f)-[:HAS_TEST]->(file) "
+        "RETURN file",
+        {"project_slug": project_slug, "feature_slug": feature_slug},
+    )
+    test_paths = [
+        row[0]["properties"]["repo_path"]
+        for row in test_rows
+        if row and row[0] and isinstance(row[0], dict)
+        and row[0].get("properties", {}).get("repo_path")
+    ]
+
+    if source_paths or test_paths:
+        return source_paths, test_paths, "feature"
+
+    # Fallback: treat slug as a Module slug
     rows = await client.query(
         "MATCH (m) WHERE id(m) = idFrom('module', $project_slug, $feature_slug) "
         "OPTIONAL MATCH (m)-[:DEFINED_IN]->(file) "
@@ -175,7 +196,7 @@ async def _traverse_feature_to_files(
         if len(row) > 1 and row[1] and isinstance(row[1], dict)
         and row[1].get("properties", {}).get("repo_path")
     ]
-    return module_paths, "module"
+    return module_paths, [], "module"
 
 
 async def _traverse_error_to_known_issues(
@@ -214,6 +235,26 @@ async def _traverse_ki_to_fixes(
         for row in rows
         if row and row[0].get("properties", {}).get("fix_id")
     ]
+
+
+async def _fetch_fix_commit_sha(
+    fix_id: str,
+    project_slug: str,
+    client: QuineClient,
+) -> str:
+    """Return the short commit SHA for a fix via Fix-[:IMPLEMENTED_IN]->Commit, or ''."""
+    rows = await client.query(
+        "MATCH (f) WHERE id(f) = idFrom('fix', $project_slug, $fix_id) "
+        "MATCH (f)-[:IMPLEMENTED_IN]->(c:Commit) "
+        "RETURN c",
+        {"project_slug": project_slug, "fix_id": fix_id},
+    )
+    for row in rows:
+        if row and row[0] and isinstance(row[0], dict):
+            sha = row[0].get("properties", {}).get("sha", "")
+            if sha:
+                return str(sha)[:7]
+    return ""
 
 
 # @spec DRE-TRAV-005
@@ -293,7 +334,6 @@ async def retrieve(
                 f"CustomerIssue id={issue_id} has no graph anchors and no raw_text"
             )
 
-        # File-path pre-match: deterministic, no LLM tokens needed.
         pre_matched = _pre_match_modules(issue.raw_text, module_source_files or {})
 
         try:
@@ -308,7 +348,6 @@ async def retrieve(
         except LLMUnavailableError as exc:
             raise DRELLMUnavailableError(f"LLM gateway unreachable: {exc}") from exc
 
-        # Merge: pre-matched modules take priority; LLM slug supplements if not already covered.
         merged: list[str] = list(pre_matched)
         llm_slug = parse_result.feature_slug
         if llm_slug and llm_slug not in merged:
@@ -319,38 +358,38 @@ async def retrieve(
         symptoms = list(parse_result.symptoms)
         mentioned_files = list(parse_result.mentioned_files)
 
-        # Zero anchors is valid — ticket may not match any registered feature or module.
-        # Fall through and return a 0-confidence empty packet.
-
     anchor_count = len(feature_slugs) + len(error_sigs)
 
-    # Accumulators: keyed by logical ID string
-    ki_counts: dict[str, int] = {}           # known_issue_id → match_count
-    ki_meta: dict[str, dict[str, str]] = {}  # known_issue_id → props
-    fix_counts: dict[str, int] = {}          # fix_id → match_count
-    fix_meta: dict[str, dict[str, str]] = {} # fix_id → props
-    file_counts: dict[str, int] = {}         # repo_path → match_count
-    evidence: list[EvidenceAnchor] = []
-    resolved_module_slugs: list[str] = []    # slugs that resolved via Module fallback
+    # Accumulators
+    ki_counts: dict[str, int] = {}
+    ki_meta: dict[str, dict[str, str]] = {}
+    fix_counts: dict[str, int] = {}
+    fix_meta: dict[str, dict[str, str]] = {}
+    file_counts: dict[str, int] = {}       # source files
+    test_file_counts: dict[str, int] = {}  # test files
+    matched_anchors = 0
+    resolved_module_slugs: list[str] = []
+    resolved_feature_slugs: list[str] = []
 
     # @spec DRE-TRAV-001
     for slug in feature_slugs:
         try:
-            paths, resolved_as = await _traverse_feature_to_files(slug, project_slug, client)
+            src_paths, tst_paths, resolved_as = await _traverse_feature_to_files(
+                slug, project_slug, client
+            )
         except Exception as exc:
             raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
-        matched_ids = []
-        for path in paths:
-            _accumulate_match_count(file_counts, path, 1)
-            matched_ids.append(path)
-        if matched_ids:
+
+        if src_paths or tst_paths:
+            matched_anchors += 1
+            for path in src_paths:
+                _accumulate_match_count(file_counts, path, 1)
+            for path in tst_paths:
+                _accumulate_match_count(test_file_counts, path, 1)
             if resolved_as == "module":
                 resolved_module_slugs.append(slug)
-            evidence.append(EvidenceAnchor(
-                anchor_type=resolved_as,
-                anchor_value=slug,
-                matched_node_ids=matched_ids,
-            ))
+            else:
+                resolved_feature_slugs.append(slug)
 
     # @spec DRE-TRAV-002, DRE-TRAV-003
     for err in error_sigs:
@@ -358,31 +397,22 @@ async def retrieve(
             ki_props_list = await _traverse_error_to_known_issues(err, project_slug, client)
         except Exception as exc:
             raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
-        matched_ids = []
+        if ki_props_list:
+            matched_anchors += 1
         for ki_node_id, props in ki_props_list:
             ki_id = props["issue_id"]
             _accumulate_match_count(ki_counts, ki_id, 1)
             ki_meta[ki_id] = props
-            matched_ids.append(ki_id)
 
             # @spec DRE-TRAV-003, DRE-SCORE-006
             try:
-                fix_props_list = await _traverse_ki_to_fixes(
-                    ki_node_id, project_slug, client
-                )
+                fix_props_list = await _traverse_ki_to_fixes(ki_node_id, project_slug, client)
             except Exception as exc:
                 raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
             for fix_props in fix_props_list:
                 fid = fix_props["fix_id"]
                 _accumulate_match_count(fix_counts, fid, 1)
                 fix_meta[fid] = fix_props
-
-        if matched_ids:
-            evidence.append(EvidenceAnchor(
-                anchor_type="error_signature",
-                anchor_value=err,
-                matched_node_ids=matched_ids,
-            ))
 
     # @spec DRE-TRAV-004, DRE-SCORE-002
     try:
@@ -395,34 +425,16 @@ async def retrieve(
         _accumulate_match_count(ki_counts, ki_id, weight)
         ki_meta.setdefault(ki_id, props)
 
-    # Build AnchorSet: reclassify slugs that resolved via Module fallback
-    resolved_feature_slugs = [s for s in feature_slugs if s not in resolved_module_slugs]
-    anchors = AnchorSet(
-        feature_slugs=resolved_feature_slugs,
-        module_slugs=resolved_module_slugs,
-        error_signatures=error_sigs,
-        symptoms=symptoms,
-    )
-
-    # Compute confidence
-    # @spec DRE-CONF-001
-    matched_anchors = 0
-    for slug in feature_slugs:
-        # slug may have resolved as "feature" or "module" — either counts as matched
-        if any(ev.anchor_value == slug and ev.anchor_type in ("feature", "module") for ev in evidence):
-            matched_anchors += 1
-    for err in error_sigs:
-        if any(ev.anchor_type == "error_signature" and ev.anchor_value == err for ev in evidence):
-            matched_anchors += 1
-    confidence = _compute_confidence(matched_anchors, anchor_count)
-
-    # Seed file paths explicitly mentioned in the ticket (from LLM parse).
-    # These supplement graph-traversal results — don't overwrite a higher score.
+    # Seed explicitly mentioned files from LLM parse into the right bucket
     for fpath in mentioned_files:
-        if fpath not in file_counts:
-            file_counts[fpath] = 1
+        if _is_test_path(fpath):
+            if fpath not in test_file_counts:
+                test_file_counts[fpath] = 1
+        else:
+            if fpath not in file_counts:
+                file_counts[fpath] = 1
 
-    # Sort and cap all result lists
+    # Sort and cap
     # @spec DRE-SCORE-003, DRE-SCORE-004
     ki_items = _sort_and_cap(
         [{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP
@@ -433,71 +445,76 @@ async def retrieve(
     file_items = _sort_and_cap(
         [{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP
     )
+    test_file_items = _sort_and_cap(
+        [{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP
+    )
+
+    relevant_files = [item["id"] for item in file_items]
+    relevant_tests = [item["id"] for item in test_file_items]
 
     known_issues = [
         KnownIssueRef(
-            known_issue_id=item["id"],
+            id=item["id"],
             summary=ki_meta[item["id"]].get("summary", ""),
-            status=ki_meta[item["id"]].get("status", ""),
-            match_count=item["match_count"],
         )
         for item in ki_items
     ]
-    recent_fixes = [
-        FixRef(
-            fix_id=item["id"],
-            summary=fix_meta[item["id"]].get("summary", ""),
-            kind=fix_meta[item["id"]].get("kind", ""),
-            match_count=item["match_count"],
-            pr_url=fix_meta[item["id"]].get("pr_url") or None,
-        )
-        for item in fix_items
-    ]
-    relevant_files = [
-        FileRef(repo_path=item["id"], match_count=item["match_count"])
-        for item in file_items
-    ]
 
-    file_paths = [f.repo_path for f in relevant_files]
-    raw_commits = await _traverse_files_to_recent_commits(file_paths, project_slug, client)
-    recent_commits = [
-        CommitRef(
-            sha=c.get("sha", ""),
-            message=c.get("message", ""),
-            author_name=c.get("author_name", ""),
-            timestamp=c.get("timestamp", ""),
-            files_touched=c.get("files_touched", []),
-        )
-        for c in raw_commits
-    ]
+    # Fetch commit SHAs for fixes (best-effort; empty string when not available)
+    prior_fixes: list[PriorFix] = []
+    for item in fix_items:
+        fid = item["id"]
+        try:
+            commit_sha = await _fetch_fix_commit_sha(fid, project_slug, client)
+        except Exception:
+            commit_sha = ""
+        prior_fixes.append(PriorFix(
+            id=fid,
+            commit=commit_sha,
+            summary=fix_meta[fid].get("summary", ""),
+        ))
 
+    affected_areas: list[AffectedArea] = []
+    for slug in resolved_feature_slugs:
+        affected_areas.append(AffectedArea(type="feature", id=f"feature:{slug}", name=slug))
+    for slug in resolved_module_slugs:
+        affected_areas.append(AffectedArea(type="module", id=f"module:{slug}", name=slug))
+
+    # Generate next_steps via LLM (best-effort)
+    all_file_paths = relevant_files + relevant_tests
+    raw_commits = await _traverse_files_to_recent_commits(all_file_paths, project_slug, client)
     raw_text = issue.raw_text or issue.summary
     try:
-        generated_summary = await gateway.summarise_packet(
+        next_steps = await gateway.summarise_packet(
             issue_text=raw_text,
-            module_slugs=anchors.module_slugs,
-            error_signatures=anchors.error_signatures,
-            symptoms=anchors.symptoms,
-            relevant_files=[f.repo_path for f in relevant_files],
+            module_slugs=[a.name for a in affected_areas if a.type == "module"],
+            error_signatures=error_sigs,
+            symptoms=symptoms,
+            relevant_files=relevant_files,
+            relevant_tests=relevant_tests,
             recent_commits=[
-                {"timestamp": c.timestamp, "author_name": c.author_name, "message": c.message}
-                for c in recent_commits
+                {"timestamp": c.get("timestamp", ""), "author_name": c.get("author_name", ""), "message": c.get("message", "")}
+                for c in raw_commits
             ],
             known_issues=[ki.summary for ki in known_issues],
             backend=backend,
         )
     except Exception:
-        generated_summary = ""
+        next_steps = []
 
     return DebugPacket(
-        issue_summary=issue.summary,
-        anchors=anchors,
-        anchor_count=anchor_count,
-        known_issues=known_issues,
-        recent_fixes=recent_fixes,
+        issue=IssueSummary(
+            summary=issue.summary,
+            anchors=IssueAnchors(
+                features=resolved_feature_slugs,
+                errors=error_sigs,
+                symptoms=symptoms,
+            ),
+        ),
+        affected_areas=affected_areas,
         relevant_files=relevant_files,
-        recent_commits=recent_commits,
-        evidence=evidence,
-        confidence=confidence,
-        summary=generated_summary,
+        relevant_tests=relevant_tests,
+        known_issues=known_issues,
+        prior_fixes=prior_fixes,
+        next_steps=next_steps,
     )

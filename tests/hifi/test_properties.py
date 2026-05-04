@@ -87,7 +87,7 @@ async def test_double_write_is_idempotent(features, edges):
 # @spec PT-003
 @pytest.mark.asyncio
 async def test_packet_ki_ids_exist_in_dummy_quine():
-    """Every known_issue_id in the packet must resolve to a node in DummyQuine."""
+    """Every known_issue id in the packet must resolve to a node in DummyQuine."""
     from modok.quine.models import ErrorSignature
     from tests.hifi.harness.runner import run_scenario_from_parts
 
@@ -117,9 +117,9 @@ async def test_packet_ki_ids_exist_in_dummy_quine():
     _, actual, dq = await run_scenario_from_parts(nodes, edges, ci_id, project)
 
     for ki_ref in actual.known_issues:
-        expected_node_id = idFrom("known-issue", project, ki_ref.known_issue_id)
+        expected_node_id = idFrom("known-issue", project, ki_ref.id)
         assert expected_node_id in dq._nodes, \
-            f"known_issue_id={ki_ref.known_issue_id!r} not in DummyQuine._nodes"
+            f"known_issue id={ki_ref.id!r} not in DummyQuine._nodes"
 
 
 # @spec PT-004
@@ -169,8 +169,8 @@ async def test_packet_contains_only_queried_project_nodes():
     _, actual, dq = await run_scenario_from_parts(nodes, edges, ci_a_id, proj_a)
 
     for ki_ref in actual.known_issues:
-        node_id = idFrom("known-issue", proj_a, ki_ref.known_issue_id)
+        node_id = idFrom("known-issue", proj_a, ki_ref.id)
         node = dq._nodes.get(node_id)
         assert node is not None
         assert node.project_slug == proj_a, \
-            f"Expected project_slug={proj_a!r}, got {node.project_slug!r} for KI={ki_ref.known_issue_id}"
+            f"Expected project_slug={proj_a!r}, got {node.project_slug!r} for KI={ki_ref.id}"

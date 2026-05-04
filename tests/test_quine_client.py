@@ -472,6 +472,79 @@ async def test_replace_edges_with_empty_list_only_deletes():
 
 
 # ---------------------------------------------------------------------------
+# QC-EW-005 — write_edge_by_parts accepts optional properties dict
+# ---------------------------------------------------------------------------
+
+# @spec QC-EW-005
+@pytest.mark.asyncio
+async def test_write_edge_by_parts_with_properties_includes_set_clause():
+    import json
+    queries_seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        queries_seen.append(body["text"])
+        return quine_upsert_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.write_edge_by_parts(
+        ("project", "proj-a"),
+        "TOUCHES",
+        ("file", "proj-a", "src/main.c"),
+        properties={"change_type": "M"},
+    )
+
+    assert len(queries_seen) == 1
+    assert "SET" in queries_seen[0]
+    assert "props" in queries_seen[0] or "change_type" in queries_seen[0]
+
+
+# @spec QC-EW-005
+@pytest.mark.asyncio
+async def test_write_edge_by_parts_without_properties_omits_set_clause():
+    import json
+    queries_seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        queries_seen.append(body["text"])
+        return quine_upsert_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.write_edge_by_parts(
+        ("project", "proj-a"),
+        "HAS_FEATURE",
+        ("feature", "proj-a", "feat-x"),
+    )
+
+    assert len(queries_seen) == 1
+    assert "SET r" not in queries_seen[0]
+
+
+# @spec QC-EW-005
+@pytest.mark.asyncio
+async def test_write_edge_by_parts_with_empty_properties_omits_set_clause():
+    import json
+    queries_seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        queries_seen.append(body["text"])
+        return quine_upsert_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.write_edge_by_parts(
+        ("project", "proj-a"),
+        "HAS_FEATURE",
+        ("feature", "proj-a", "feat-x"),
+        properties={},
+    )
+
+    assert len(queries_seen) == 1
+    assert "SET r" not in queries_seen[0]
+
+
+# ---------------------------------------------------------------------------
 # QC-TR-001 — traverse returns hydrated nodes in one round-trip
 # ---------------------------------------------------------------------------
 

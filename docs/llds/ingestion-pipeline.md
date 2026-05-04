@@ -524,6 +524,7 @@ Warnings do not halt ingestion. Errors do.
 3. **Multi-repo projects** — a project whose docs and code span multiple repos. Registry paths and file validation would need to be repo-relative. Deferred until a concrete case arises.
 4. **LLM proposal review UX** — the CLI review prompt is one field at a time. For docs with many missing fields this could be slow. A batch review mode (show all proposals, approve/reject interactively) may be needed.
 5. **Git commit filter — test_files** — SI-GIT-004's registered-file filter covers `source_files` and arrow doc paths but not `test_files`. Commits that add or modify tests are currently invisible to the feature graph. If queries like "what commits added tests for pi-agent?" are needed, add `test_files` paths to the filter scope.
+6. **Unified `HAS_SECTION` traversal for registered docs** — unregistered docs use `Doc -[HAS_SECTION]-> DocSection`; registered docs use `Feature -[DESCRIBED_BY]-> DocSection`. These are two different traversal patterns to reach a `DocSection`. If a caller needs to find all sections for a given doc file regardless of registration status, add `File -[HAS_SECTION]-> DocSection` edges to registered doc ingestion to unify the pattern.
 
 ## References
 

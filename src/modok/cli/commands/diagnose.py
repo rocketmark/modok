@@ -14,12 +14,12 @@ import click
 from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
 from modok.retrieval.models import (
-    AnchorSet,
+    AffectedArea,
     DebugPacket,
-    EvidenceAnchor,
-    FileRef,
-    FixRef,
+    IssueAnchors,
+    IssueSummary,
     KnownIssueRef,
+    PriorFix,
 )
 
 _KI_CAP = 10
@@ -30,6 +30,14 @@ _FILES_CYPHER = """
 MATCH (f)
 WHERE f.project_slug = $project_slug AND f.feature_slug = $feature_slug AND f.node_type = 'Feature'
 MATCH (f)-[:IMPLEMENTED_BY]->(m)-[:DEFINED_IN]->(file)
+WHERE file.node_type = 'File'
+RETURN file
+"""
+
+_TEST_FILES_CYPHER = """
+MATCH (f)
+WHERE f.project_slug = $project_slug AND f.feature_slug = $feature_slug AND f.node_type = 'Feature'
+MATCH (f)-[:HAS_TEST]->(file)
 WHERE file.node_type = 'File'
 RETURN file
 """
@@ -58,6 +66,13 @@ WHERE fix.node_type = 'Fix'
 RETURN fix
 """
 
+_FIX_COMMIT_CYPHER = """
+MATCH (f)
+WHERE id(f) = idFrom('fix', $project_slug, $fix_id)
+MATCH (f)-[:IMPLEMENTED_IN]->(c:Commit)
+RETURN c
+"""
+
 
 def _accumulate(counts: dict[str, int], key: str, delta: int = 1) -> None:
     counts[key] = counts.get(key, 0) + delta
@@ -80,13 +95,21 @@ async def _run_diagnose(
     fix_counts: dict[str, int] = {}
     fix_meta: dict[str, dict] = {}
     file_counts: dict[str, int] = {}
+    test_file_counts: dict[str, int] = {}
 
-    # Files via feature → module → file
+    # Source files via feature → module → DEFINED_IN → file
     rows = await client.query(_FILES_CYPHER, {"project_slug": project, "feature_slug": feature})
     for row in rows:
         for item in row:
             if isinstance(item, dict) and item.get("properties", {}).get("repo_path"):
                 _accumulate(file_counts, item["properties"]["repo_path"])
+
+    # Test files via feature → HAS_TEST → file
+    rows = await client.query(_TEST_FILES_CYPHER, {"project_slug": project, "feature_slug": feature})
+    for row in rows:
+        for item in row:
+            if isinstance(item, dict) and item.get("properties", {}).get("repo_path"):
+                _accumulate(test_file_counts, item["properties"]["repo_path"])
 
     # KnownIssues via feature → HAS_KNOWN_ISSUE
     rows = await client.query(_KI_CYPHER, {"project_slug": project, "feature_slug": feature})
@@ -137,41 +160,50 @@ async def _run_diagnose(
     ki_items = _sort_cap([{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP)
     fix_items = _sort_cap([{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP)
     file_items = _sort_cap([{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP)
+    test_items = _sort_cap([{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP)
+
+    # Fetch commit SHAs for fixes (best-effort)
+    prior_fixes: list[PriorFix] = []
+    for item in fix_items:
+        fid = item["id"]
+        commit_sha = ""
+        try:
+            rows = await client.query(_FIX_COMMIT_CYPHER, {"project_slug": project, "fix_id": fid})
+            for row in rows:
+                if row and row[0] and isinstance(row[0], dict):
+                    sha = row[0].get("properties", {}).get("sha", "")
+                    if sha:
+                        commit_sha = str(sha)[:7]
+                        break
+        except Exception:
+            pass
+        prior_fixes.append(PriorFix(
+            id=fid,
+            commit=commit_sha,
+            summary=fix_meta[fid].get("summary", ""),
+        ))
 
     return DebugPacket(
-        issue_summary=f"diagnose: {feature}",
-        anchors=AnchorSet(
-            feature_slugs=[feature],
-            error_signatures=[error] if error else [],
-            symptoms=[symptom] if symptom else [],
+        issue=IssueSummary(
+            summary=f"diagnose: {feature}",
+            anchors=IssueAnchors(
+                features=[feature],
+                errors=[error] if error else [],
+                symptoms=[symptom] if symptom else [],
+            ),
         ),
-        anchor_count=1 + (1 if error else 0),
+        affected_areas=[AffectedArea(type="feature", id=f"feature:{feature}", name=feature)],
+        relevant_files=[item["id"] for item in file_items],
+        relevant_tests=[item["id"] for item in test_items],
         known_issues=[
             KnownIssueRef(
-                known_issue_id=item["id"],
+                id=item["id"],
                 summary=ki_meta[item["id"]].get("summary", ""),
-                status=ki_meta[item["id"]].get("status", ""),
-                match_count=item["match_count"],
             )
             for item in ki_items
         ],
-        recent_fixes=[
-            FixRef(
-                fix_id=item["id"],
-                summary=fix_meta[item["id"]].get("summary", ""),
-                kind=fix_meta[item["id"]].get("kind", ""),
-                match_count=item["match_count"],
-            )
-            for item in fix_items
-        ],
-        relevant_files=[
-            FileRef(repo_path=item["id"], match_count=item["match_count"])
-            for item in file_items
-        ],
-        evidence=[
-            EvidenceAnchor(anchor_type="feature", anchor_value=feature),
-        ],
-        confidence=1.0,
+        prior_fixes=prior_fixes,
+        next_steps=[],
     )
 
 
@@ -209,28 +241,34 @@ def diagnose_cmd(
 
 
 def _print_packet(packet: DebugPacket) -> None:
-    click.echo(f"Feature: {packet.anchors.feature_slugs[0]}")
-    if packet.anchors.error_signatures:
-        click.echo(f"Error:   {packet.anchors.error_signatures[0]}")
-    if packet.anchors.symptoms:
-        click.echo(f"Symptom: {packet.anchors.symptoms[0]}")
+    click.echo(f"Feature: {packet.issue.anchors.features[0] if packet.issue.anchors.features else '(unknown)'}")
+    if packet.issue.anchors.errors:
+        click.echo(f"Error:   {packet.issue.anchors.errors[0]}")
+    if packet.issue.anchors.symptoms:
+        click.echo(f"Symptom: {packet.issue.anchors.symptoms[0]}")
     click.echo("")
 
-    if not packet.known_issues and not packet.recent_fixes and not packet.relevant_files:
+    if not packet.known_issues and not packet.prior_fixes and not packet.relevant_files and not packet.relevant_tests:
         click.echo("  (no results)")
         return
 
     if packet.known_issues:
         click.echo("Known Issues:")
         for ki in packet.known_issues:
-            click.echo(f"  [{ki.status}] {ki.known_issue_id}  {ki.summary}")
+            click.echo(f"  {ki.id}  {ki.summary}")
 
-    if packet.recent_fixes:
+    if packet.prior_fixes:
         click.echo("Fixes:")
-        for fix in packet.recent_fixes:
-            click.echo(f"  [{fix.kind}] {fix.fix_id}  {fix.summary}")
+        for fix in packet.prior_fixes:
+            commit = f" ({fix.commit})" if fix.commit else ""
+            click.echo(f"  {fix.id}{commit}  {fix.summary}")
 
     if packet.relevant_files:
         click.echo("Files:")
         for f in packet.relevant_files:
-            click.echo(f"  {f.repo_path}")
+            click.echo(f"  {f}")
+
+    if packet.relevant_tests:
+        click.echo("Tests:")
+        for t in packet.relevant_tests:
+            click.echo(f"  {t}")

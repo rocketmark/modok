@@ -6,19 +6,18 @@ them with the same logic as the DRE to produce a DebugPacket.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 from modok.quine.models import QuineNode
 from tests.hifi.dummy_quine.client import _node_id_from_model_hifi as _node_id_from_model
 from modok.retrieval.errors import DRENotFoundError
 from modok.retrieval.models import (
-    AnchorSet,
+    AffectedArea,
     DebugPacket,
-    EvidenceAnchor,
-    FileRef,
-    FixRef,
+    IssueAnchors,
+    IssueSummary,
     KnownIssueRef,
+    PriorFix,
 )
 
 _KI_CAP = 10
@@ -67,15 +66,13 @@ class ReferenceModok:
             elif et == "HAS_ERROR" and target.node_type == "ErrorSignature" and target.project_slug == project_slug:
                 error_sigs.append(target.normalized_error)
 
-        anchor_count = len(feature_slugs) + len(error_sigs)
-
         # Accumulators
         ki_counts: dict[str, int] = {}
         ki_meta: dict[str, dict[str, Any]] = {}
         fix_counts: dict[str, int] = {}
         fix_meta: dict[str, dict[str, Any]] = {}
         file_counts: dict[str, int] = {}
-        evidence: list[EvidenceAnchor] = []
+        matched_feature_slugs: list[str] = []
 
         # Feature → Module → File
         for slug in feature_slugs:
@@ -98,11 +95,7 @@ class ReferenceModok:
                         file_counts[file_node.repo_path] = file_counts.get(file_node.repo_path, 0) + 1
                         paths.append(file_node.repo_path)
             if paths:
-                evidence.append(EvidenceAnchor(
-                    anchor_type="feature",
-                    anchor_value=slug,
-                    matched_node_ids=paths,
-                ))
+                matched_feature_slugs.append(slug)
 
         # Error → KnownIssue → Fix
         for err in error_sigs:
@@ -113,7 +106,6 @@ class ReferenceModok:
                     break
             if err_id is None:
                 continue
-            matched_ki_ids: list[str] = []
             for (f, et, t) in self._edges:
                 if t != err_id or et != "HAS_ERROR":
                     continue
@@ -123,7 +115,6 @@ class ReferenceModok:
                 ki_id_str = ki_node.issue_id
                 ki_counts[ki_id_str] = ki_counts.get(ki_id_str, 0) + 1
                 ki_meta[ki_id_str] = ki_node.model_dump()
-                matched_ki_ids.append(ki_id_str)
 
                 # KnownIssue → Fix
                 ki_node_id = f
@@ -135,60 +126,39 @@ class ReferenceModok:
                         fix_counts[fix_node.fix_id] = fix_counts.get(fix_node.fix_id, 0) + 1
                         fix_meta[fix_node.fix_id] = fix_node.model_dump()
 
-            if matched_ki_ids:
-                evidence.append(EvidenceAnchor(
-                    anchor_type="error_signature",
-                    anchor_value=err,
-                    matched_node_ids=matched_ki_ids,
-                ))
-
-        # Confidence
-        matched_anchors = sum(
-            1 for ev in evidence
-            if (ev.anchor_type == "feature" and ev.anchor_value in feature_slugs)
-            or (ev.anchor_type == "error_signature" and ev.anchor_value in error_sigs)
-        )
-        confidence = float(matched_anchors) / float(anchor_count) if anchor_count > 0 else 0.0
-
         # Sort and cap
         ki_items = sorted(ki_counts.items(), key=lambda x: x[1], reverse=True)[:_KI_CAP]
         fix_items = sorted(fix_counts.items(), key=lambda x: x[1], reverse=True)[:_FIX_CAP]
         file_items = sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:_FILE_CAP]
 
         known_issues = [
-            KnownIssueRef(
-                known_issue_id=ki_id,
-                summary=ki_meta[ki_id].get("summary", ""),
-                status=ki_meta[ki_id].get("status", ""),
-                match_count=count,
-            )
-            for ki_id, count in ki_items
+            KnownIssueRef(id=ki_id, summary=ki_meta[ki_id].get("summary", ""))
+            for ki_id, _ in ki_items
         ]
-        recent_fixes = [
-            FixRef(
-                fix_id=fix_id,
-                summary=fix_meta[fix_id].get("summary", ""),
-                kind=fix_meta[fix_id].get("kind", ""),
-                match_count=count,
-            )
-            for fix_id, count in fix_items
+        prior_fixes = [
+            PriorFix(id=fix_id, commit="", summary=fix_meta[fix_id].get("summary", ""))
+            for fix_id, _ in fix_items
         ]
-        relevant_files = [
-            FileRef(repo_path=path, match_count=count)
-            for path, count in file_items
+        relevant_files = [path for path, _ in file_items]
+
+        affected_areas = [
+            AffectedArea(type="feature", id=f"feature:{slug}", name=slug)
+            for slug in matched_feature_slugs
         ]
 
         return DebugPacket(
-            issue_summary=node.summary,
-            anchors=AnchorSet(
-                feature_slugs=feature_slugs,
-                error_signatures=error_sigs,
+            issue=IssueSummary(
+                summary=node.summary,
+                anchors=IssueAnchors(
+                    features=feature_slugs,
+                    errors=error_sigs,
+                    symptoms=[],
+                ),
             ),
-            anchor_count=anchor_count,
-            known_issues=known_issues,
-            recent_fixes=recent_fixes,
+            affected_areas=affected_areas,
             relevant_files=relevant_files,
-            recent_commits=[],
-            evidence=evidence,
-            confidence=confidence,
+            relevant_tests=[],
+            known_issues=known_issues,
+            prior_fixes=prior_fixes,
+            next_steps=[],
         )

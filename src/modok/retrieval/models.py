@@ -3,61 +3,44 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class AnchorSet:
-    feature_slugs: list[str] = field(default_factory=list)
-    module_slugs: list[str] = field(default_factory=list)
-    error_signatures: list[str] = field(default_factory=list)
+class IssueAnchors:
+    features: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     symptoms: list[str] = field(default_factory=list)
 
 
 @dataclass
+class IssueSummary:
+    summary: str
+    anchors: IssueAnchors
+
+
+@dataclass
+class AffectedArea:
+    type: str    # "feature" or "module"
+    id: str      # "feature:shtp-receiver"
+    name: str    # slug used as display name
+
+
+@dataclass
 class KnownIssueRef:
-    known_issue_id: str
+    id: str
     summary: str
-    status: str
-    match_count: int
 
 
 @dataclass
-class FixRef:
-    fix_id: str
+class PriorFix:
+    id: str
+    commit: str
     summary: str
-    kind: str
-    match_count: int
-    pr_url: str | None = None
-
-
-@dataclass
-class FileRef:
-    repo_path: str
-    match_count: int
-
-
-@dataclass
-class CommitRef:
-    sha: str
-    message: str
-    author_name: str
-    timestamp: str
-    files_touched: list[str] = field(default_factory=list)
-
-
-@dataclass
-class EvidenceAnchor:
-    anchor_type: str        # "feature" | "error_signature"
-    anchor_value: str
-    matched_node_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
 class DebugPacket:
-    issue_summary: str
-    anchors: AnchorSet
-    anchor_count: int
+    issue: IssueSummary
+    affected_areas: list[AffectedArea]
+    relevant_files: list[str]
+    relevant_tests: list[str]
     known_issues: list[KnownIssueRef]
-    recent_fixes: list[FixRef]
-    relevant_files: list[FileRef]
-    recent_commits: list[CommitRef]
-    evidence: list[EvidenceAnchor]
-    confidence: float
-    summary: str = ""
+    prior_fixes: list[PriorFix]
+    next_steps: list[str]

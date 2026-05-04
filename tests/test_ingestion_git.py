@@ -183,8 +183,9 @@ M\tagent/src/shtp.c
 
 # @spec SI-GIT-003
 @pytest.mark.asyncio
-async def test_touches_edge_skipped_when_file_node_missing(tmp_path):
+async def test_write_commit_upserts_file_node_for_each_touched_path(tmp_path):
     from modok.ingestion.git_history import write_commit_to_quine
+    from modok.quine.models import File
 
     commit = CommitRecord(
         sha="a" * 40,
@@ -193,22 +194,22 @@ async def test_touches_edge_skipped_when_file_node_missing(tmp_path):
         author_email="alice@example.com",
         message="fix something",
         branch="main",
-        touched_files=[("agent/src/shtp.c", "M")],
+        touched_files=[("agent/src/shtp.c", "M"), ("agent/src/other.c", "A")],
     )
-
     client = AsyncMock()
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
-    # Must still write the Commit node
-    assert client.upsert_node.called
-    # write_edge_by_parts is called; Quine's MATCH silently skips if File node absent
-    assert client.write_edge_by_parts.called
+    upserted = [c.args[0] for c in client.upsert_node.call_args_list]
+    file_nodes = [n for n in upserted if isinstance(n, File)]
+    file_paths = {n.repo_path for n in file_nodes}
+    assert "agent/src/shtp.c" in file_paths
+    assert "agent/src/other.c" in file_paths
 
 
 # @spec SI-GIT-003
 @pytest.mark.asyncio
-async def test_touches_edge_written_when_file_node_exists(tmp_path):
+async def test_touches_edge_written_for_each_touched_file(tmp_path):
     from modok.ingestion.git_history import write_commit_to_quine
 
     commit = CommitRecord(
@@ -220,15 +221,37 @@ async def test_touches_edge_written_when_file_node_exists(tmp_path):
         branch="main",
         touched_files=[("agent/src/shtp.c", "A")],
     )
-
     client = AsyncMock()
 
     await write_commit_to_quine(commit, client=client, project_slug="stagehand")
 
-    # write_edge_by_parts called once per touched file
     assert client.write_edge_by_parts.call_count == 1
-    call_args = client.write_edge_by_parts.call_args_list[0]
-    assert call_args.args[1] == "TOUCHES"
+    assert client.write_edge_by_parts.call_args_list[0].args[1] == "TOUCHES"
+
+
+# @spec SI-GIT-003
+@pytest.mark.asyncio
+async def test_touches_edge_carries_change_type_property(tmp_path):
+    from modok.ingestion.git_history import write_commit_to_quine
+
+    commit = CommitRecord(
+        sha="c" * 40,
+        timestamp="2024-01-15T10:30:00+00:00",
+        author_name="Alice",
+        author_email="alice@example.com",
+        message="add feature",
+        branch="main",
+        touched_files=[("agent/src/new.c", "A")],
+    )
+    client = AsyncMock()
+
+    await write_commit_to_quine(commit, client=client, project_slug="stagehand")
+
+    assert client.write_edge_by_parts.call_count == 1
+    call = client.write_edge_by_parts.call_args
+    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
+    assert isinstance(props, dict)
+    assert props.get("change_type") == "A"
 
 
 # ---------------------------------------------------------------------------

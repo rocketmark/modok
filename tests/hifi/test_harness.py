@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 
 from modok.quine.ids import idFrom
-from modok.retrieval.models import AnchorSet, DebugPacket, FileRef, FixRef, KnownIssueRef
+from modok.retrieval.models import (
+    AffectedArea,
+    DebugPacket,
+    IssueAnchors,
+    IssueSummary,
+    KnownIssueRef,
+    PriorFix,
+)
 
 from tests.hifi.dummy_quine.client import DummyQuine
 from tests.hifi.harness.loader import load_scenario
@@ -428,7 +435,7 @@ async def test_run_scenario_isolates_state_between_runs(tmp_path):
     await run_scenario(load_scenario(f1))
     # Run second scenario (empty) — KI-ISOLATED must not bleed in
     _, actual2 = await run_scenario(load_scenario(f2))
-    ki_ids = [k.known_issue_id for k in actual2.known_issues]
+    ki_ids = [k.id for k in actual2.known_issues]
     assert "KI-ISOLATED" not in ki_ids
 
 
@@ -440,15 +447,13 @@ async def test_run_scenario_isolates_state_between_runs(tmp_path):
 def test_assert_packets_equivalent_passes_when_ids_match():
     def _make(ki_ids, fix_ids, paths):
         return DebugPacket(
-            issue_summary="x",
-            anchors=AnchorSet(),
-            anchor_count=0,
-            known_issues=[KnownIssueRef(k, "", "", 1) for k in ki_ids],
-            recent_fixes=[FixRef(f, "", "", 1) for f in fix_ids],
-            relevant_files=[FileRef(p, 1) for p in paths],
-            recent_commits=[],
-            evidence=[],
-            confidence=0.0,
+            issue=IssueSummary(summary="x", anchors=IssueAnchors()),
+            affected_areas=[],
+            relevant_files=paths,
+            relevant_tests=[],
+            known_issues=[KnownIssueRef(id=k, summary="") for k in ki_ids],
+            prior_fixes=[PriorFix(id=f, commit="", summary="") for f in fix_ids],
+            next_steps=[],
         )
 
     expected = _make(["KI-001", "KI-002"], ["FIX-001"], ["agent/src/shtp.c"])
@@ -460,15 +465,13 @@ def test_assert_packets_equivalent_passes_when_ids_match():
 def test_assert_packets_equivalent_fails_when_ki_missing():
     def _make(ki_ids):
         return DebugPacket(
-            issue_summary="x",
-            anchors=AnchorSet(),
-            anchor_count=0,
-            known_issues=[KnownIssueRef(k, "", "", 1) for k in ki_ids],
-            recent_fixes=[],
+            issue=IssueSummary(summary="x", anchors=IssueAnchors()),
+            affected_areas=[],
             relevant_files=[],
-            recent_commits=[],
-            evidence=[],
-            confidence=0.0,
+            relevant_tests=[],
+            known_issues=[KnownIssueRef(id=k, summary="") for k in ki_ids],
+            prior_fixes=[],
+            next_steps=[],
         )
 
     expected = _make(["KI-001"])

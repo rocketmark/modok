@@ -150,7 +150,7 @@ def test_retrieve_extracts_feature_anchors():
     feat_id = _feat_id()
     ref.ingest([ci, feat], [(ci_id, "AFFECTS", feat_id)])
     packet = ref.retrieve(ci_id, "stagehand")
-    assert "shtp" in packet.anchors.feature_slugs
+    assert "shtp" in packet.issue.anchors.features
 
 
 # @spec REF-RET-003
@@ -162,7 +162,7 @@ def test_retrieve_extracts_error_anchors():
     err_id = _err_id()
     ref.ingest([ci, err], [(ci_id, "HAS_ERROR", err_id)])
     packet = ref.retrieve(ci_id, "stagehand")
-    assert "shtp_mismatch" in packet.anchors.error_signatures
+    assert "shtp_mismatch" in packet.issue.anchors.errors
 
 
 # @spec REF-RET-004
@@ -185,8 +185,7 @@ def test_retrieve_follows_feature_to_files():
         ],
     )
     packet = ref.retrieve(ci_id, "stagehand")
-    paths = [f.repo_path for f in packet.relevant_files]
-    assert "agent/src/shtp.c" in paths
+    assert "agent/src/shtp.c" in packet.relevant_files
 
 
 # @spec REF-RET-005
@@ -206,7 +205,7 @@ def test_retrieve_follows_error_to_known_issues():
         ],
     )
     packet = ref.retrieve(ci_id, "stagehand")
-    ki_ids = [k.known_issue_id for k in packet.known_issues]
+    ki_ids = [k.id for k in packet.known_issues]
     assert "KI-001" in ki_ids
 
 
@@ -230,7 +229,7 @@ def test_retrieve_follows_ki_to_fixes():
         ],
     )
     packet = ref.retrieve(ci_id, "stagehand")
-    fix_ids = [f.fix_id for f in packet.recent_fixes]
+    fix_ids = [f.id for f in packet.prior_fixes]
     assert "FIX-001" in fix_ids
 
 
@@ -259,12 +258,12 @@ def test_retrieve_ranks_by_match_count_descending():
         ],
     )
     packet = ref.retrieve(ci_id, "stagehand")
-    ki_ids = [k.known_issue_id for k in packet.known_issues]
+    ki_ids = [k.id for k in packet.known_issues]
     assert ki_ids.index("KI-001") < ki_ids.index("KI-002")
 
 
 # @spec REF-RET-008
-def test_retrieve_confidence_positive_when_anchor_matched():
+def test_retrieve_affected_areas_nonempty_when_anchor_matched():
     ref = ReferenceModok()
     ci = _ci()
     feat = _feature()
@@ -283,7 +282,7 @@ def test_retrieve_confidence_positive_when_anchor_matched():
         ],
     )
     packet = ref.retrieve(ci_id, "stagehand")
-    assert packet.confidence > 0
+    assert packet.relevant_files
 
 
 # @spec REF-RET-009
@@ -311,6 +310,6 @@ def test_retrieve_excludes_other_project_nodes():
         ],
     )
     packet = ref.retrieve(ci_a_id, "project-a")
-    ki_ids = [k.known_issue_id for k in packet.known_issues]
+    ki_ids = [k.id for k in packet.known_issues]
     assert "KI-A" in ki_ids
     assert "KI-B" not in ki_ids

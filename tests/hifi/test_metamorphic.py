@@ -70,12 +70,11 @@ async def test_shuffled_input_order_same_packet():
     shuffled_edges = list(reversed(edges))
     _, actual_shuf, _ = await run_scenario_from_parts(shuffled_nodes, shuffled_edges, ci_id, project)
 
-    assert set(k.known_issue_id for k in actual_orig.known_issues) == \
-           set(k.known_issue_id for k in actual_shuf.known_issues)
-    assert set(f.fix_id for f in actual_orig.recent_fixes) == \
-           set(f.fix_id for f in actual_shuf.recent_fixes)
-    assert set(f.repo_path for f in actual_orig.relevant_files) == \
-           set(f.repo_path for f in actual_shuf.relevant_files)
+    assert set(k.id for k in actual_orig.known_issues) == \
+           set(k.id for k in actual_shuf.known_issues)
+    assert set(f.id for f in actual_orig.prior_fixes) == \
+           set(f.id for f in actual_shuf.prior_fixes)
+    assert set(actual_orig.relevant_files) == set(actual_shuf.relevant_files)
 
 
 # @spec MT-002
@@ -91,12 +90,11 @@ async def test_duplicate_node_edge_same_packet():
     dup_edges = edges + [edges[0]]
     _, actual_dup, _ = await run_scenario_from_parts(dup_nodes, dup_edges, ci_id, project)
 
-    assert set(k.known_issue_id for k in actual_orig.known_issues) == \
-           set(k.known_issue_id for k in actual_dup.known_issues)
-    assert set(f.fix_id for f in actual_orig.recent_fixes) == \
-           set(f.fix_id for f in actual_dup.recent_fixes)
-    assert set(f.repo_path for f in actual_orig.relevant_files) == \
-           set(f.repo_path for f in actual_dup.relevant_files)
+    assert set(k.id for k in actual_orig.known_issues) == \
+           set(k.id for k in actual_dup.known_issues)
+    assert set(f.id for f in actual_orig.prior_fixes) == \
+           set(f.id for f in actual_dup.prior_fixes)
+    assert set(actual_orig.relevant_files) == set(actual_dup.relevant_files)
 
 
 # @spec MT-003
@@ -134,23 +132,22 @@ async def test_unrelated_project_node_does_not_change_packet():
 
     _, actual_ext, _ = await run_scenario_from_parts(extended_nodes, extended_edges, ci_id, project)
 
-    assert set(k.known_issue_id for k in actual_orig.known_issues) == \
-           set(k.known_issue_id for k in actual_ext.known_issues)
-    assert set(f.fix_id for f in actual_orig.recent_fixes) == \
-           set(f.fix_id for f in actual_ext.recent_fixes)
-    assert set(f.repo_path for f in actual_orig.relevant_files) == \
-           set(f.repo_path for f in actual_ext.relevant_files)
+    assert set(k.id for k in actual_orig.known_issues) == \
+           set(k.id for k in actual_ext.known_issues)
+    assert set(f.id for f in actual_orig.prior_fixes) == \
+           set(f.id for f in actual_ext.prior_fixes)
+    assert set(actual_orig.relevant_files) == set(actual_ext.relevant_files)
 
 
 # @spec MT-004
 @pytest.mark.asyncio
-async def test_adding_fix_appears_in_recent_fixes():
-    """Adding a Fix with a RESOLVED_BY edge must cause fix_id to appear in recent_fixes."""
+async def test_adding_fix_appears_in_prior_fixes():
+    """Adding a Fix with a RESOLVED_BY edge must cause fix_id to appear in prior_fixes."""
     project = "stagehand"
     nodes, edges, ci_id = _base_nodes_and_edges(project)
 
     _, actual_orig, _ = await run_scenario_from_parts(nodes, edges, ci_id, project)
-    assert "FIX-MT" not in [f.fix_id for f in actual_orig.recent_fixes]
+    assert "FIX-MT" not in [f.id for f in actual_orig.prior_fixes]
 
     fix = Fix(
         node_type="Fix", project_slug=project,
@@ -163,7 +160,7 @@ async def test_adding_fix_appears_in_recent_fixes():
     extended_edges = edges + [(ki_id, "RESOLVED_BY", fix_id)]
 
     _, actual_ext, _ = await run_scenario_from_parts(extended_nodes, extended_edges, ci_id, project)
-    assert "FIX-MT" in [f.fix_id for f in actual_ext.recent_fixes]
+    assert "FIX-MT" in [f.id for f in actual_ext.prior_fixes]
 
 
 # @spec MT-005
@@ -174,7 +171,7 @@ async def test_adding_affects_edge_brings_in_files():
     nodes, edges, ci_id = _base_nodes_and_edges(project)
 
     _, actual_orig, _ = await run_scenario_from_parts(nodes, edges, ci_id, project)
-    assert "agent/src/mt_feature.c" not in [f.repo_path for f in actual_orig.relevant_files]
+    assert "agent/src/mt_feature.c" not in actual_orig.relevant_files
 
     new_feat = Feature(
         node_type="Feature", project_slug=project,
@@ -200,4 +197,4 @@ async def test_adding_affects_edge_brings_in_files():
     ]
 
     _, actual_ext, _ = await run_scenario_from_parts(extended_nodes, extended_edges, ci_id, project)
-    assert "agent/src/mt_feature.c" in [f.repo_path for f in actual_ext.relevant_files]
+    assert "agent/src/mt_feature.c" in actual_ext.relevant_files

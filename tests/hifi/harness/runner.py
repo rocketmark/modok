@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import DREAnchorError
-from modok.retrieval.models import AnchorSet, DebugPacket
+from modok.retrieval.models import AffectedArea, DebugPacket, IssueAnchors, IssueSummary
 
 from tests.hifi.dummy_quine.client import DummyQuine
 from tests.hifi.harness.loader import Scenario
@@ -15,15 +15,13 @@ from tests.hifi.reference.model import ReferenceModok
 
 def _empty_packet(summary: str) -> DebugPacket:
     return DebugPacket(
-        issue_summary=summary,
-        anchors=AnchorSet(),
-        anchor_count=0,
-        known_issues=[],
-        recent_fixes=[],
+        issue=IssueSummary(summary=summary, anchors=IssueAnchors()),
+        affected_areas=[],
         relevant_files=[],
-        recent_commits=[],
-        evidence=[],
-        confidence=0.0,
+        relevant_tests=[],
+        known_issues=[],
+        prior_fixes=[],
+        next_steps=[],
     )
 
 
@@ -54,7 +52,7 @@ async def run_scenario(scenario: Scenario) -> tuple[DebugPacket, DebugPacket]:
     try:
         actual_packet = await retrieve(scenario.query.issue_id, scenario.query.project_slug, dq)
     except DREAnchorError:
-        actual_packet = _empty_packet(expected_packet.issue_summary)
+        actual_packet = _empty_packet(expected_packet.issue.summary)
 
     return expected_packet, actual_packet
 
@@ -87,6 +85,6 @@ async def run_scenario_from_parts(
     try:
         actual_packet = await retrieve(issue_id, project_slug, dq)
     except DREAnchorError:
-        actual_packet = _empty_packet(expected_packet.issue_summary)
+        actual_packet = _empty_packet(expected_packet.issue.summary)
 
     return expected_packet, actual_packet, dq

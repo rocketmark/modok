@@ -243,10 +243,9 @@ async def _write_nodes_and_edges(
             )
             ctx.edges_written += 1
 
-    # --- File nodes (source + test) + DEFINED_IN edges ---
-    all_files: list[str] = list(fm.get("source_files", [])) + list(fm.get("test_files", []))
+    # --- Source File nodes + DEFINED_IN edges from owning Module ---
     all_mod_slugs: list[str] = fm.get("modules", [])
-    for fpath in all_files:
+    for fpath in fm.get("source_files", []):
         file_node = File(
             node_type="File",
             project_slug=project_slug,
@@ -254,8 +253,6 @@ async def _write_nodes_and_edges(
         )
         await client.upsert_node(file_node)
         ctx.nodes_written += 1
-        # Use registry to find which module(s) specifically own this file.
-        # Fall back to all modules listed on the feature if registry unavailable.
         if registry is not None:
             owning_mods = registry.modules_covering_path(fpath)
             if not owning_mods:
@@ -266,6 +263,26 @@ async def _write_nodes_and_edges(
             await client.write_edge_by_parts(
                 ("module", project_slug, mod_slug),
                 "DEFINED_IN",
+                ("file", project_slug, fpath),
+            )
+            ctx.edges_written += 1
+
+    # --- Test File nodes + HAS_TEST edges from Feature ---
+    # Tests belong to the feature, not to a specific module, so we anchor them
+    # on the Feature node directly. This makes traversal reliable regardless of
+    # which module within the feature is matched.
+    if feature_slug:
+        for fpath in fm.get("test_files", []):
+            file_node = File(
+                node_type="File",
+                project_slug=project_slug,
+                repo_path=fpath,
+            )
+            await client.upsert_node(file_node)
+            ctx.nodes_written += 1
+            await client.write_edge_by_parts(
+                ("feature", project_slug, feature_slug),
+                "HAS_TEST",
                 ("file", project_slug, fpath),
             )
             ctx.edges_written += 1
@@ -360,11 +377,13 @@ async def _write_known_issue_block(
         ctx.edges_written += 1
 
 
+# @spec SI-BLOCK-004
 async def _write_fix_block(
     block: dict,
     project_slug: str,
     client: Any,
     ctx: IngestionContext,
+    feature_slug: str | None = None,
 ) -> None:
     fix_id = block.get("id", block.get("fix_id", ""))
     if not fix_id:
@@ -378,6 +397,13 @@ async def _write_fix_block(
     )
     await client.upsert_node(fix_node)
     ctx.nodes_written += 1
+    if feature_slug:
+        await client.write_edge_by_parts(
+            ("feature", project_slug, feature_slug),
+            "HAS_FIX",
+            ("fix", project_slug, fix_id),
+        )
+        ctx.edges_written += 1
 
 
 async def ingest_doc(
@@ -443,7 +469,7 @@ async def ingest_doc(
         if kind == "known_issue":
             await _write_known_issue_block(block, project_slug, feature_slug, client, ctx)
         elif kind == "fix":
-            await _write_fix_block(block, project_slug, client, ctx)
+            await _write_fix_block(block, project_slug, client, ctx, feature_slug=feature_slug or None)
         # failure_mode, risk, diagnostic_note: deferred to later ingestion phases
 
     # SI-HEAD-001/002: extract headings → DocSection nodes + DESCRIBED_BY edges
@@ -496,7 +522,14 @@ async def ingest_doc_unregistered(
         )
         await client.upsert_node(section_node)
         ctx.nodes_written += 1
-        # SI-HEAD-002: no DESCRIBED_BY edge for unregistered docs (no Feature node)
+        # SI-HEAD-002: no DESCRIBED_BY edge (no Feature node)
+        # SI-UNREG-003: Doc→DocSection containment edge so sections aren't isolated
+        await client.write_edge_by_parts(
+            ("doc", project_slug, doc_path_str),
+            "HAS_SECTION",
+            ("doc-section", project_slug, doc_path_str, heading_slug),
+        )
+        ctx.edges_written += 1
 
 
 def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:

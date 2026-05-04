@@ -333,10 +333,11 @@ def _validate_similarity(data: dict, raw: str) -> list[SimilarityProposal]:
     ]
 
 
-def _validate_summary(data: dict, raw: str) -> str:
-    if "summary" not in data:
-        raise ValueError("missing summary field")
-    return str(data["summary"])
+def _validate_summary(data: dict, raw: str) -> list[str]:
+    steps = data.get("next_steps")
+    if not steps or not isinstance(steps, list):
+        raise ValueError("missing or invalid next_steps field")
+    return [str(s) for s in steps if s]
 
 
 # ---------------------------------------------------------------------------
@@ -767,16 +768,18 @@ async def summarise_packet(
     error_signatures: list[str],
     symptoms: list[str],
     relevant_files: list[str],
+    relevant_tests: list[str],
     recent_commits: list[dict],
     known_issues: list[str],
     backend: str = "local",
-) -> str:
+) -> list[str]:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_summarise_packet")
     max_retries = int(cfg.get("max_retries", 2))
 
     modules_line = ", ".join(module_slugs) if module_slugs else "unknown"
     files_block = "\n".join(f"  {f}" for f in relevant_files) if relevant_files else "  (none)"
+    tests_block = "\n".join(f"  {f}" for f in relevant_tests) if relevant_tests else "  (none)"
     commits_block = "\n".join(
         f"  {c.get('timestamp', '')[:10]}  {c.get('author_name', '')}:  {c.get('message', '')}"
         for c in recent_commits[:5]
@@ -791,6 +794,7 @@ async def summarise_packet(
         f"Errors: {errors_line}\n"
         f"Symptoms: {symptoms_line}\n\n"
         f"Files:\n{files_block}\n\n"
+        f"Tests:\n{tests_block}\n\n"
         f"Recent commits:\n{commits_block}\n\n"
         f"Known issues: {issues_line}"
     )

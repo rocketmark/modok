@@ -22,8 +22,7 @@ SCENARIOS = Path(__file__).parent / "scenarios"
 async def test_feature_to_files():
     expected, actual = await run_scenario(load_scenario(SCENARIOS / "feature_to_files.yaml"))
     assert_packets_equivalent(expected, actual)
-    paths = [f.repo_path for f in actual.relevant_files]
-    assert "agent/src/shtp.c" in paths
+    assert "agent/src/shtp.c" in actual.relevant_files
 
 
 # @spec GS-002
@@ -31,7 +30,7 @@ async def test_feature_to_files():
 async def test_error_to_known_issue():
     expected, actual = await run_scenario(load_scenario(SCENARIOS / "error_to_known_issue.yaml"))
     assert_packets_equivalent(expected, actual)
-    ki_ids = [k.known_issue_id for k in actual.known_issues]
+    ki_ids = [k.id for k in actual.known_issues]
     assert "KI-001" in ki_ids
 
 
@@ -40,7 +39,7 @@ async def test_error_to_known_issue():
 async def test_known_issue_to_fix():
     expected, actual = await run_scenario(load_scenario(SCENARIOS / "known_issue_to_fix.yaml"))
     assert_packets_equivalent(expected, actual)
-    fix_ids = [f.fix_id for f in actual.recent_fixes]
+    fix_ids = [f.id for f in actual.prior_fixes]
     assert "FIX-001" in fix_ids
 
 
@@ -61,7 +60,6 @@ async def test_cross_project_isolation():
     expected, actual = await run_scenario(load_scenario(SCENARIOS / "cross_project_isolation.yaml"))
     assert_packets_equivalent(expected, actual)
     # Project-B nodes must be absent
-    ki_ids = [k.known_issue_id for k in actual.known_issues]
+    ki_ids = [k.id for k in actual.known_issues]
     assert "KI-PROJECT-B" not in ki_ids
-    paths = [f.repo_path for f in actual.relevant_files]
-    assert "project_b/src/file.c" not in paths
+    assert "project_b/src/file.c" not in actual.relevant_files

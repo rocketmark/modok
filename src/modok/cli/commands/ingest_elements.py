@@ -31,9 +31,19 @@ def ingest_elements_cmd(project: str) -> None:
 
     for slug, entry in registry._modules.items():
         source_files = entry.get("source_files", [])
-        if not source_files:
+
+        # Gather test files from every feature that includes this module.
+        test_files: list[str] = []
+        seen_test: set[str] = set()
+        for feat_slug in registry.features_for_module(slug):
+            for tf in registry.test_files_for_feature(feat_slug):
+                if tf not in seen_test:
+                    seen_test.add(tf)
+                    test_files.append(tf)
+
+        if not source_files and not test_files:
             continue
-        extracted = extract_module_elements(source_files, repo_root)
+        extracted = extract_module_elements(source_files, repo_root, test_files=test_files)
         if extracted:
             elements[slug] = extracted
             updated += 1

@@ -32,12 +32,12 @@ from modok.retrieval.errors import (
     DRENotFoundError,
 )
 from modok.retrieval.models import (
-    AnchorSet,
+    AffectedArea,
     DebugPacket,
-    EvidenceAnchor,
-    FileRef,
-    FixRef,
+    IssueAnchors,
+    IssueSummary,
     KnownIssueRef,
+    PriorFix,
 )
 
 
@@ -69,15 +69,16 @@ def write_config(path: Path, jar_path: str = "/fake/quine.jar", repo_path: str =
 
 def make_debug_packet() -> DebugPacket:
     return DebugPacket(
-        issue_summary="Tracker drops out after USB reset",
-        anchors=AnchorSet(feature_slugs=["shtp-receiver"], error_signatures=[], symptoms=[]),
-        anchor_count=1,
-        known_issues=[KnownIssueRef("KI-001", "SHTP version mismatch", "open", 1)],
-        recent_fixes=[FixRef("FIX-001", "Upgrade to SHTP v2", "patch", 1, None)],
-        relevant_files=[FileRef("agent/src/shtp.c", 1)],
-        recent_commits=[],
-        evidence=[EvidenceAnchor("feature", "shtp-receiver", ["agent/src/shtp.c"])],
-        confidence=1.0,
+        issue=IssueSummary(
+            summary="Tracker drops out after USB reset",
+            anchors=IssueAnchors(features=["shtp-receiver"], errors=[], symptoms=[]),
+        ),
+        affected_areas=[AffectedArea(type="feature", id="feature:shtp-receiver", name="shtp-receiver")],
+        relevant_files=["agent/src/shtp.c"],
+        relevant_tests=[],
+        known_issues=[KnownIssueRef(id="KI-001", summary="SHTP version mismatch")],
+        prior_fixes=[PriorFix(id="FIX-001", commit="a3f9c12", summary="Upgrade to SHTP v2")],
+        next_steps=["Inspect the SHTP receiver source file"],
     )
 
 
@@ -680,8 +681,8 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
 
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert parsed["issue_summary"] == "Tracker drops out after USB reset"
-    assert parsed["confidence"] == 1.0
+    assert parsed["issue"]["summary"] == "Tracker drops out after USB reset"
+    assert parsed["relevant_files"] == ["agent/src/shtp.c"]
 
 
 # ---------------------------------------------------------------------------

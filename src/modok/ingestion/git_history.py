@@ -299,13 +299,14 @@ def save_last_git_sha(config_path: Path, project_slug: str, sha: str) -> None:
 # Quine write
 # ---------------------------------------------------------------------------
 
+# @spec SI-GIT-002, SI-GIT-003
 async def write_commit_to_quine(
     commit: CommitRecord,
     client: Any,
     project_slug: str,
 ) -> None:
-    """Write one Commit node and its TOUCHES edges to Quine (SI-GIT-002, SI-GIT-003)."""
-    from modok.quine.models import Commit as CommitNode
+    """Write one Commit node, upsert File nodes for touched paths, and write TOUCHES edges."""
+    from modok.quine.models import Commit as CommitNode, File as FileNode
     commit_node = CommitNode(
         node_type="Commit",
         project_slug=project_slug,
@@ -319,12 +320,19 @@ async def write_commit_to_quine(
     await client.upsert_node(commit_node)
 
     for file_path, change_type in commit.touched_files:
-        # SI-GIT-003: TOUCHES edge is only created if the File node exists in the graph.
-        # write_edge_by_parts uses MATCH — if the File node is absent the edge is silently skipped.
+        # SI-GIT-003: upsert a minimal File node so the TOUCHES edge always resolves,
+        # even when ingest-docs hasn't run yet for this file's feature.
+        file_node = FileNode(
+            node_type="File",
+            project_slug=project_slug,
+            repo_path=file_path,
+        )
+        await client.upsert_node(file_node)
         await client.write_edge_by_parts(
             ("commit", project_slug, commit.sha),
             "TOUCHES",
             ("file", project_slug, file_path),
+            properties={"change_type": change_type},
         )
 
 

@@ -144,11 +144,13 @@ class QuineClient:
 
     # Ingestion path: write an edge using idFrom() argument tuples instead of UUIDs.
     # Used when the caller knows the logical parts but has no UUID from a prior query.
+    # @spec QC-EW-001, QC-EW-002, QC-EW-003, QC-EW-005
     async def write_edge_by_parts(
         self,
         from_parts: tuple[str, ...],
         edge_type: str,
         to_parts: tuple[str, ...],
+        properties: dict[str, Any] | None = None,
     ) -> None:
         from_args = ", ".join(f"$fp{i}" for i in range(len(from_parts)))
         to_args = ", ".join(f"$tp{i}" for i in range(len(to_parts)))
@@ -157,11 +159,19 @@ class QuineClient:
             params[f"fp{i}"] = p
         for i, p in enumerate(to_parts):
             params[f"tp{i}"] = p
-        query = (
-            f"MATCH (a) WHERE id(a) = idFrom({from_args}) "
-            f"MATCH (b) WHERE id(b) = idFrom({to_args}) "
-            f"MERGE (a)-[:{edge_type}]->(b)"
-        )
+        if properties:
+            params["props"] = properties
+            query = (
+                f"MATCH (a) WHERE id(a) = idFrom({from_args}) "
+                f"MATCH (b) WHERE id(b) = idFrom({to_args}) "
+                f"MERGE (a)-[r:{edge_type}]->(b) SET r += $props"
+            )
+        else:
+            query = (
+                f"MATCH (a) WHERE id(a) = idFrom({from_args}) "
+                f"MATCH (b) WHERE id(b) = idFrom({to_args}) "
+                f"MERGE (a)-[:{edge_type}]->(b)"
+            )
         await self._cypher(query, params)
 
     # @spec QC-EW-004

@@ -77,18 +77,20 @@ Be precise. If a field has no candidates, omit it. Return valid JSON only.
 """
 
 SUMMARISE_PACKET_SYSTEM = """\
-You are a diagnostic assistant. Given resolved information about a customer issue, write a concise
-actionable summary for the engineer who will investigate it.
+You are a diagnostic assistant. Given resolved information about a customer issue, produce a short
+ordered list of next steps for the engineer who will investigate it.
 
 Focus on:
-- Which file to open first and why (module context)
-- Who last changed it and when
-- Whether any recent commit messages look related to the reported issue
+- Which file or test to open first and why
+- Whether any known issues or prior fixes are directly relevant
+- Whether recent commits look related
+- What to run or verify first
 
-Be 2-4 sentences. Do not repeat the issue title verbatim. Write for an engineer ready to start debugging.
+Return 3-5 concise action items. Each item should be one sentence, written as an imperative
+("Inspect ...", "Run ...", "Check ..."). Do not repeat the issue title verbatim.
 
 Return ONLY a JSON object with:
-  summary: string
+  next_steps: list of strings
 """
 
 NORMALISE_REGISTRY_SYSTEM = """\

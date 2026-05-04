@@ -6,33 +6,43 @@ import re
 from pathlib import Path
 
 _MAX_ELEMENTS = 25
+_MAX_TEST_ELEMENTS = 10
 _C_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "typedef",
                "struct", "enum", "union", "static", "extern", "const", "void"}
 
 
-def extract_module_elements(source_files: list[str], repo_root: Path) -> list[str]:
-    """Return up to _MAX_ELEMENTS key identifiers from the given source files.
+def extract_module_elements(
+    source_files: list[str],
+    repo_root: Path,
+    test_files: list[str] | None = None,
+) -> list[str]:
+    """Return key identifiers from the given source and test files.
 
-    Extracts class names, public and private methods, and class-level attribute
-    names (signals, constants). Deduplicates and caps to keep prompt size sane.
+    Source files are capped at _MAX_ELEMENTS identifiers; test files add up to
+    _MAX_TEST_ELEMENTS more. Deduplicates across both sets to keep prompt size sane.
     """
-    names: list[str] = []
-    for rel_path in source_files:
-        abs_path = repo_root / rel_path
-        if not abs_path.exists():
-            continue
-        suffix = abs_path.suffix.lower()
-        if suffix == ".py":
-            names.extend(_extract_python(abs_path))
-        elif suffix in (".c", ".h"):
-            names.extend(_extract_c(abs_path))
+    def _collect(paths: list[str], cap: int, seen: set[str]) -> list[str]:
+        names: list[str] = []
+        for rel_path in paths:
+            abs_path = repo_root / rel_path
+            if not abs_path.exists():
+                continue
+            suffix = abs_path.suffix.lower()
+            if suffix == ".py":
+                names.extend(_extract_python(abs_path))
+            elif suffix in (".c", ".h"):
+                names.extend(_extract_c(abs_path))
+        result: list[str] = []
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                result.append(n)
+        return result[:cap]
+
     seen: set[str] = set()
-    result: list[str] = []
-    for n in names:
-        if n not in seen:
-            seen.add(n)
-            result.append(n)
-    return result[:_MAX_ELEMENTS]
+    source_names = _collect(source_files, _MAX_ELEMENTS, seen)
+    test_names = _collect(test_files or [], _MAX_TEST_ELEMENTS, seen)
+    return source_names + test_names
 
 
 def _extract_python(path: Path) -> list[str]:

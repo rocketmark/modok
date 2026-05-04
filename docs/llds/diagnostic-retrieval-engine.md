@@ -243,6 +243,7 @@ The DRE creates no nodes. It reads `CustomerIssue`, `Feature`, `Module`, `File`,
 5. **Anchor caching** — `parse_ticket` in the fallback path re-parses raw text on every `retrieve()` call. This is intentional: anchors derived from LLM output are not written back to Quine, so each call repeats the LLM work. The repeat cost is accepted in v1. When it becomes a measured problem, the fix is to write the derived anchors back as `AFFECTS`/`HAS_ERROR` edges via the ingestion pipeline (making them graph-first on the next call). The DRE does not write these itself — writes belong to ingestion.
 6. **Configurable result caps** — current caps (10/10/20) are hardcoded. If callers need different limits, a `max_results` parameter can be added without changing the core logic.
 7. **`ResolutionEvent` in fix retrieval** — if showing only general `Fix` nodes proves insufficient (e.g., callers need to know which fixes were applied to real tickets), traverse `ResolutionEvent` as a secondary fix source.
+8. **Traverse `HAS_FIX` edges in fix retrieval** — the ingestion pipeline writes `Feature -[HAS_FIX]-> Fix` edges for inline MODOK fix blocks (SI-BLOCK-004). The DRE does not yet traverse these edges; fix retrieval currently relies on `Fix` nodes ingested via separate YAML files. When inline fix blocks become a primary source of fix data, add `Feature -[HAS_FIX]-> Fix` as a traversal hop in the fix retrieval path.
 
 ## References
 

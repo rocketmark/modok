@@ -1453,3 +1453,216 @@ async def test_reruns_stages_2_to_5_after_patch_not_stage_1_or_6(tmp_path):
     assert len(discover_calls) == 0   # stage 1 not re-run
     assert len(sha_calls) == 0        # stage 6 not re-run
     assert len(parse_calls) >= 1      # stage 2 re-run after patch
+
+
+# ---------------------------------------------------------------------------
+# HAS_TEST edges — test files anchored on Feature, not Module
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_has_test_edges_written_for_test_files(tmp_path):
+    """Test files must get HAS_TEST edges from Feature, not DEFINED_IN from Module."""
+    from modok.ingestion.pipeline import ingest_doc
+
+    content = """\
+---
+modok:
+  doc_type: lld
+  feature: shtp-receiver
+  modules:
+    - shtp
+  source_files:
+    - agent/src/shtp.c
+  test_files:
+    - agent/tests/test_shtp.c
+---
+# Doc
+"""
+    path = write_file(tmp_path / "doc.md", content)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    registry.modules_covering_path.return_value = ["shtp"]
+
+    client = AsyncMock()
+
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+
+    has_test_edges = [c for c in edge_calls if c[1] == "HAS_TEST"]
+    assert len(has_test_edges) == 1
+    assert has_test_edges[0][0] == ("feature", "stagehand", "shtp-receiver")
+    assert has_test_edges[0][2] == ("file", "stagehand", "agent/tests/test_shtp.c")
+
+    # Test file must NOT appear with DEFINED_IN
+    defined_in_paths = [c[2][2] for c in edge_calls if c[1] == "DEFINED_IN"]
+    assert "agent/tests/test_shtp.c" not in defined_in_paths
+
+
+@pytest.mark.asyncio
+async def test_source_files_still_get_defined_in_edges(tmp_path):
+    """Source files must still get DEFINED_IN edges from their module."""
+    from modok.ingestion.pipeline import ingest_doc
+
+    content = """\
+---
+modok:
+  doc_type: lld
+  feature: shtp-receiver
+  modules:
+    - shtp
+  source_files:
+    - agent/src/shtp.c
+  test_files: []
+---
+# Doc
+"""
+    path = write_file(tmp_path / "doc.md", content)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+    registry.modules_covering_path.return_value = ["shtp"]
+
+    client = AsyncMock()
+
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    defined_in = [c for c in edge_calls if c[1] == "DEFINED_IN" and c[2][2] == "agent/src/shtp.c"]
+    assert len(defined_in) >= 1
+    assert defined_in[0][0] == ("module", "stagehand", "shtp")
+
+
+# ---------------------------------------------------------------------------
+# SI-UNREG-003 — HAS_SECTION containment edges for unregistered docs
+# ---------------------------------------------------------------------------
+
+# @spec SI-UNREG-003
+@pytest.mark.asyncio
+async def test_has_section_edges_written_for_each_heading_in_unregistered_doc(tmp_path):
+    from modok.ingestion.pipeline import ingest_doc_unregistered
+
+    content = """\
+# Title
+
+## Overview
+
+Some content.
+
+## Detail
+
+More content.
+"""
+    path = write_file(tmp_path / "doc.md", content)
+    client = AsyncMock()
+
+    await ingest_doc_unregistered(path, client=client, project_slug="stagehand")
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    has_section = [c for c in edge_calls if c[1] == "HAS_SECTION"]
+    assert len(has_section) == 2  # Overview and Detail (H1 excluded per SI-HEAD-001)
+
+
+# @spec SI-UNREG-003
+@pytest.mark.asyncio
+async def test_has_section_edge_from_doc_to_doc_section(tmp_path):
+    from modok.ingestion.pipeline import ingest_doc_unregistered
+
+    content = "## Only Section\n\nContent.\n"
+    path = write_file(tmp_path / "doc.md", content)
+    client = AsyncMock()
+
+    await ingest_doc_unregistered(path, client=client, project_slug="stagehand")
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    has_section = [c for c in edge_calls if c[1] == "HAS_SECTION"]
+    assert len(has_section) == 1
+    from_parts, _, to_parts = has_section[0]
+    assert from_parts[0] == "doc"
+    assert to_parts[0] == "doc-section"
+
+
+# @spec SI-UNREG-003
+@pytest.mark.asyncio
+async def test_no_has_section_edges_when_unregistered_doc_has_no_headings(tmp_path):
+    from modok.ingestion.pipeline import ingest_doc_unregistered
+
+    content = "No headings here, just prose.\n"
+    path = write_file(tmp_path / "doc.md", content)
+    client = AsyncMock()
+
+    await ingest_doc_unregistered(path, client=client, project_slug="stagehand")
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    assert not any(c[1] == "HAS_SECTION" for c in edge_calls)
+
+
+# ---------------------------------------------------------------------------
+# SI-BLOCK-004 — HAS_FIX edge for fix MODOK blocks
+# ---------------------------------------------------------------------------
+
+# @spec SI-BLOCK-004
+@pytest.mark.asyncio
+async def test_fix_block_writes_has_fix_edge_in_registered_doc(tmp_path):
+    from modok.ingestion.pipeline import ingest_doc
+
+    content = """\
+---
+modok:
+  doc_type: lld
+  feature: shtp-receiver
+  modules:
+    - shtp
+  source_files: []
+  test_files: []
+---
+
+## Known Fixes
+
+```modok
+kind: fix
+id: fix-shtp-version-offset
+summary: Fix version byte offset comparison
+```
+"""
+    path = write_file(tmp_path / "doc.md", content)
+
+    registry = MagicMock(spec=Registry)
+    registry.has_feature.return_value = True
+    registry.has_module.return_value = True
+    registry.has_error.return_value = True
+
+    client = AsyncMock()
+
+    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    has_fix = [c for c in edge_calls if c[1] == "HAS_FIX"]
+    assert len(has_fix) == 1
+    from_parts, _, to_parts = has_fix[0]
+    assert from_parts == ("feature", "stagehand", "shtp-receiver")
+    assert to_parts[0] == "fix"
+    assert "fix-shtp-version-offset" in to_parts
+
+
+# @spec SI-BLOCK-004
+@pytest.mark.asyncio
+async def test_fix_block_writes_fix_node_but_no_edge_when_no_feature_slug(tmp_path):
+    from modok.ingestion.pipeline import _write_fix_block, IngestionContext
+
+    block = {"kind": "fix", "id": "fix-orphan", "summary": "An orphaned fix"}
+    ctx = IngestionContext(project_slug="stagehand", repo_root=tmp_path)
+    client = AsyncMock()
+
+    await _write_fix_block(
+        block, project_slug="stagehand", client=client, ctx=ctx, feature_slug=None
+    )
+
+    assert client.upsert_node.called  # Fix node is still written
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    assert not any(c[1] == "HAS_FIX" for c in edge_calls)
