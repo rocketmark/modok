@@ -292,11 +292,18 @@ async def _call_auto(
 # ---------------------------------------------------------------------------
 
 def _validate_ticket(data: dict, raw: str) -> TicketParseResult:
-    expected = {"feature_slug", "error_signatures", "environment", "symptoms", "confidence"}
+    expected = {"feature_slugs", "feature_slug", "error_signatures", "environment", "symptoms", "confidence"}
     if not expected.intersection(data.keys()):
         raise ValueError(f"response contains none of the expected ticket fields: {list(data.keys())}")
+    # Accept both new list form and legacy single-slug form
+    raw_slugs = data.get("feature_slugs") or []
+    if not isinstance(raw_slugs, list):
+        raw_slugs = [raw_slugs] if raw_slugs else []
+    legacy = data.get("feature_slug")
+    if legacy and legacy not in raw_slugs:
+        raw_slugs.append(legacy)
     return TicketParseResult(
-        feature_slug=data.get("feature_slug"),
+        feature_slugs=raw_slugs,
         error_signatures=list(data.get("error_signatures", [])),
         environment=dict(data.get("environment", {})),
         symptoms=list(data.get("symptoms", [])),
@@ -644,8 +651,8 @@ async def parse_ticket(
             native_ollama=True,
         )
     result = _parse_and_validate(raw, _validate_ticket)
-    if result.feature_slug and valid_slugs and result.feature_slug not in valid_slugs:
-        result.feature_slug = None
+    if valid_slugs:
+        result.feature_slugs = [s for s in result.feature_slugs if s in valid_slugs]
     return result
 
 

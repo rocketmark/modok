@@ -11,11 +11,21 @@
             "SHTP event dropped error"
           ],
           "symptoms": [
-            "SHTP event dropped error in the event log"
+            "Getting an SHTP event dropped error in the event log"
           ]
         }
       },
       "affected_areas": [
+        {
+          "type": "module",
+          "id": "module:shtp-listener",
+          "name": "shtp-listener"
+        },
+        {
+          "type": "module",
+          "id": "module:shtp-receiver",
+          "name": "shtp-receiver"
+        },
         {
           "type": "module",
           "id": "module:event-log",
@@ -24,6 +34,21 @@
       ],
       "relevant_files": [
         "docs/arrows/client-utilities.md",
+        "client/shtp_listener.py",
+        "docs/specs/client-protocol-layer-specs.md",
+        "docs/llds/client-protocol-layer.md",
+        "docs/arrows/client-protocol-layer.md",
+        "client/tests/test_hardware_hifi_live.py",
+        "client/tests/test_discovery.py",
+        "client/tests/test_pi_identity.py",
+        "client/tests/test_memory_safety.py",
+        "client/tests/test_shtp_crosslang.py",
+        "client/tests/test_shtp_properties.py",
+        "client/tests/test_shtp_receiver.py",
+        "client/stagehand_client/net_util.py",
+        "client/stagehand_client/discovery.py",
+        "client/stagehand_client/pi_identity.py",
+        "client/stagehand_client/shtp_receiver.py",
         "client/stagehand_client/event_log.py"
       ],
       "relevant_tests": [],
@@ -58,6 +83,36 @@
           ]
         },
         {
+          "sha": "226eb0239c2b8a944f7d37aa631c634b2b3fc597",
+          "timestamp": "2026-04-24T09:09:55-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "completed arrow audit  for client protocol and client signal",
+          "files_touched": [
+            "docs/specs/client-protocol-layer-specs.md",
+            "docs/llds/client-protocol-layer.md",
+            "docs/arrows/client-protocol-layer.md"
+          ]
+        },
+        {
+          "sha": "58cf9302901a4de15b61dc544101bd2474d3d60f",
+          "timestamp": "2026-04-22T17:04:26-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "cleaned up 6 and 7 on client cleanup",
+          "files_touched": [
+            "client/stagehand_client/discovery.py",
+            "client/stagehand_client/shtp_receiver.py"
+          ]
+        },
+        {
+          "sha": "ad36c733e9fea6e7834668fb29e123070d14f5db",
+          "timestamp": "2026-04-22T12:21:37-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "completed #2 from client cleanup",
+          "files_touched": [
+            "client/stagehand_client/shtp_receiver.py"
+          ]
+        },
+        {
           "sha": "dcfbfd59732dd251a8849c2227fe49290b7bbd57",
           "timestamp": "2026-04-22T11:52:18-04:00",
           "author_name": "Mark Stalzer",
@@ -67,61 +122,37 @@
           ]
         },
         {
-          "sha": "e236b01fdbf85df7b1976ef1df05f732ed67bc55",
-          "timestamp": "2026-04-19T17:59:57-04:00",
+          "sha": "f23be126b396ee32257f0072a894bcb36be2e1c6",
+          "timestamp": "2026-04-21T19:42:22-04:00",
           "author_name": "Mark Stalzer",
-          "message": "fixed shtp to match the new error message and added messages for usb and imu rate errors",
+          "message": "fixed ruff errors",
           "files_touched": [
-            "client/stagehand_client/event_log.py"
+            "client/stagehand_client/shtp_receiver.py"
           ]
         },
         {
-          "sha": "35259b51b9612990e11161689622356d01505c51",
-          "timestamp": "2026-04-19T12:18:27-04:00",
+          "sha": "b67634fad8e817049f1701fcf07d5def33acaed4",
+          "timestamp": "2026-04-21T19:40:27-04:00",
           "author_name": "Mark Stalzer",
-          "message": "updated client side agent  event from lighthouse sleep/wake to sweep lost/resumed message",
+          "message": "fixed apperance of client in mac to match windows.",
           "files_touched": [
-            "client/stagehand_client/event_log.py"
+            "client/stagehand_client/net_util.py",
+            "client/stagehand_client/pi_identity.py",
+            "client/stagehand_client/shtp_receiver.py"
           ]
         },
         {
-          "sha": "901753aec647b0ceca10dc57f811b902b356f247",
-          "timestamp": "2026-04-09T09:16:39-04:00",
+          "sha": "7c6014984e162c2113bf9f8f9c2ed6cb55c147f9",
+          "timestamp": "2026-04-21T14:13:36-04:00",
           "author_name": "Mark Stalzer",
-          "message": "updated #10 from current audit doc",
+          "message": "updated client. now it works in macos.",
           "files_touched": [
-            "client/stagehand_client/event_log.py"
-          ]
-        },
-        {
-          "sha": "addfc83b1109f825eaf9a6fb8ed16ae730de97b9",
-          "timestamp": "2026-04-01T16:13:55-04:00",
-          "author_name": "Mark Stalzer",
-          "message": "updated lighthouse sleep/wake testing",
-          "files_touched": [
-            "client/stagehand_client/event_log.py"
-          ]
-        },
-        {
-          "sha": "9f6b1687afcd25bced1ea5f3dbc7cd1b9df2ef91",
-          "timestamp": "2026-03-31T16:36:06-04:00",
-          "author_name": "Mark Stalzer",
-          "message": "fixed 2nd refactor from bug_audit",
-          "files_touched": [
-            "client/stagehand_client/event_log.py"
-          ]
-        },
-        {
-          "sha": "02ab06ddf725567826175a0a1aeacf0513cceca1",
-          "timestamp": "2026-03-31T10:49:58-04:00",
-          "author_name": "Mark Stalzer",
-          "message": "added error messages for encoder unplug as well as tests",
-          "files_touched": [
-            "client/stagehand_client/event_log.py"
+            "client/stagehand_client/net_util.py",
+            "client/stagehand_client/pi_identity.py"
           ]
         }
       ],
-      "summary": "The SHTP event drop error observed in the event log for stagehand_01 likely requires reviewing the changes in client/stagehand_client/event_log.py, particularly concerning error message handling from prior fixes."
+      "summary": "The SHTP event dropped error likely originates within the `shtp-listener` or `shtp-receiver` components, requiring investigation of `client/stagehand_client/shtp_receiver.py`."
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",

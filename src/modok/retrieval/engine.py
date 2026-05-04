@@ -350,9 +350,9 @@ async def retrieve(
             raise DRELLMUnavailableError(f"LLM gateway unreachable: {exc}") from exc
 
         merged: list[str] = list(pre_matched)
-        llm_slug = parse_result.feature_slug
-        if llm_slug and llm_slug not in merged:
-            merged.append(llm_slug)
+        for llm_slug in parse_result.feature_slugs:
+            if llm_slug not in merged:
+                merged.append(llm_slug)
         feature_slugs = merged
 
         error_sigs = list(parse_result.error_signatures)

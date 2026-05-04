@@ -22,7 +22,7 @@ Use ALL available signals to match the ticket to the right module:
 Prefer the most specific match — module over feature when the issue is clearly scoped to one module.
 
 Return ONLY a JSON object with these fields:
-  feature_slug: the single best-matching feature slug or module slug, or null if nothing matches
+  feature_slugs: list of matching feature or module slugs, ordered best-first (1–3 slugs; empty list if nothing matches)
   mentioned_files: list of explicit file paths referenced in the ticket (e.g. "agent/src/main.c")
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)

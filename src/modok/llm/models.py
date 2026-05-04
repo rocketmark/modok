@@ -5,7 +5,7 @@ from typing import Any
 
 @dataclass
 class TicketParseResult:
-    feature_slug: str | None
+    feature_slugs: list[str]
     error_signatures: list[str]
     environment: dict[str, str]
     symptoms: list[str]
