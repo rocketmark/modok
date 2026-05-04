@@ -31,8 +31,3 @@ updates:
           - "minor"
           - "patch"
 
-  # Optional but recommended: keep GitHub Actions versions up to date.
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
