@@ -267,6 +267,7 @@ async def retrieve(
         raise DREGraphUnavailableError(f"Quine unreachable during anchor extraction: {exc}") from exc
 
     symptoms: list[str] = []
+    mentioned_files: list[str] = []
 
     if not feature_slugs and not error_sigs:
         # @spec DRE-ANCH-004, DRE-ANCH-005, DRE-ANCH-006, DRE-ANCH-007
@@ -289,6 +290,7 @@ async def retrieve(
         feature_slugs = [parse_result.feature_slug] if parse_result.feature_slug else []
         error_sigs = list(parse_result.error_signatures)
         symptoms = list(parse_result.symptoms)
+        mentioned_files = list(parse_result.mentioned_files)
 
         # Zero anchors is valid — ticket may not match any registered feature or module.
         # Fall through and return a 0-confidence empty packet.
@@ -386,6 +388,12 @@ async def retrieve(
         if any(ev.anchor_type == "error_signature" and ev.anchor_value == err for ev in evidence):
             matched_anchors += 1
     confidence = _compute_confidence(matched_anchors, anchor_count)
+
+    # Seed file paths explicitly mentioned in the ticket (from LLM parse).
+    # These supplement graph-traversal results — don't overwrite a higher score.
+    for fpath in mentioned_files:
+        if fpath not in file_counts:
+            file_counts[fpath] = 1
 
     # Sort and cap all result lists
     # @spec DRE-SCORE-003, DRE-SCORE-004

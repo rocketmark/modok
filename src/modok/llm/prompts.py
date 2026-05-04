@@ -23,6 +23,7 @@ Prefer the most specific match — module over feature when the issue is clearly
 
 Return ONLY a JSON object with these fields:
   feature_slug: the single best-matching feature slug or module slug, or null if nothing matches
+  mentioned_files: list of explicit file paths referenced in the ticket (e.g. "agent/src/main.c")
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)
   symptoms: list of strings describing observable symptoms

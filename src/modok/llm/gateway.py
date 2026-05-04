@@ -302,6 +302,7 @@ def _validate_ticket(data: dict, raw: str) -> TicketParseResult:
         symptoms=list(data.get("symptoms", [])),
         confidence=float(data.get("confidence", 0.0)),
         raw_response=raw,
+        mentioned_files=list(data.get("mentioned_files", [])),
     )
 
 

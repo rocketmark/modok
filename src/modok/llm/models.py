@@ -11,6 +11,7 @@ class TicketParseResult:
     symptoms: list[str]
     confidence: float
     raw_response: str
+    mentioned_files: list[str] = field(default_factory=list)
 
 
 @dataclass
