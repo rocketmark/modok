@@ -1,38 +1,127 @@
 {
-  "STAGEHAND-11": {
-    "ticket_id": "STAGEHAND-11",
+  "STAGEHAND-12": {
+    "ticket_id": "STAGEHAND-12",
     "status": "complete",
     "debug_packet": {
       "issue": {
-        "summary": "tracker won't reinitialize",
+        "summary": "SHTP Error in event log",
         "anchors": {
           "features": [],
-          "errors": [],
+          "errors": [
+            "SHTP event dropped error"
+          ],
           "symptoms": [
-            "tracker won't reinitialize when reinit button is clicked"
+            "SHTP event dropped error in the event log"
           ]
         }
       },
       "affected_areas": [
         {
           "type": "module",
-          "id": "module:device-card",
-          "name": "device-card"
+          "id": "module:event-log",
+          "name": "event-log"
         }
       ],
       "relevant_files": [
-        "docs/arrows/client-ui.md",
-        "client/stagehand_client/ui/device_card.py"
+        "docs/arrows/client-utilities.md",
+        "client/stagehand_client/event_log.py"
       ],
       "relevant_tests": [],
       "known_issues": [],
       "prior_fixes": [],
-      "next_steps": [
-        "Inspect `client/stagehand_client/ui/device_card.py` to understand the logic triggered by the reinit button.",
-        "Check if the recent commit adding arrows (2026-05-03) inadvertently altered the initialization pathway in the module.",
-        "Run manual steps simulating the click action in the client using debugging tools to observe execution flow.",
-        "Verify if any state management changes related to the 'tracker' object could prevent reinitialization."
-      ]
+      "recent_commits": [
+        {
+          "sha": "08c6d0f8e11191d5556d45f8cb10e529041acbe1",
+          "timestamp": "2026-05-03T13:43:30-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "cleaned modok headers",
+          "files_touched": [
+            "docs/arrows/client-utilities.md"
+          ]
+        },
+        {
+          "sha": "ff2cf43b3139e3e13a61ac2f07be608dccfcd6c5",
+          "timestamp": "2026-05-03T12:17:23-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "added arrows for pi agent, client ui, and client utilities",
+          "files_touched": [
+            "docs/arrows/client-utilities.md"
+          ]
+        },
+        {
+          "sha": "801c8d3426f02b1bd9ada5a7a4fad7fc79075171",
+          "timestamp": "2026-04-25T15:33:12-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "updated where logs and config are saved - in the documents/stagehand folder now",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "dcfbfd59732dd251a8849c2227fe49290b7bbd57",
+          "timestamp": "2026-04-22T11:52:18-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "completed #1 in client cleanup",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "e236b01fdbf85df7b1976ef1df05f732ed67bc55",
+          "timestamp": "2026-04-19T17:59:57-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed shtp to match the new error message and added messages for usb and imu rate errors",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "35259b51b9612990e11161689622356d01505c51",
+          "timestamp": "2026-04-19T12:18:27-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "updated client side agent  event from lighthouse sleep/wake to sweep lost/resumed message",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "901753aec647b0ceca10dc57f811b902b356f247",
+          "timestamp": "2026-04-09T09:16:39-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "updated #10 from current audit doc",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "addfc83b1109f825eaf9a6fb8ed16ae730de97b9",
+          "timestamp": "2026-04-01T16:13:55-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "updated lighthouse sleep/wake testing",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "9f6b1687afcd25bced1ea5f3dbc7cd1b9df2ef91",
+          "timestamp": "2026-03-31T16:36:06-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "fixed 2nd refactor from bug_audit",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        },
+        {
+          "sha": "02ab06ddf725567826175a0a1aeacf0513cceca1",
+          "timestamp": "2026-03-31T10:49:58-04:00",
+          "author_name": "Mark Stalzer",
+          "message": "added error messages for encoder unplug as well as tests",
+          "files_touched": [
+            "client/stagehand_client/event_log.py"
+          ]
+        }
+      ],
+      "summary": "The SHTP event drop error observed in the event log for stagehand_01 likely requires reviewing the changes in client/stagehand_client/event_log.py, particularly concerning error message handling from prior fixes."
     },
     "ingest_exit_code": 0,
     "ingest_stderr": "",

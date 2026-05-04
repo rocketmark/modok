@@ -21,6 +21,7 @@ from modok.retrieval.models import (
     IssueSummary,
     KnownIssueRef,
     PriorFix,
+    RecentCommit,
 )
 
 _KI_CAP = 10
@@ -480,12 +481,11 @@ async def retrieve(
     for slug in resolved_module_slugs:
         affected_areas.append(AffectedArea(type="module", id=f"module:{slug}", name=slug))
 
-    # Generate next_steps via LLM (best-effort)
     all_file_paths = relevant_files + relevant_tests
     raw_commits = await _traverse_files_to_recent_commits(all_file_paths, project_slug, client)
     raw_text = issue.raw_text or issue.summary
     try:
-        next_steps = await gateway.summarise_packet(
+        summary = await gateway.summarise_packet(
             issue_text=raw_text,
             module_slugs=[a.name for a in affected_areas if a.type == "module"],
             error_signatures=error_sigs,
@@ -500,7 +500,7 @@ async def retrieve(
             backend=backend,
         )
     except Exception:
-        next_steps = []
+        summary = issue.summary
 
     return DebugPacket(
         issue=IssueSummary(
@@ -516,5 +516,15 @@ async def retrieve(
         relevant_tests=relevant_tests,
         known_issues=known_issues,
         prior_fixes=prior_fixes,
-        next_steps=next_steps,
+        recent_commits=[
+            RecentCommit(
+                sha=c.get("sha", ""),
+                timestamp=c.get("timestamp", ""),
+                author_name=c.get("author_name", ""),
+                message=c.get("message", ""),
+                files_touched=c.get("files_touched", []),
+            )
+            for c in raw_commits
+        ],
+        summary=summary,
     )

@@ -784,7 +784,7 @@ async def test_packet_contains_all_required_fields():
 
     packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
     for field in ("issue", "affected_areas", "relevant_files", "relevant_tests",
-                  "known_issues", "prior_fixes", "next_steps"):
+                  "known_issues", "prior_fixes", "recent_commits", "summary"):
         assert hasattr(packet, field), f"DebugPacket missing field: {field}"
 
 

@@ -1,53 +1,46 @@
-export interface AnchorSet {
-  feature_slugs: string[]
-  module_slugs: string[]
-  error_signatures: string[]
+export interface IssueAnchors {
+  features: string[]
+  errors: string[]
   symptoms: string[]
 }
 
-export interface FileRef {
-  repo_path: string
-  match_count: number
+export interface IssueSummary {
+  summary: string
+  anchors: IssueAnchors
+}
+
+export interface AffectedArea {
+  type: string   // "feature" | "module"
+  id: string
+  name: string
 }
 
 export interface KnownIssueRef {
-  known_issue_id: string
+  id: string
   summary: string
-  status: string
-  match_count: number
 }
 
-export interface FixRef {
-  fix_id: string
+export interface PriorFix {
+  id: string
+  commit: string
   summary: string
-  kind: string
-  match_count: number
-  pr_url?: string | null
 }
 
-export interface CommitRef {
+export interface RecentCommit {
   sha: string
-  message: string
-  author_name: string
   timestamp: string
+  author_name: string
+  message: string
   files_touched: string[]
 }
 
-export interface EvidenceAnchor {
-  anchor_type: string
-  anchor_value: string
-  matched_node_ids: string[]
-}
-
 export interface DebugPacket {
-  issue_summary: string
-  anchors: AnchorSet
-  anchor_count: number
+  issue: IssueSummary
+  affected_areas: AffectedArea[]
+  relevant_files: string[]
+  relevant_tests: string[]
   known_issues: KnownIssueRef[]
-  recent_fixes: FixRef[]
-  relevant_files: FileRef[]
-  recent_commits: CommitRef[]
-  evidence: EvidenceAnchor[]
-  confidence: number
+  prior_fixes: PriorFix[]
+  recent_commits?: RecentCommit[]
   summary?: string
 }

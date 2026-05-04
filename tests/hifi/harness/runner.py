@@ -21,7 +21,6 @@ def _empty_packet(summary: str) -> DebugPacket:
         relevant_tests=[],
         known_issues=[],
         prior_fixes=[],
-        next_steps=[],
     )
 
 

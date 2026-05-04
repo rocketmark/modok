@@ -333,10 +333,11 @@ def _validate_similarity(data: dict, raw: str) -> list[SimilarityProposal]:
     ]
 
 
-def _validate_summary(data: dict, raw: str) -> list[str]:
-    steps = data.get("next_steps")
-    if not steps or not isinstance(steps, list):
-        raise ValueError("missing or invalid next_steps field")
+def _validate_summary(data: dict, raw: str) -> str:
+    summary = data.get("summary")
+    if not summary or not isinstance(summary, str):
+        raise ValueError("missing or invalid summary field")
+    return summary
     return [str(s) for s in steps if s]
 
 
@@ -772,7 +773,7 @@ async def summarise_packet(
     recent_commits: list[dict],
     known_issues: list[str],
     backend: str = "local",
-) -> list[str]:
+) -> str:
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_summarise_packet")
     max_retries = int(cfg.get("max_retries", 2))

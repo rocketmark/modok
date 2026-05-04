@@ -160,5 +160,4 @@ class ReferenceModok:
             relevant_tests=[],
             known_issues=known_issues,
             prior_fixes=prior_fixes,
-            next_steps=[],
         )

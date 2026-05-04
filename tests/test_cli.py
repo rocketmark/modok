@@ -78,7 +78,6 @@ def make_debug_packet() -> DebugPacket:
         relevant_tests=[],
         known_issues=[KnownIssueRef(id="KI-001", summary="SHTP version mismatch")],
         prior_fixes=[PriorFix(id="FIX-001", commit="a3f9c12", summary="Upgrade to SHTP v2")],
-        next_steps=["Inspect the SHTP receiver source file"],
     )
 
 

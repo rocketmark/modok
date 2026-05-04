@@ -36,6 +36,15 @@ class PriorFix:
 
 
 @dataclass
+class RecentCommit:
+    sha: str
+    timestamp: str
+    author_name: str
+    message: str
+    files_touched: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DebugPacket:
     issue: IssueSummary
     affected_areas: list[AffectedArea]
@@ -43,4 +52,5 @@ class DebugPacket:
     relevant_tests: list[str]
     known_issues: list[KnownIssueRef]
     prior_fixes: list[PriorFix]
-    next_steps: list[str]
+    recent_commits: list[RecentCommit] = field(default_factory=list)
+    summary: str = ""

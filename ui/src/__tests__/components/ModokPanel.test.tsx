@@ -7,15 +7,16 @@ import type { DebugPacket } from '@/types/debug-packet'
 import { ModokPanel } from '@/components/modok/ModokPanel'
 
 const mockPacket: DebugPacket = {
-  issue_summary: 'Checkout fails after retry',
-  anchors: { feature_slugs: ['checkout'], module_slugs: [], error_signatures: ['PaymentRetryError'], symptoms: [] },
-  anchor_count: 2,
-  relevant_files: [{ repo_path: 'src/checkout/retry.py', match_count: 2 }],
-  known_issues: [{ known_issue_id: 'ki:1', summary: 'Retry count not reset', status: 'open', match_count: 2 }],
-  recent_fixes: [{ fix_id: 'fix:1', summary: 'Reset retry counter', kind: 'code-change', match_count: 2 }],
-  recent_commits: [],
-  evidence: [],
-  confidence: 0.8,
+  issue: {
+    summary: 'Checkout fails after retry',
+    anchors: { features: ['checkout'], errors: ['PaymentRetryError'], symptoms: [] },
+  },
+  affected_areas: [{ type: 'feature', id: 'feature:checkout', name: 'checkout' }],
+  relevant_files: ['src/checkout/retry.py'],
+  relevant_tests: [],
+  known_issues: [{ id: 'ki:1', summary: 'Retry count not reset' }],
+  prior_fixes: [{ id: 'fix:1', commit: 'abc1234', summary: 'Reset retry counter' }],
+  summary: 'Checkout fails after retry',
 }
 
 const completeRun: ModokRun = { ticket_id: 'ACME-1842', status: 'complete', debug_packet: mockPacket }
@@ -48,19 +49,19 @@ it('renders debug packet when POST completes successfully', async () => {
   fireEvent.click(screen.getByRole('button', { name: /build debug packet/i }))
   rerender(<ModokPanel ticketId="ACME-1842" run={completeRun} onRun={onRun} onClear={jest.fn()} />)
   await waitFor(() => {
-    expect(screen.getByText(/checkout fails after retry/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/checkout fails after retry/i).length).toBeGreaterThan(0)
   })
 })
 
 // @spec DEMO-MODOK-011
 it('displays debug packet on initial load when status is already complete', () => {
   render(<ModokPanel ticketId="ACME-1842" run={completeRun} onRun={jest.fn()} onClear={jest.fn()} />)
-  expect(screen.getByText(/checkout fails after retry/i)).toBeInTheDocument()
+  expect(screen.getAllByText(/checkout fails after retry/i).length).toBeGreaterThan(0)
 })
 
 // @spec DEMO-MODOK-005
 it('omits sections with no items', () => {
-  const sparsePacket: DebugPacket = { ...mockPacket, known_issues: [], recent_fixes: [] }
+  const sparsePacket: DebugPacket = { ...mockPacket, known_issues: [], prior_fixes: [] }
   const sparseRun: ModokRun = { ticket_id: 'X', status: 'complete', debug_packet: sparsePacket }
   render(<ModokPanel ticketId="X" run={sparseRun} onRun={jest.fn()} onClear={jest.fn()} />)
   expect(screen.queryByText(/known issues/i)).not.toBeInTheDocument()
@@ -92,7 +93,7 @@ it('shows partial ingest warning banner alongside the packet', () => {
   const partialRun: ModokRun = { ...completeRun, ingest_partial: true }
   render(<ModokPanel ticketId="ACME-1842" run={partialRun} onRun={jest.fn()} onClear={jest.fn()} />)
   expect(screen.getByText(/ingestion completed with errors/i)).toBeInTheDocument()
-  expect(screen.getByText(/checkout fails after retry/i)).toBeInTheDocument()
+  expect(screen.getAllByText(/checkout fails after retry/i).length).toBeGreaterThan(0)
 })
 
 // @spec DEMO-MODOK-010

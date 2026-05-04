@@ -77,20 +77,14 @@ Be precise. If a field has no candidates, omit it. Return valid JSON only.
 """
 
 SUMMARISE_PACKET_SYSTEM = """\
-You are a diagnostic assistant. Given resolved information about a customer issue, produce a short
-ordered list of next steps for the engineer who will investigate it.
+You are a diagnostic assistant. Given resolved information about a customer issue, write a single
+concise sentence that captures the likely root cause and where to look.
 
-Focus on:
-- Which file or test to open first and why
-- Whether any known issues or prior fixes are directly relevant
-- Whether recent commits look related
-- What to run or verify first
-
-Return 3-5 concise action items. Each item should be one sentence, written as an imperative
-("Inspect ...", "Run ...", "Check ..."). Do not repeat the issue title verbatim.
+Focus on the most specific signal available: a named error, a known issue, a relevant file, or a
+prior fix. Do not repeat the issue title verbatim. Do not use bullet points or lists.
 
 Return ONLY a JSON object with:
-  next_steps: list of strings
+  summary: string
 """
 
 NORMALISE_REGISTRY_SYSTEM = """\

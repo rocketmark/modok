@@ -453,7 +453,6 @@ def test_assert_packets_equivalent_passes_when_ids_match():
             relevant_tests=[],
             known_issues=[KnownIssueRef(id=k, summary="") for k in ki_ids],
             prior_fixes=[PriorFix(id=f, commit="", summary="") for f in fix_ids],
-            next_steps=[],
         )
 
     expected = _make(["KI-001", "KI-002"], ["FIX-001"], ["agent/src/shtp.c"])
@@ -471,7 +470,6 @@ def test_assert_packets_equivalent_fails_when_ki_missing():
             relevant_tests=[],
             known_issues=[KnownIssueRef(id=k, summary="") for k in ki_ids],
             prior_fixes=[],
-            next_steps=[],
         )
 
     expected = _make(["KI-001"])

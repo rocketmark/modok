@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 import httpx
+from unittest.mock import patch, AsyncMock
 from hypothesis import given, assume, settings
 from hypothesis import strategies as st
 
@@ -643,8 +644,9 @@ async def test_retries_on_5xx():
             return quine_error_response(500)
         return quine_upsert_response()
 
-    client = make_client(httpx.MockTransport(handler))
-    await client.upsert_node(make_project())
+    with patch("modok.quine.client.asyncio.sleep", new_callable=AsyncMock):
+        client = make_client(httpx.MockTransport(handler))
+        await client.upsert_node(make_project())
     assert attempt_count == 3
 
 
@@ -653,13 +655,14 @@ async def test_retries_on_5xx():
 async def test_raises_after_3_failed_attempts():
     transport = httpx.MockTransport(lambda r: quine_error_response(500))
     client = make_client(transport)
-    with pytest.raises(Exception):
-        await client.upsert_node(make_project())
+    with patch("modok.quine.client.asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(Exception):
+            await client.upsert_node(make_project())
 
 
 # @spec QC-CN-001
 @given(n_failures=st.integers(min_value=1, max_value=3))
-@settings(deadline=None)  # test intentionally waits on retry backoff
+@settings(deadline=None)
 @pytest.mark.asyncio
 async def test_retries_up_to_3_times_property(n_failures):
     attempt_count = 0
@@ -671,13 +674,14 @@ async def test_retries_up_to_3_times_property(n_failures):
             return quine_error_response(500)
         return quine_upsert_response()
 
-    client = make_client(httpx.MockTransport(handler))
-    if n_failures < 3:
-        await client.upsert_node(make_project())
-        assert attempt_count == n_failures + 1
-    else:
-        with pytest.raises(Exception):
+    with patch("modok.quine.client.asyncio.sleep", new_callable=AsyncMock):
+        client = make_client(httpx.MockTransport(handler))
+        if n_failures < 3:
             await client.upsert_node(make_project())
+            assert attempt_count == n_failures + 1
+        else:
+            with pytest.raises(Exception):
+                await client.upsert_node(make_project())
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,11 @@
 [
   {
+    "id": "STAGEHAND-12",
+    "subject": "SHTP Error in event log",
+    "content": "I'm getting an SHTP event dropped error in the event log for stagehand_01",
+    "created_at": "2026-05-04T01:53:22.220Z"
+  },
+  {
     "id": "STAGEHAND-11",
     "subject": "tracker won't reinitialize",
     "content": "when i click the reinit button, the tracker doesn't reinitialize.",

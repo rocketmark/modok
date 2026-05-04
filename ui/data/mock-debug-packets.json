@@ -1,47 +1,29 @@
 {
   "issue": {
-    "id": "customer-issue:demo-crm:ACME-1842",
-    "summary": "Checkout fails after retrying payment with PaymentRetryError: max retries exceeded"
-  },
-  "anchors": {
-    "feature_slugs": ["checkout", "payment-retry"],
-    "error_signatures": ["PaymentRetryError"],
-    "symptoms": ["fails after retry", "max retries exceeded", "fails after upgrade"]
-  },
-  "relevant_docs": [
-    {
-      "doc_path": "docs/checkout-flow.md",
-      "heading": "Payment Retry Policy",
-      "match_count": 2
-    },
-    {
-      "doc_path": "docs/payment-integration.md",
-      "heading": "Error Handling and Recovery",
-      "match_count": 1
+    "summary": "Checkout fails after retrying payment with PaymentRetryError: max retries exceeded",
+    "anchors": {
+      "features": ["checkout", "payment-retry"],
+      "errors": ["PaymentRetryError"],
+      "symptoms": ["fails after retry", "max retries exceeded"]
     }
+  },
+  "affected_areas": [
+    { "type": "feature", "id": "feature:checkout", "name": "checkout" },
+    { "type": "feature", "id": "feature:payment-retry", "name": "payment-retry" }
   ],
   "relevant_files": [
-    { "repo_path": "src/checkout/retry.py", "match_count": 2 },
-    { "repo_path": "src/payment/gateway.py", "match_count": 1 },
-    { "repo_path": "src/checkout/session.py", "match_count": 1 }
+    "src/checkout/retry.py",
+    "src/payment/gateway.py",
+    "src/checkout/session.py"
   ],
   "relevant_tests": [
-    { "repo_path": "tests/test_checkout_retry.py", "match_count": 2 }
+    "tests/test_checkout_retry.py"
   ],
   "known_issues": [
-    {
-      "known_issue_id": "known-issue:stagehand:checkout-retry-max",
-      "summary": "Payment retry count not reset between checkout sessions",
-      "status": "open",
-      "match_count": 2
-    }
+    { "id": "known-issue:stagehand:checkout-retry-max", "summary": "Payment retry count not reset between checkout sessions" }
   ],
   "prior_fixes": [
-    {
-      "fix_id": "fix:stagehand:reset-retry-counter",
-      "summary": "Reset payment retry counter on session start",
-      "kind": "code-change",
-      "match_count": 2
-    }
-  ]
+    { "id": "fix:stagehand:reset-retry-counter", "commit": "abc1234", "summary": "Reset payment retry counter on session start" }
+  ],
+  "summary": "Checkout fails after retrying payment with PaymentRetryError: max retries exceeded"
 }
