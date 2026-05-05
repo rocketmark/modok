@@ -11,18 +11,22 @@ The valid module slugs for this project are (each entry shows the module slug, i
 source files after "files:", and key code identifiers from its source files after "code:"):
 {module_slug_list}
 
-Use ALL available signals to match the ticket to the right module:
+Match the ticket to a module ONLY when the ticket contains an explicit signal:
 - Source file paths: if the ticket mentions a file (e.g. "agent/src/main.c"), match the module
   whose "files:" list includes that path.
-- Code identifiers: if the ticket mentions a variable, function, or symbol name, match the module
-  whose "code:" list includes that identifier. For example, "reinit button" → module with
-  "reinit_requested"; "tracker_lost_logged" → module whose files or code include that name.
-- Description: match by conceptual area when no file or identifier signal is present.
+- Code identifiers: if the ticket mentions a variable, function, class, or symbol name that
+  appears in a module's "code:" list, match that module. For example, "reinit button" → module
+  with "reinit_requested"; "tracker_lost_logged" → module whose code includes that name.
+- Behavior match: if the ticket describes a behavior that is the core responsibility of a module
+  (not a side-effect or general domain association), match that module.
+
+Do NOT match based on general domain knowledge or background associations between components.
+When no explicit signal is present, return an empty list rather than a speculative match.
 
 Prefer the most specific match — module over feature when the issue is clearly scoped to one module.
 
 Return ONLY a JSON object with these fields:
-  feature_slugs: list of matching feature or module slugs, ordered best-first (1–3 slugs; empty list if nothing matches)
+  feature_slugs: list of matching feature or module slugs, ordered best-first (1–2 slugs maximum; empty list if nothing matches clearly)
   mentioned_files: list of explicit file paths referenced in the ticket (e.g. "agent/src/main.c")
   error_signatures: list of strings describing specific errors or failure modes mentioned
   environment: object (string keys and values)

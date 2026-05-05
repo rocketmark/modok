@@ -542,11 +542,8 @@ async def retrieve(
                 feature_descriptions=feature_descriptions, module_descriptions=module_descriptions,
                 module_elements=module_elements, module_source_files=module_source_files,
             )
-            merged: list[str] = list(pre_matched)
-            for llm_slug in parse_result.feature_slugs:
-                if llm_slug not in merged:
-                    merged.append(llm_slug)
-            feature_slugs = merged
+            # @spec DRE-ANCH-004 — LLM is the authority when it succeeds; pre_matched is fallback only
+            feature_slugs = list(parse_result.feature_slugs)
             error_sigs = list(parse_result.error_signatures)
             symptoms = list(parse_result.symptoms)
             mentioned_files = list(parse_result.mentioned_files)

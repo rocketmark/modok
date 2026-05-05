@@ -73,7 +73,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## `modok retrieve`
 
-- [x] **CLI-RET-001** [U]: When `--ticket <id>` is supplied, `modok retrieve` shall look up the `CustomerIssue` node via `MATCH (n:CustomerIssue {project_slug: $p, ticket_id: $t}) RETURN id(n)` and call `retrieve(node_id, project_slug, client)`. If no node is found, it shall exit `1` with a usage error.
+- [x] **CLI-RET-001** [U]: When `--ticket <id>` is supplied, `modok retrieve` shall look up the `CustomerIssue` node via `MATCH (n) WHERE n.project_slug = $p AND n.ticket_id = $t RETURN id(n)` and call `retrieve(node_id, project_slug, client)`. If no node is found, it shall exit `1` with a usage error.
 - [x] **CLI-RET-002** [U]: When `--node-id <int>` is supplied, `modok retrieve` shall call `retrieve(node_id, project_slug, client)` directly without performing a graph lookup.
 - [x] **CLI-RET-003** [U]: When both `--ticket` and `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error before any other validation or graph operation.
 - [x] **CLI-RET-004** [U]: When neither `--ticket` nor `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error.

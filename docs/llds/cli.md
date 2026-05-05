@@ -137,7 +137,7 @@ Fetches a debug packet for a customer issue and prints it as JSON to stdout.
 ```
 modok retrieve --project <slug> --ticket <id>
 ```
-Looks up the `CustomerIssue` node via `MATCH (n:CustomerIssue {project_slug, ticket_id})`, then calls `retrieve(node_id, project_slug, client)`. Exits `1` if no matching node is found.
+Looks up the `CustomerIssue` node via `MATCH (n) WHERE n.project_slug = $p AND n.ticket_id = $t RETURN id(n)`, then calls `retrieve(node_id, project_slug, client)`. Exits `1` if no matching node is found.
 
 **Power-user form** (when node ID is already known):
 ```

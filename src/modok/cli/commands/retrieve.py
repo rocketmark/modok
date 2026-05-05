@@ -76,7 +76,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         # disambiguation is needed in future (e.g. Zendesk + Jira sharing IDs),
         # add a --source flag and switch back to idFrom('customer-issue', p, source, t).
         rows = asyncio.run(client.query(
-            "MATCH (n:CustomerIssue {project_slug: $p, ticket_id: $t}) RETURN id(n) LIMIT 1",
+            "MATCH (n) WHERE n.project_slug = $p AND n.ticket_id = $t RETURN id(n) LIMIT 1",
             {"p": project, "t": ticket},
         ))
         if not rows or not rows[0]:
