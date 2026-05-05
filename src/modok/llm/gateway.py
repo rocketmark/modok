@@ -118,17 +118,24 @@ async def _ollama_chat_completion(
     model: str,
     timeout: float,
     temperature: float | None = None,
+    num_ctx: int | None = None,
 ) -> str:
     """Native Ollama API — disables thinking, requests JSON output."""
+    options: dict = {}
+    if temperature is not None:
+        options["temperature"] = temperature
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     body: dict = {
         "model": model,
         "messages": messages,
         "stream": False,
         "think": False,
         "format": "json",
+        "keep_alive": -1,
     }
-    if temperature is not None:
-        body["options"] = {"temperature": temperature}
+    if options:
+        body["options"] = options
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             resp = await client.post(
@@ -203,6 +210,7 @@ async def _call_with_retry(
     max_retries: int,
     native_ollama: bool = False,
     temperature: float | None = None,
+    num_ctx: int | None = None,
 ) -> str:
     last_exc: Exception = LLMUnavailableError("no attempts made")
     for attempt in range(max_retries + 1):
@@ -214,6 +222,7 @@ async def _call_with_retry(
                     model=model,
                     timeout=timeout,
                     temperature=temperature,
+                    num_ctx=num_ctx,
                 )
             return await _chat_completion(
                 messages=messages,
@@ -608,6 +617,7 @@ async def parse_ticket(
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
+    num_ctx = int(cfg.get("num_ctx", 8192))
 
     # Truncate long tickets — anchor information is in the summary/header.
     # File listings in ticket bodies are already handled by _pre_match_modules.
@@ -667,6 +677,7 @@ async def parse_ticket(
             max_retries=max_retries,
             native_ollama=True,
             temperature=0,
+            num_ctx=num_ctx,
         )
     result = _parse_and_validate(raw, _validate_ticket)
     if valid_slugs:
@@ -804,6 +815,7 @@ async def summarise_packet(
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_summarise_packet")
     max_retries = int(cfg.get("max_retries", 2))
+    num_ctx = int(cfg.get("num_ctx", 8192))
 
     modules_line = ", ".join(module_slugs) if module_slugs else "unknown"
     files_block = "\n".join(f"  {f}" for f in relevant_files) if relevant_files else "  (none)"
@@ -861,5 +873,6 @@ async def summarise_packet(
             api_key="",
             max_retries=max_retries,
             native_ollama=True,
+            num_ctx=num_ctx,
         )
     return _parse_and_validate(raw, _validate_summary)
