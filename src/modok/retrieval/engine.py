@@ -480,6 +480,7 @@ async def retrieve(
     module_elements: dict[str, list[str]] | None = None,
     module_source_files: dict[str, list[str]] | None = None,
     on_progress: Callable[[str, "DebugPacket"], None] | None = None,
+    skip_summary: bool = False,
 ) -> DebugPacket:
     # Fetch and validate the CustomerIssue node
     try:
@@ -790,24 +791,27 @@ async def retrieve(
 
     # @spec DRE-SUMM-001, DRE-SUMM-002
     raw_text = issue.raw_text or issue.summary
-    try:
-        summary = await gateway.summarise_packet(
-            issue_text=raw_text,
-            module_slugs=[a.name for a in affected_areas if a.type == "module"],
-            error_signatures=error_sigs,
-            symptoms=symptoms,
-            relevant_files=relevant_files,
-            relevant_tests=relevant_tests,
-            matched_elements=matched_elements,
-            recent_commits=[
-                {"timestamp": c.get("timestamp", ""), "author_name": c.get("author_name", ""), "message": c.get("message", "")}
-                for c in raw_commits
-            ],
-            known_issues=[ki.summary for ki in known_issues],
-            backend=backend,
-        )
-    except Exception:
+    if skip_summary:
         summary = issue.summary
+    else:
+        try:
+            summary = await gateway.summarise_packet(
+                issue_text=raw_text,
+                module_slugs=[a.name for a in affected_areas if a.type == "module"],
+                error_signatures=error_sigs,
+                symptoms=symptoms,
+                relevant_files=relevant_files,
+                relevant_tests=relevant_tests,
+                matched_elements=matched_elements,
+                recent_commits=[
+                    {"timestamp": c.get("timestamp", ""), "author_name": c.get("author_name", ""), "message": c.get("message", "")}
+                    for c in raw_commits
+                ],
+                known_issues=[ki.summary for ki in known_issues],
+                backend=backend,
+            )
+        except Exception:
+            summary = issue.summary
 
     return DebugPacket(
         issue=issue_obj,

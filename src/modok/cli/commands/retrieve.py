@@ -98,6 +98,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
             module_elements=module_elements,
             module_source_files=module_source_files,
             on_progress=_on_progress if stream_mode else None,
+            skip_summary=config.llm.skip_summary,
         ))
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")

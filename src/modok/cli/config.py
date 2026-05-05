@@ -45,6 +45,7 @@ class LLMConfig(BaseModel):
     backend: str = "local"
     local_endpoint: str = "http://localhost:11434"
     local_model: str = "llama3.2"
+    skip_summary: bool = False
     remote_endpoint: str = ""
     remote_model: str = ""
     remote_api_key: str = ""
