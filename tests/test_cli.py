@@ -113,14 +113,14 @@ def test_config_path_tilde_is_expanded(tmp_path):
     (repo_path / ".git").mkdir()
     write_config(config_path, repo_path=str(repo_path))
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     # Patch CONFIG_PATH to a real path (no tilde needed); verify load succeeds.
     # The tilde-expansion is tested by confirming a path with "~" in a value
     # is expanded to an absolute path in the loaded config.
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
             result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo_path)])
-    assert result.exit_code != 1 or "not found in config" not in (result.output + (result.stderr or ""))
+    assert result.exit_code != 1 or "not found in config" not in result.output
 
 
 # @spec CLI-CFG-002
@@ -129,11 +129,11 @@ def test_missing_config_exits_1(tmp_path):
     from modok.cli.main import cli
 
     missing = tmp_path / "nonexistent.toml"
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", missing):
         result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
     assert result.exit_code == 1
-    assert "setup" in (result.output + (result.stderr or "")).lower()
+    assert "setup" in result.output.lower()
 
 
 # @spec CLI-CFG-003
@@ -143,7 +143,7 @@ def test_malformed_config_exits_1(tmp_path):
 
     bad_config = tmp_path / "config.toml"
     bad_config.write_text("[[[ not valid toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", bad_config):
         result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
     assert result.exit_code == 1
@@ -155,13 +155,13 @@ def test_unknown_project_slug_exits_1(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_client_cls:
             mock_client_cls.return_value.ping = AsyncMock(return_value=True)
             result = runner.invoke(cli, ["ingest", "--project", "unknown-project"])
     assert result.exit_code == 1
-    assert "unknown-project" in (result.output + (result.stderr or ""))
+    assert "unknown-project" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ def test_quine_unreachable_exits_2_without_graph_op(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_client_cls:
             mock_ping = AsyncMock(return_value=False)
@@ -186,7 +186,7 @@ def test_quine_unreachable_exits_2_without_graph_op(tmp_path):
 
     assert result.exit_code == 2
     mock_ingest.assert_not_called()
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "not reachable" in output.lower() or "quine" in output.lower()
 
 
@@ -202,11 +202,11 @@ def test_init_non_git_repo_exits_1(tmp_path):
     repo = tmp_path / "not-a-repo"
     repo.mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo)])
     assert result.exit_code == 1
-    assert "not a git repository" in (result.output + (result.stderr or "")).lower()
+    assert "not a git repository" in result.output.lower()
 
 
 # @spec CLI-INIT-002
@@ -219,7 +219,7 @@ def test_init_creates_missing_registry_stubs(tmp_path):
     (repo / ".git").mkdir()
     # No registries/ directory at all
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
             result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo)])
@@ -227,7 +227,7 @@ def test_init_creates_missing_registry_stubs(tmp_path):
     assert (repo / "registries" / "features.yml").exists()
     assert (repo / "registries" / "modules.yml").exists()
     assert (repo / "registries" / "errors.yml").exists()
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "features.yml" in output or "registries" in output
 
 
@@ -247,7 +247,7 @@ def test_init_assisted_does_not_create_stubs(tmp_path):
         entries_written={"features.yml": 0, "modules.yml": 0, "errors.yml": 0},
         failed_sections=[],
     )
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
             with patch("modok.cli.commands.init.propose_registries", return_value=summary) as mock_propose:
@@ -272,7 +272,7 @@ def test_init_installs_post_commit_hook(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook") as mock_hook:
             runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo)])
@@ -291,7 +291,7 @@ def test_init_does_not_duplicate_existing_project_entry(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
@@ -311,7 +311,7 @@ def test_init_appends_new_project_entry(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
@@ -331,7 +331,7 @@ def test_init_does_not_call_ping(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
@@ -351,7 +351,7 @@ def test_init_creates_config_when_absent(tmp_path):
     config_path = tmp_path / "config.toml"
     assert not config_path.exists()
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
             runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo)])
@@ -371,7 +371,7 @@ def test_ingest_prints_report_to_stdout(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml", repo_path=str(tmp_path))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     report = make_clean_report()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
@@ -390,7 +390,7 @@ def test_ingest_exits_0_on_clean_report(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml", repo_path=str(tmp_path))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
@@ -408,7 +408,7 @@ def test_ingest_exits_3_on_errored_report(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml", repo_path=str(tmp_path))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
@@ -429,7 +429,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
     repo = tmp_path / "myrepo"
     repo.mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     captured_args: list = []
 
     def capture_ingest(repo_root, registry, client, project_slug, **kwargs):
@@ -460,7 +460,7 @@ def test_retrieve_ticket_looks_up_by_project_and_ticket_id(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     captured_node_ids: list = []
     fake_quine_id = "quine-node-99"
 
@@ -488,7 +488,7 @@ def test_retrieve_node_id_calls_retrieve_directly(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     captured_node_ids: list = []
 
     async def fake_retrieve(node_id, project_slug, client, **kwargs):
@@ -514,7 +514,7 @@ def test_retrieve_ticket_and_node_id_together_exits_1(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
@@ -536,7 +536,7 @@ def test_retrieve_no_identifier_exits_1(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
@@ -554,7 +554,7 @@ def test_retrieve_not_found_exits_1_with_message(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     async def raise_not_found(*args, **kwargs):
         raise DRENotFoundError("not found")
@@ -571,7 +571,7 @@ def test_retrieve_not_found_exits_1_with_message(tmp_path):
                     ])
 
     assert result.exit_code == 1
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "stagehand" in output
     assert "not found" in output.lower()
 
@@ -582,7 +582,7 @@ def test_retrieve_graph_unavailable_exits_2(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     async def raise_graph_unavailable(*args, **kwargs):
         raise DREGraphUnavailableError("quine down")
@@ -607,7 +607,7 @@ def test_retrieve_llm_unavailable_exits_2(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     async def raise_llm_unavailable(*args, **kwargs):
         raise DRELLMUnavailableError("llm down")
@@ -632,7 +632,7 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     packet = make_debug_packet()
 
     async def fake_retrieve(*args, **kwargs):
@@ -679,7 +679,7 @@ def _recall_with_results(tmp_path, runner, feature_results, extra_args=None):
 def test_recall_prints_results_to_stdout(tmp_path):
     from click.testing import CliRunner
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = _recall_with_results(tmp_path, runner, feature_results=[
         [{"id": 1, "properties": {
             "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
@@ -693,7 +693,7 @@ def test_recall_prints_results_to_stdout(tmp_path):
 def test_recall_empty_results_exits_0(tmp_path):
     from click.testing import CliRunner
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = _recall_with_results(tmp_path, runner, feature_results=[])
     assert result.exit_code == 0
 
@@ -702,7 +702,7 @@ def test_recall_empty_results_exits_0(tmp_path):
 def test_recall_default_output_is_tabular(tmp_path):
     from click.testing import CliRunner
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = _recall_with_results(tmp_path, runner, feature_results=[
         [{"id": 1, "properties": {
             "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
@@ -721,7 +721,7 @@ def test_recall_default_output_is_tabular(tmp_path):
 def test_recall_json_flag_outputs_json(tmp_path):
     from click.testing import CliRunner
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = _recall_with_results(tmp_path, runner, feature_results=[
         [{"id": 1, "properties": {
             "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
@@ -738,7 +738,7 @@ def test_recall_quine_unreachable_exits_2(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.recall.QuineClient") as mock_cls:
@@ -762,7 +762,7 @@ def test_quine_start_already_running_exits_0_no_spawn(tmp_path):
     jar = tmp_path / "quine.jar"
     jar.touch()
     config_path = write_config(tmp_path / "config.toml", jar_path=str(jar))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QuineClient") as mock_cls:
@@ -772,7 +772,7 @@ def test_quine_start_already_running_exits_0_no_spawn(tmp_path):
 
     assert result.exit_code == 0
     mock_sub.Popen.assert_not_called()
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "already running" in output.lower()
 
 
@@ -782,7 +782,7 @@ def test_quine_start_missing_jar_exits_1_no_spawn(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml", jar_path=str(tmp_path / "missing.jar"))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QuineClient") as mock_cls:
@@ -792,7 +792,7 @@ def test_quine_start_missing_jar_exits_1_no_spawn(tmp_path):
 
     assert result.exit_code == 1
     mock_sub.Popen.assert_not_called()
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "jar not found" in output.lower() or "not found" in output.lower()
 
 
@@ -805,7 +805,7 @@ def test_quine_start_launches_process_and_writes_pid(tmp_path):
     jar.touch()
     pid_file = tmp_path / "quine.pid"
     config_path = write_config(tmp_path / "config.toml", jar_path=str(jar))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     mock_proc = MagicMock()
     mock_proc.pid = 54321
@@ -831,7 +831,7 @@ def test_quine_start_timeout_exits_2(tmp_path):
     jar.touch()
     pid_file = tmp_path / "quine.pid"
     config_path = write_config(tmp_path / "config.toml", jar_path=str(jar))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     mock_proc = MagicMock()
     mock_proc.pid = 99999
@@ -845,7 +845,7 @@ def test_quine_start_timeout_exits_2(tmp_path):
                         result = runner.invoke(cli, ["quine", "start"])
 
     assert result.exit_code == 2
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "ready" in output.lower() or "timeout" in output.lower() or "30" in output
 
 
@@ -858,7 +858,7 @@ def test_quine_start_success_exits_0(tmp_path):
     jar.touch()
     pid_file = tmp_path / "quine.pid"
     config_path = write_config(tmp_path / "config.toml", jar_path=str(jar))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     mock_proc = MagicMock()
     mock_proc.pid = 11111
@@ -884,14 +884,14 @@ def test_quine_stop_no_pid_file_exits_1(tmp_path):
 
     pid_file = tmp_path / "quine.pid"
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QUINE_PID_PATH", pid_file):
             result = runner.invoke(cli, ["quine", "stop"])
 
     assert result.exit_code == 1
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "not running" in output.lower() or "no pid" in output.lower()
 
 
@@ -903,7 +903,7 @@ def test_quine_stop_dead_process_exits_2_leaves_pid_file(tmp_path):
     pid_file = tmp_path / "quine.pid"
     pid_file.write_text("88888")
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QUINE_PID_PATH", pid_file):
@@ -913,7 +913,7 @@ def test_quine_stop_dead_process_exits_2_leaves_pid_file(tmp_path):
 
     assert result.exit_code == 2
     assert pid_file.exists(), "PID file must be left in place when process is already dead"
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "crashed" in output.lower() or "not found" in output.lower() or "88888" in output
 
 
@@ -925,7 +925,7 @@ def test_quine_stop_clean_exit_removes_pid_and_exits_0(tmp_path):
     pid_file = tmp_path / "quine.pid"
     pid_file.write_text("77777")
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QUINE_PID_PATH", pid_file):
@@ -946,7 +946,7 @@ def test_quine_stop_timeout_exits_2_leaves_pid_file(tmp_path):
     pid_file = tmp_path / "quine.pid"
     pid_file.write_text("66666")
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QUINE_PID_PATH", pid_file):
@@ -956,7 +956,7 @@ def test_quine_stop_timeout_exits_2_leaves_pid_file(tmp_path):
 
     assert result.exit_code == 2
     assert pid_file.exists(), "PID file must be left in place on timeout"
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "10s" in output or "timeout" in output.lower() or "did not stop" in output.lower()
 
 
@@ -970,7 +970,7 @@ def test_quine_status_running_prints_running(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QuineClient") as mock_cls:
@@ -987,7 +987,7 @@ def test_quine_status_stopped_prints_stopped(tmp_path):
     from modok.cli.main import cli
 
     config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QuineClient") as mock_cls:
@@ -1028,7 +1028,7 @@ def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
     def recording_hook(*args, **kwargs):
         call_order.append("hook")
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.propose_registries", side_effect=recording_propose):
             with patch("modok.cli.commands.init.install_post_commit_hook", side_effect=recording_hook):
@@ -1050,7 +1050,7 @@ def test_init_assisted_exits_2_when_llm_unreachable(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.propose_registries",
@@ -1058,7 +1058,7 @@ def test_init_assisted_exits_2_when_llm_unreachable(tmp_path):
             result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
 
     assert result.exit_code == 2
-    output = result.output + (result.stderr or "")
+    output = result.output
     assert "LLM gateway is not reachable" in output
 
 
@@ -1071,7 +1071,7 @@ def test_init_without_assisted_does_not_invoke_llm(tmp_path):
     repo.mkdir()
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
@@ -1103,7 +1103,7 @@ def test_init_assisted_prints_summary_to_stdout(tmp_path):
         entries_written={"features.yml": 4, "modules.yml": 2, "errors.yml": 8},
         failed_sections=[("Bad Section", Path("/repo/doc.md"))],
     )
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
