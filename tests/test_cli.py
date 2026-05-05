@@ -16,14 +16,9 @@ from __future__ import annotations
 
 import json
 import os
-import signal
-import sys
-import textwrap
-from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from modok.ingestion.report import IngestionReport
 from modok.retrieval.errors import (
@@ -447,7 +442,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
             with patch("modok.cli.commands.ingest.run_ingestion", side_effect=capture_ingest):
                 with patch("modok.cli.commands.ingest.Registry") as mock_reg_cls:
                     mock_reg_cls.return_value = MagicMock()
-                    result = runner.invoke(
+                    runner.invoke(
                         cli, ["ingest", "--project", "stagehand"]
                     )
 
@@ -821,7 +816,7 @@ def test_quine_start_launches_process_and_writes_pid(tmp_path):
                 # First ping: not running. Subsequent pings: running.
                 mock_cls.return_value.ping = AsyncMock(side_effect=[False, True])
                 with patch("modok.cli.commands.quine.subprocess.Popen", return_value=mock_proc):
-                    result = runner.invoke(cli, ["quine", "start"])
+                    runner.invoke(cli, ["quine", "start"])
 
     assert pid_file.exists()
     assert pid_file.read_text().strip() == "54321"

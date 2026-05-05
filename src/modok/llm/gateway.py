@@ -363,7 +363,6 @@ def _validate_summary(data: dict, raw: str) -> str:
     if not summary or not isinstance(summary, str):
         raise ValueError("missing or invalid summary field")
     return summary
-    return [str(s) for s in steps if s]
 
 
 # ---------------------------------------------------------------------------

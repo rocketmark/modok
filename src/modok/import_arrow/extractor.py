@@ -6,7 +6,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
 
 
 def slug_to_name(slug: str) -> str:

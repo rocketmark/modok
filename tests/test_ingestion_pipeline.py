@@ -14,9 +14,8 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from modok.ingestion.confidence import ConfidenceBand, confidence_band
+from modok.ingestion.confidence import confidence_band
 from modok.ingestion.discovery import (
-    IGNORE_NAMES,
     IGNORE_PATTERNS,
     IGNORE_SUFFIXES,
     SUPPORTED_SUFFIXES,
@@ -26,7 +25,6 @@ from modok.ingestion.discovery import (
 from modok.ingestion.errors import (
     InvalidSlugReferenceError,
     MissingCommitShaError,
-    MissingRequiredFieldError,
     RegistryNotFoundError,
 )
 from modok.ingestion.hook import (
@@ -37,7 +35,6 @@ from modok.ingestion.hook import (
 )
 from modok.ingestion.parser import (
     get_commit_sha,
-    is_working_tree_dirty,
     parse_frontmatter,
     parse_headings,
     parse_modok_blocks,
@@ -1051,7 +1048,7 @@ async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_
 async def test_verifier_called_before_doc_write(tmp_path):
     from modok.ingestion.pipeline import run_llm_proposal_pass
     from modok.llm.models import MetadataProposal
-    from modok.ingestion.verifier import VerificationResult, RejectedField
+    from modok.ingestion.verifier import VerificationResult
 
     proposal = MetadataProposal(
         proposed_fields={"feature_slug": "ingestion"},

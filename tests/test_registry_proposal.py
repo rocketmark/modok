@@ -12,7 +12,6 @@ import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 
 
@@ -350,7 +349,7 @@ def test_propose_registries_on_llm_unavailable_records_failed_and_continues(tmp_
 
 # @spec RP-ENRICH-004
 def test_propose_registries_on_llm_response_error_records_failed_and_continues(tmp_path):
-    from modok.registry.proposal import propose_registries, EnrichSectionResult
+    from modok.registry.proposal import propose_registries
     from modok.llm.errors import LLMResponseError
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
@@ -874,7 +873,7 @@ def test_propose_registries_prints_failed_progress_line_inline(tmp_path, capsys)
 
     captured = capsys.readouterr()
     # Failure appears on the progress line itself, not as a separate warning line
-    failed_line = next((l for l in captured.err.splitlines() if "FAILED" in l), None)
+    failed_line = next((line for line in captured.err.splitlines() if "FAILED" in line), None)
     assert failed_line is not None, "FAILED must appear on a progress line"
     assert "Overview" in failed_line
 

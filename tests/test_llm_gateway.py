@@ -7,7 +7,6 @@ the EARS spec it verifies via @spec annotation.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -372,7 +371,6 @@ async def test_api_key_raises_config_error_when_missing(monkeypatch):
 @pytest.mark.asyncio
 async def test_retries_on_timeout_up_to_max():
     from modok.llm.gateway import parse_ticket
-    import asyncio
 
     cfg = make_config(max_retries=2)
 
@@ -394,7 +392,6 @@ async def test_retries_on_timeout_up_to_max():
 @pytest.mark.asyncio
 async def test_retry_stays_on_same_backend():
     from modok.llm.gateway import parse_ticket
-    import asyncio
 
     cfg = make_config(
         max_retries=1,
@@ -439,7 +436,6 @@ async def test_4xx_raises_immediately_without_retry():
 @pytest.mark.asyncio
 async def test_raises_unavailable_after_all_retries():
     from modok.llm.gateway import parse_ticket
-    import asyncio
 
     cfg = make_config(max_retries=2)
     with patch("modok.llm.gateway._load_config", return_value=cfg):
@@ -819,7 +815,6 @@ async def test_propose_metadata_uses_prompt_from_prompts_module():
 # @spec LLM-META-004
 def test_ingestion_pipeline_catches_llm_response_error_and_warns(tmp_path):
     from modok.ingestion.pipeline import apply_llm_proposals
-    from modok.ingestion.registry import Registry
 
     # apply_llm_proposals must not re-raise LLMResponseError
     client = MagicMock()
@@ -1020,7 +1015,8 @@ async def test_raw_response_is_in_memory_not_persisted():
     assert result.raw_response == VALID_TICKET_RESPONSE
 
     # The gateway source must not persist raw_response anywhere
-    import inspect, modok.llm.gateway as gw_mod
+    import inspect
+    import modok.llm.gateway as gw_mod
     src = inspect.getsource(gw_mod)
     assert "raw_response" not in src.split("def _load_config")[0].replace(
         "raw_response=", ""
@@ -1236,7 +1232,7 @@ def test_verifier_rejects_unknown_enum_value():
 # @spec LLM-VER-006
 @given(
     items=st.lists(st.text(min_size=1, max_size=15), min_size=2, max_size=10).filter(
-        lambda l: len(l) != len(set(l))
+        lambda items: len(items) != len(set(items))
     ),
 )
 @settings(deadline=None)
@@ -1453,7 +1449,6 @@ async def test_cegis_repair_called_on_initial_verification_failure():
     from modok.ingestion.pipeline import run_llm_proposal_pass
     from modok.llm.models import MetadataProposal
 
-    cfg = make_config()
     good_proposal = MetadataProposal(
         proposed_fields={"feature_slug": "ingestion"},
         confidence=0.8,
@@ -1480,7 +1475,7 @@ async def test_cegis_repair_called_on_initial_verification_failure():
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline._load_llm_config",
                    return_value={"cegis_fix_enabled": True}):
-            result = await run_llm_proposal_pass(
+            await run_llm_proposal_pass(
                 doc_path=Path("doc.md"),
                 frontmatter={"doc_type": "lld"},
                 missing_fields=["feature_slug"],

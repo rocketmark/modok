@@ -364,7 +364,6 @@ def save_last_git_sha(config_path: Path, project_slug: str, sha: str) -> None:
 
         # Detect the start of a [[projects]] block
         if line.strip() == "[[projects]]":
-            block_start = len(result) - 1
             i += 1
             # Collect the block's lines until next [[...]] or EOF
             block: list[str] = []

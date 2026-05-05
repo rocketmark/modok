@@ -12,10 +12,8 @@ from modok.ingestion.confidence import confidence_band
 from modok.ingestion.errors import (
     InvalidSlugReferenceError,
     MissingCommitShaError,
-    MissingRequiredFieldError,
 )
 from modok.ingestion.parser import (
-    ParsedDoc,
     get_commit_sha,
     is_working_tree_dirty,
     parse_frontmatter,
@@ -209,12 +207,6 @@ async def _write_nodes_and_edges(
 
     # --- Feature node ---
     if feature_slug:
-        registry_entry = {}
-        try:
-            from modok.ingestion.registry import Registry as _Reg
-        except ImportError:
-            pass
-
         feature_node = Feature(
             node_type="Feature",
             project_slug=project_slug,
@@ -455,7 +447,6 @@ async def ingest_doc(
         # SI-REF-001/002/003: validate registry references (raises on invalid slug)
         validate_references(fm, registry)
 
-    doc_type = fm.get("doc_type", "")
     feature_slug: str = fm.get("feature", "")
 
     # SI-REF-004: validate file references (warnings + confidence penalty)

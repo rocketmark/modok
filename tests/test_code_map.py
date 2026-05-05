@@ -5,9 +5,7 @@ All tests written before implementation (Phase 5). Tests cite specs via @spec an
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 import shutil
 import tempfile
@@ -623,7 +621,7 @@ def test_output_byte_identical_on_rerun(tmp_path):
 
     # Strip generated_at line before comparing
     def strip_timestamp(text):
-        return "\n".join(l for l in text.splitlines() if "generated_at" not in l)
+        return "\n".join(line for line in text.splitlines() if "generated_at" not in line)
 
     assert strip_timestamp(first) == strip_timestamp(second)
 

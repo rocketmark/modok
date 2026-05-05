@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import DREAnchorError
-from modok.retrieval.models import AffectedArea, DebugPacket, IssueAnchors, IssueSummary
+from modok.retrieval.models import DebugPacket, IssueAnchors, IssueSummary
 
 from tests.hifi.dummy_quine.client import DummyQuine
 from tests.hifi.harness.loader import Scenario

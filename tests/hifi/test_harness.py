@@ -5,13 +5,11 @@ All tests written before implementation (Phase 5).
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
 
 import pytest
 
 from modok.quine.ids import idFrom
 from modok.retrieval.models import (
-    AffectedArea,
     DebugPacket,
     IssueAnchors,
     IssueSummary,
@@ -170,7 +168,7 @@ async def test_run_scenario_constructs_fresh_dummy_quine(tmp_path):
     """)
     f = tmp_path / "isolation.yaml"
     f.write_text(yaml)
-    scenario = load_scenario(f)
+    load_scenario(f)
     # run_scenario should not accept a DummyQuine argument
     import inspect
     sig = inspect.signature(run_scenario)

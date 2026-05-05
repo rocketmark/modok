@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -336,7 +336,7 @@ M\tpackage-lock.json
             with patch("modok.ingestion.git_history.get_head_sha", return_value="e" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
                     with patch("modok.ingestion.git_history.save_last_git_sha"):
-                        result = await ingest_git(
+                        await ingest_git(
                             project_slug="stagehand",
                             repo_root=tmp_path,
                             registry=MagicMock(),
@@ -522,12 +522,12 @@ def test_hook_ingest_git_not_inside_path_guard():
 
     # Find the closing fi of the path guard block
     # ingest-git must appear after fi (outside the conditional)
-    git_idx = next((i for i, l in enumerate(lines) if "ingest-git" in l), None)
+    git_idx = next((i for i, line in enumerate(lines) if "ingest-git" in line), None)
     assert git_idx is not None
 
     # Count 'if' and 'fi' lines before git_idx
-    if_count = sum(1 for l in lines[:git_idx] if l.strip().startswith("if "))
-    fi_count = sum(1 for l in lines[:git_idx] if l.strip() == "fi")
+    if_count = sum(1 for line in lines[:git_idx] if line.strip().startswith("if "))
+    fi_count = sum(1 for line in lines[:git_idx] if line.strip() == "fi")
     # All opened ifs must be closed before ingest-git (i.e., we're not inside an if block)
     assert if_count <= fi_count, (
         "modok ingest-git is called inside a conditional block — "
@@ -563,7 +563,6 @@ async def test_double_ingest_git_produces_no_duplicate_commit_nodes(tmp_path):
                                 project_slug="stagehand", repo_root=tmp_path,
                                 registry=MagicMock(), client=client, config={},
                             )
-                            first_count = len(writes_first)
 
     # Second run: last_git_sha == HEAD → git log range is empty
     with patch("modok.ingestion.git_history._get_git_log", return_value=""):
@@ -662,13 +661,6 @@ async def test_since_and_full_mutually_exclusive(tmp_path):
 def test_since_replaces_6_month_window_not_max_commits():
     from modok.ingestion.git_history import _build_git_log_command
 
-    default_cmd = _build_git_log_command(
-        registered_files={"agent/src/shtp.c"},
-        since_sha=None,
-        since_date=None,
-        max_commits=500,
-        full=False,
-    )
     since_cmd = _build_git_log_command(
         registered_files={"agent/src/shtp.c"},
         since_sha=None,
@@ -677,7 +669,6 @@ def test_since_replaces_6_month_window_not_max_commits():
         full=False,
     )
 
-    default_str = " ".join(default_cmd)
     since_str = " ".join(since_cmd)
 
     # Both should limit by count

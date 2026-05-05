@@ -18,19 +18,8 @@ from modok.quine.errors import (
     QuineDeserializationError,
 )
 from modok.quine.models import (
-    QuineNode,
     Project,
     Feature,
-    Module,
-    File,
-    DocSection,
-    ErrorSignature,
-    KnownIssue,
-    CustomerIssue,
-    SimilarityMatch,
-    Fix,
-    ResolutionEvent,
-    DiagnosticNote,
 )
 from modok.quine.client import QuineClient, TraversalStep
 

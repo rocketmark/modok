@@ -558,8 +558,6 @@ async def retrieve(
         if valid_slugs:
             feature_slugs = [s for s in feature_slugs if s in valid_slugs]
 
-    anchor_count = len(feature_slugs) + len(error_sigs)
-
     # Accumulators
     ki_counts: dict[str, int] = {}
     ki_meta: dict[str, dict[str, str]] = {}

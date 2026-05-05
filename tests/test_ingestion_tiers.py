@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from modok.ingestion.discovery import DocRecord, discover_docs
+from modok.ingestion.discovery import discover_docs
 from modok.ingestion.errors import InvalidSlugReferenceError
 from modok.ingestion.hook import hook_content
 from modok.ingestion.pipeline import NODE_WRITE_ORDER

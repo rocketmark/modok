@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import time
 from dataclasses import dataclass, field
@@ -34,7 +33,7 @@ class GithubIngestionReport:
 
     def __str__(self) -> str:
         lines = [
-            f"GitHub ingestion complete",
+            "GitHub ingestion complete",
             f"  Issues (CustomerIssue): {self.issues_written}",
             f"  PRs (Fix):              {self.prs_written}",
             f"  IMPLEMENTED_IN edges:   {self.implemented_in_written} written, {self.implemented_in_skipped} skipped",

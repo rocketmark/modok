@@ -101,7 +101,7 @@ def test_normalise_skips_absent_fields_but_processes_present(tmp_path):
     write_raw_files(tmp_path / "registries", features=True, modules=False, errors=False)
     cfg = make_cfg()
 
-    with patch("modok.registry.normalise.normalise_candidates", return_value=[]) as mock_norm:
+    with patch("modok.registry.normalise.normalise_candidates", return_value=[]):
         normalise_registries(tmp_path, cfg)
 
     registries = tmp_path / "registries"

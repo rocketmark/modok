@@ -6,7 +6,6 @@ the EARS spec it verifies via @spec annotation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -1432,8 +1431,6 @@ def _make_module_error_query_side_effect(
         proj = params.get("project_slug", "stagehand")
         slug = params.get("feature_slug", "")
         file_path = params.get("file_path", "")
-        norm_err = params.get("normalized_error", "")
-
         if "AFFECTS" in cypher and "Feature" in cypher:
             return [[{"id": 0, "properties": {
                 "feature_slug": module_slug, "project_slug": proj,

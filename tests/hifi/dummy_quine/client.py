@@ -11,8 +11,7 @@ from typing import Any
 from modok.quine.errors import QuineNodeNotFoundError
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import (
-    QuineNode, _NODE_TYPE_MAP,
-    Project, Feature, Module, File, DocSection, ErrorSignature,
+    QuineNode, Project, Feature, Module, File, DocSection, ErrorSignature,
     KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
     DiagnosticNote,
 )
