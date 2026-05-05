@@ -5,9 +5,10 @@ import { render, screen } from '@testing-library/react'
 import { TopNav } from '@/components/nav/TopNav'
 
 // @spec DEMO-LAYOUT-001
-it('renders MODOK wordmark', () => {
+it('renders app title with MODOK attribution', () => {
   render(<TopNav />)
-  expect(screen.getByText(/modok/i)).toBeInTheDocument()
+  expect(screen.getByText(/generic ticketing system/i)).toBeInTheDocument()
+  expect(screen.getByText(/powered by modok/i)).toBeInTheDocument()
 })
 
 // @spec DEMO-LAYOUT-001
