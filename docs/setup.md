@@ -207,6 +207,11 @@ cegis_fix_enabled = true
 # Optional: emit rejected-field counterexamples as YAML fixtures for offline eval.
 # counterexample_fixture_dir = "~/github/modok/tests/fixtures/llm_gateway"
 
+# Performance tuning for local models on constrained hardware (e.g. MacBook Air).
+# skip_summary skips the LLM summarise_packet call; the ticket subject is used instead.
+# This saves one full LLM round-trip (~5–10s) at the cost of the generated summary sentence.
+# skip_summary = true
+
 [[projects]]
 slug = "stagehand"
 repo = "~/github/stagehand"
@@ -511,7 +516,7 @@ npm install
 }
 ```
 
-`project_slug` must match a `[[projects]]` slug in `~/.modok/config.toml`. `modok_source` is the `--source` value passed to `modok retrieve`.
+`project_slug` must match a `[[projects]]` slug in `~/.modok/config.toml`. `modok_source` is a label used in the rendered ticket markdown sent to `modok ingest`.
 
 **Launch with real Quine (Quine must be running):**
 
