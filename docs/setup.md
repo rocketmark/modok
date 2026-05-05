@@ -93,13 +93,19 @@ modok --version
 
 ---
 
-## Step 2 — Clone your project repo(s)
-
-```bash
-git clone https://github.com/marks/stagehand ~/github/stagehand
-```
+## Step 2 — Choose a project repo to index
 
 MODOK needs the project repo on disk to validate file references in registries and docs. The repo does not need to be built — just cloned.
+
+**If you are following this guide for the first time**, use the `modok` repo itself as your sample project — it is already on disk from Step 1. It is fully self-contained (Python source, docs, tests) and gives you a real codebase to index without touching anything you care about.
+
+**To index your own project**, clone it now:
+
+```bash
+git clone https://github.com/yourorg/yourproject ~/github/yourproject
+```
+
+The rest of this guide uses `modok` as the sample project slug and `~/github/modok` as the repo path. Substitute your own values if you are indexing a different repo.
 
 ---
 
@@ -213,8 +219,8 @@ cegis_fix_enabled = true
 # skip_summary = true
 
 [[projects]]
-slug = "stagehand"
-repo = "~/github/stagehand"
+slug = "modok"
+repo = "~/github/modok"
 EOF
 ```
 
@@ -261,12 +267,12 @@ Expected:
 ## Step 9 — Initialize a project
 
 ```bash
-modok init --project stagehand --repo ~/github/stagehand
+modok init --project modok --repo ~/github/modok
 ```
 
 This:
 - Registers the project in `~/.modok/config.toml` if not already present
-- Installs a git post-commit hook in the stagehand repo that runs ingestion automatically on commits touching docs, registries, or tickets
+- Installs a git post-commit hook in the repo that runs ingestion automatically on commits touching docs, registries, or tickets
 - Creates empty stub files for `registries/features.yml`, `registries/modules.yml`, `registries/errors.yml`, and `registries/doc-types.yml` if they don't already exist
 
 ---
@@ -276,13 +282,13 @@ This:
 The code map is a YAML snapshot of every file in the repo — language, role, symbols, and SHA256. It is the foundation for registry bootstrap and file validation.
 
 ```bash
-modok extract-code-map --project stagehand --repo ~/github/stagehand
+modok extract-code-map --project modok --repo ~/github/modok
 ```
 
 Output is written to `<repo>/.modok/code-map.yml` (gitignored). Re-run this any time the repo's file structure changes significantly.
 
 ```
-Extracted code map: 320 files (71 source, 68 test, 84 config, 97 docs) → /path/to/stagehand/.modok/code-map.yml
+Extracted code map: 320 files (71 source, 68 test, 84 config, 97 docs) → /path/to/modok/.modok/code-map.yml
 ```
 
 ---
@@ -292,18 +298,21 @@ Extracted code map: 320 files (71 source, 68 test, 84 config, 97 docs) → /path
 If the project has arrow docs (`docs/arrows/index.yaml`), use `import-arrow` to generate `registries/features.yml` and `registries/modules.yml` directly from them. This replaces the empty stubs created by `modok init`.
 
 ```bash
-modok import-arrow --project stagehand --repo ~/github/stagehand
+modok import-arrow --project modok --repo ~/github/modok
 ```
 
 This reads each arrow doc's `### Code` and `### Key Components` sections, validates all file paths against the code map, and writes both registry files. Add `--no-llm` to skip name/description generation (useful for CI or first runs):
 
 ```bash
-modok import-arrow --project stagehand --repo ~/github/stagehand --no-llm
+modok import-arrow --project modok --repo ~/github/modok --no-llm
 ```
 
 Add `--dry-run` to preview the proposed registries without writing anything.
 
-If the project does not have arrow docs, edit `registries/features.yml` and `registries/modules.yml` manually using the stubs created by `modok init`.
+**If the project does not have arrow docs** (including the `modok` sample project), you have two options:
+
+- Edit `registries/features.yml` and `registries/modules.yml` manually using the stubs created by `modok init`.
+- Use the [LID project](https://github.com/marks/lid) to generate arrow docs from your codebase, then run `import-arrow`. LID produces structured design docs that `import-arrow` can consume directly.
 
 ---
 
@@ -318,7 +327,7 @@ Run the three ingestion commands **in this order**. Each one builds on the previ
 **Ingest docs:**
 
 ```bash
-modok ingest --project stagehand
+modok ingest --project modok
 ```
 
 Discovers docs using three-tier discovery: Tier 1 walks `docs/arrows/index.yaml` and ingests each registered LLD, spec, and arrow doc with metadata derived from the registries; Tier 2 scans remaining `docs/**/*.md` files and infers `doc_type` and `feature` from path conventions; Tier 3 ingests anything that doesn't resolve to a known feature slug as `doc_type: unregistered`. You should see a structured report:
@@ -342,7 +351,7 @@ Unregistered docs are listed below the summary — they are a discovery signal, 
 **Ingest git history:**
 
 ```bash
-modok ingest-git --project stagehand
+modok ingest-git --project modok
 ```
 
 Imports commits that touch registered source files and docs as `Commit` nodes in the graph, with `TOUCHES` edges to the relevant `File` nodes. By default imports the last 6 months / 500 commits. Use `--full` for an initial bootstrap of the full history, or `--since 2025-01-01` to import from a specific date. Subsequent runs are incremental — only commits since the last run are imported.
@@ -350,7 +359,7 @@ Imports commits that touch registered source files and docs as `Commit` nodes in
 **Extract module code identifiers:**
 
 ```bash
-modok ingest-elements --project stagehand
+modok ingest-elements --project modok
 ```
 
 Reads each module's source files from the registry and extracts code identifiers — class names, method names, signal names — using AST parsing for Python and regex for C/C++. Writes the result to `registries/elements.yml`. These identifiers are forwarded to the LLM during `modok retrieve` so it can match ticket language to module slugs even when the ticket doesn't use the exact module name (e.g. "reinit button" → module containing `reinit_requested`).
@@ -362,7 +371,7 @@ Re-run this any time module source files are added, removed, or substantially re
 ## Step 13 — Verify the graph
 
 ```bash
-modok recall --project stagehand --module shtp-receiver
+modok recall --project modok --module retrieval
 ```
 
 Returns a summary of what MODOK knows about that module: its parent feature, source files, and test files.
@@ -436,8 +445,8 @@ launchctl unload ~/Library/LaunchAgents/io.modok.quine.plist  # stops and disabl
 | Location | Contents |
 |---|---|
 | `~/github/modok/` | MODOK source code, tests, LID docs |
-| `~/github/stagehand/registries/` | Feature, module, error registries and `elements.yml` (version-controlled in stagehand repo) |
-| `~/github/stagehand/.modok/code-map.yml` | Per-project code map — files, roles, symbols, hashes (local, gitignored) |
+| `~/github/modok/registries/` | Feature, module, error registries and `elements.yml` (version-controlled in project repo) |
+| `~/github/modok/.modok/code-map.yml` | Per-project code map — files, roles, symbols, hashes (local, gitignored) |
 | `~/.modok/config.toml` | MODOK runtime config — Quine URL, project repo paths, LLM config |
 | `~/.modok/quine.conf` | Quine HOCON config |
 | `~/.modok/quine.jar` | Quine binary |
@@ -511,7 +520,7 @@ npm install
 
 ```json
 {
-  "project_slug": "stagehand",
+  "project_slug": "modok",
   "modok_source": "demo-crm"
 }
 ```
