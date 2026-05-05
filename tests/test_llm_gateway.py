@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from modok.llm.errors import (
@@ -614,6 +614,7 @@ def test_extract_json_finds_object_in_arbitrary_surrounding_text(prefix, suffix,
     from modok.llm.gateway import _extract_json
     import json
 
+    assume(_extract_json(prefix) is None)  # skip prefixes that are themselves valid JSON
     obj = {key: value}
     raw = prefix + "\n" + json.dumps(obj) + "\n" + suffix
     result = _extract_json(raw)
