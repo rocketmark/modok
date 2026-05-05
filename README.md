@@ -1,6 +1,6 @@
 # M.O.D.O.K
 
-<img align="right" width="320" src="docs/assets/modok.png" alt="MODOK"/>
+<img align="right" width="320" src="docs/assets/MODOK-Project-Image.png" alt="MODOK"/>
 
 **Mechanized Oracle Designed Only for Knowledge**
 
