@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     subject: subject.trim(),
     content: content.trim(),
     created_at: new Date().toISOString(),
+    user_created: true as const,
   }
 
   writeTicket(ticket)

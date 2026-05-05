@@ -28,6 +28,12 @@ export function writeTicket(ticket: Ticket): void {
   fs.writeFileSync(ticketsPath(), JSON.stringify(tickets, null, 2))
 }
 
+export function deleteTicket(ticketId: string): void {
+  const tickets = readTickets()
+  const filtered = tickets.filter((t) => t.id !== ticketId)
+  fs.writeFileSync(ticketsPath(), JSON.stringify(filtered, null, 2))
+}
+
 // @spec DEMO-DATA-002
 export function readNotes(ticketId: string): Note[] {
   const raw = fs.readFileSync(notesPath(), 'utf-8')

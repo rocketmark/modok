@@ -3,6 +3,7 @@ export interface Ticket {
   subject: string
   content: string
   created_at: string // ISO 8601
+  user_created?: true  // present only on tickets created via the New Ticket button
 }
 
 export interface Note {

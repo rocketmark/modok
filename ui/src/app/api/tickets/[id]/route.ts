@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { loadConfig, ConfigError } from '@/lib/config'
-import { readTickets, readNotes, getRun } from '@/lib/data'
+import { readTickets, readNotes, getRun, deleteTicket } from '@/lib/data'
 
 // @spec DEMO-TICK-API-003, DEMO-TICK-API-004
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -20,4 +20,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const notes = readNotes(params.id)
   const run = getRun(params.id)
   return NextResponse.json({ ticket, notes, run })
+}
+
+export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+  const tickets = readTickets()
+  const ticket = tickets.find((t) => t.id === params.id)
+  if (!ticket) return NextResponse.json({ message: 'Ticket not found' }, { status: 404 })
+  if (!ticket.user_created) return NextResponse.json({ message: 'Cannot delete a pre-loaded ticket' }, { status: 403 })
+  deleteTicket(params.id)
+  return NextResponse.json({ ok: true })
 }

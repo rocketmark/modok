@@ -10,11 +10,12 @@ interface Props {
   selectedId: string | null
   onSelect: (id: string) => void
   onNewTicket?: () => void
+  onDeleteTicket?: (id: string) => void
 }
 
 // @spec DEMO-LIST-001, DEMO-LIST-002, DEMO-LIST-003, DEMO-LIST-004,
 //       DEMO-LIST-005, DEMO-LIST-006, DEMO-NAV-004
-export function TicketList({ tickets, runs, selectedId, onSelect, onNewTicket }: Props) {
+export function TicketList({ tickets, runs, selectedId, onSelect, onNewTicket, onDeleteTicket }: Props) {
   return (
     <div
       data-testid="ticket-list-panel"
@@ -28,6 +29,7 @@ export function TicketList({ tickets, runs, selectedId, onSelect, onNewTicket }:
             run={runs[t.id] ?? { ticket_id: t.id, status: 'not_run' }}
             selected={t.id === selectedId}
             onClick={() => onSelect(t.id)}
+            onDelete={onDeleteTicket ? () => onDeleteTicket(t.id) : undefined}
           />
         ))}
       </ul>

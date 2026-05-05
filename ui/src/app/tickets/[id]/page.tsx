@@ -136,18 +136,36 @@ export default function TicketPage() {
     [router, loadTicketList],
   )
 
+  const handleDeleteTicket = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/tickets/${id}`, { method: 'DELETE' })
+      if (!res.ok) return
+      const remaining = tickets.filter((t) => t.id !== id)
+      setTickets(remaining)
+      if (id === ticketId) {
+        if (remaining.length > 0) {
+          router.push(`/tickets/${remaining[0].id}`)
+        } else {
+          router.push('/tickets')
+        }
+      }
+    },
+    [tickets, ticketId, router],
+  )
+
   const run: ModokRun = currentRun ?? { ticket_id: ticketId, status: 'not_run' }
   const ticket = tickets.find((t) => t.id === ticketId)
 
   return (
     <div className="flex h-full">
-      <div className="w-52 border-r border-slate-200 bg-white flex-shrink-0">
+      <div className="w-64 border-r border-slate-200 bg-white flex-shrink-0">
         <TicketList
           tickets={tickets}
           runs={runs}
           selectedId={ticketId}
           onSelect={(id) => router.push(`/tickets/${id}`)}
           onNewTicket={() => setShowNewTicket(true)}
+          onDeleteTicket={handleDeleteTicket}
         />
       </div>
 
