@@ -634,7 +634,7 @@ async def parse_ticket(
             feature_slug_list=feature_slug_list,
             module_slug_list=module_slug_list,
         )},
-        {"role": "user", "content": raw_text},
+        {"role": "user", "content": f"<ticket>\n{raw_text}\n</ticket>"},
     ]
     response_format = {"type": "json_object"}
 
@@ -818,7 +818,7 @@ async def summarise_packet(
     elements_line = ", ".join(matched_elements) if matched_elements else "(none)"
 
     user_content = (
-        f"Issue: {issue_text}\n\n"
+        f"<issue>\n{issue_text}\n</issue>\n\n"
         f"Module: {modules_line}\n"
         f"Errors: {errors_line}\n"
         f"Symptoms: {symptoms_line}\n"
