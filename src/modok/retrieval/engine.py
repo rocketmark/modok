@@ -58,15 +58,40 @@ def _path_actionability_multiplier(path: str) -> float:
     return 0.25
 
 
-def _pre_match_modules(text: str, module_source_files: dict[str, list[str]]) -> list[str]:
-    """Return module slugs whose source files are explicitly mentioned in text."""
-    mentioned = {m.group(1) for m in _FILE_PATH_RE.finditer(text)}
-    if not mentioned:
-        return []
+# @spec DRE-ANCH-009
+def _pre_match_modules(
+    text: str,
+    module_source_files: dict[str, list[str]],
+    module_elements: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Return module slugs whose source files are mentioned in text or whose
+    element names have token overlap with words extracted from text."""
     matched: list[str] = []
+    seen: set[str] = set()
+
+    # File-path matching
+    mentioned_files = {m.group(1) for m in _FILE_PATH_RE.finditer(text)}
     for slug, files in module_source_files.items():
-        if any(f in mentioned for f in files):
-            matched.append(slug)
+        if any(f in mentioned_files for f in files):
+            if slug not in seen:
+                seen.add(slug)
+                matched.append(slug)
+
+    # Element-token matching: tokenize words from ticket text, check element subsets
+    if module_elements:
+        text_tokens: set[str] = set()
+        for word in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b', text):
+            text_tokens.update(_tokenize(word))
+        for slug, elements in module_elements.items():
+            if slug in seen:
+                continue
+            for elem in elements:
+                elem_tokens = _tokenize(elem)
+                if elem_tokens and elem_tokens.issubset(text_tokens):
+                    seen.add(slug)
+                    matched.append(slug)
+                    break
+
     return matched
 
 
@@ -507,7 +532,8 @@ async def retrieve(
                 f"CustomerIssue id={issue_id} has no graph anchors and no raw_text"
             )
 
-        pre_matched = _pre_match_modules(issue.raw_text, module_source_files or {})
+        # @spec DRE-ANCH-009
+        pre_matched = _pre_match_modules(issue.raw_text, module_source_files or {}, module_elements)
 
         try:
             parse_result = await gateway.parse_ticket(
@@ -516,20 +542,23 @@ async def retrieve(
                 feature_descriptions=feature_descriptions, module_descriptions=module_descriptions,
                 module_elements=module_elements, module_source_files=module_source_files,
             )
-        except LLMResponseError as exc:
-            raise DREAnchorError(f"LLM anchor extraction failed: {exc}") from exc
+            merged: list[str] = list(pre_matched)
+            for llm_slug in parse_result.feature_slugs:
+                if llm_slug not in merged:
+                    merged.append(llm_slug)
+            feature_slugs = merged
+            error_sigs = list(parse_result.error_signatures)
+            symptoms = list(parse_result.symptoms)
+            mentioned_files = list(parse_result.mentioned_files)
+        except LLMResponseError:
+            # @spec DRE-ANCH-006 — bad LLM output: fall back to mechanical pre-match only
+            feature_slugs = list(pre_matched)
         except LLMUnavailableError as exc:
             raise DRELLMUnavailableError(f"LLM gateway unreachable: {exc}") from exc
 
-        merged: list[str] = list(pre_matched)
-        for llm_slug in parse_result.feature_slugs:
-            if llm_slug not in merged:
-                merged.append(llm_slug)
-        feature_slugs = merged
-
-        error_sigs = list(parse_result.error_signatures)
-        symptoms = list(parse_result.symptoms)
-        mentioned_files = list(parse_result.mentioned_files)
+        # @spec DRE-ANCH-010 — mechanical validation pass before Quine traversal
+        if valid_slugs:
+            feature_slugs = [s for s in feature_slugs if s in valid_slugs]
 
     anchor_count = len(feature_slugs) + len(error_sigs)
 

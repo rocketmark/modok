@@ -460,7 +460,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
 # ---------------------------------------------------------------------------
 
 # @spec CLI-RET-001
-def test_retrieve_source_ticket_computes_idfrom(tmp_path):
+def test_retrieve_ticket_looks_up_by_project_and_ticket_id(tmp_path):
     from click.testing import CliRunner
     from modok.cli.main import cli
 
@@ -481,7 +481,7 @@ def test_retrieve_source_ticket_computes_idfrom(tmp_path):
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
                     runner.invoke(cli, [
                         "retrieve", "--project", "stagehand",
-                        "--source", "zendesk", "--ticket", "1842",
+                        "--ticket", "1842",
                     ])
 
     assert captured_node_ids == [fake_quine_id]
@@ -514,7 +514,7 @@ def test_retrieve_node_id_calls_retrieve_directly(tmp_path):
 
 
 # @spec CLI-RET-003
-def test_retrieve_source_and_node_id_together_exits_1(tmp_path):
+def test_retrieve_ticket_and_node_id_together_exits_1(tmp_path):
     from click.testing import CliRunner
     from modok.cli.main import cli
 
@@ -527,7 +527,7 @@ def test_retrieve_source_and_node_id_together_exits_1(tmp_path):
             with patch("modok.cli.commands.retrieve.retrieve") as mock_ret:
                 result = runner.invoke(cli, [
                     "retrieve", "--project", "stagehand",
-                    "--source", "zendesk", "--ticket", "1842",
+                    "--ticket", "1842",
                     "--node-id", "99",
                 ])
 
@@ -553,30 +553,6 @@ def test_retrieve_no_identifier_exits_1(tmp_path):
     mock_ret.assert_not_called()
 
 
-# @spec CLI-RET-005
-@pytest.mark.parametrize("args", [
-    ["--source", "zendesk"],
-    ["--ticket", "1842"],
-])
-def test_retrieve_partial_source_ticket_exits_1(tmp_path, args):
-    from click.testing import CliRunner
-    from modok.cli.main import cli
-
-    config_path = write_config(tmp_path / "config.toml")
-    runner = CliRunner(mix_stderr=False)
-
-    with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
-            mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.retrieve.retrieve") as mock_ret:
-                result = runner.invoke(
-                    cli, ["retrieve", "--project", "stagehand"] + args
-                )
-
-    assert result.exit_code == 1
-    mock_ret.assert_not_called()
-
-
 # @spec CLI-RET-006
 def test_retrieve_not_found_exits_1_with_message(tmp_path):
     from click.testing import CliRunner
@@ -596,7 +572,7 @@ def test_retrieve_not_found_exits_1_with_message(tmp_path):
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_not_found):
                     result = runner.invoke(cli, [
                         "retrieve", "--project", "stagehand",
-                        "--source", "zendesk", "--ticket", "1842",
+                        "--ticket", "1842",
                     ])
 
     assert result.exit_code == 1
@@ -624,7 +600,7 @@ def test_retrieve_graph_unavailable_exits_2(tmp_path):
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_graph_unavailable):
                     result = runner.invoke(cli, [
                         "retrieve", "--project", "stagehand",
-                        "--source", "zendesk", "--ticket", "1842",
+                        "--ticket", "1842",
                     ])
 
     assert result.exit_code == 2
@@ -649,7 +625,7 @@ def test_retrieve_llm_unavailable_exits_2(tmp_path):
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_llm_unavailable):
                     result = runner.invoke(cli, [
                         "retrieve", "--project", "stagehand",
-                        "--source", "zendesk", "--ticket", "1842",
+                        "--ticket", "1842",
                     ])
 
     assert result.exit_code == 2
@@ -675,7 +651,7 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
                     result = runner.invoke(cli, [
                         "retrieve", "--project", "stagehand",
-                        "--source", "zendesk", "--ticket", "1842",
+                        "--ticket", "1842",
                     ])
 
     assert result.exit_code == 0

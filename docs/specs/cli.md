@@ -73,11 +73,10 @@ See `docs/testing-standard.md` for full definitions.
 
 ## `modok retrieve`
 
-- [x] **CLI-RET-001** [U]: When `--source <system>` and `--ticket <id>` are supplied, `modok retrieve` shall compute the Quine node ID via `idFrom("customer-issue", project_slug, source_system, ticket_id)` and call `retrieve(node_id, project_slug, client)`.
-- [x] **CLI-RET-002** [U]: When `--node-id <int>` is supplied, `modok retrieve` shall call `retrieve(node_id, project_slug, client)` directly without computing an ID.
-- [x] **CLI-RET-003** [U]: When both `--source`/`--ticket` and `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error before any other validation or graph operation.
-- [x] **CLI-RET-004** [U]: When neither `--source`/`--ticket` nor `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error.
-- [x] **CLI-RET-005** [U]: When `--source` is supplied without `--ticket`, or `--ticket` is supplied without `--source`, `modok retrieve` shall exit `1` with a usage error before performing any graph operation.
+- [x] **CLI-RET-001** [U]: When `--ticket <id>` is supplied, `modok retrieve` shall look up the `CustomerIssue` node via `MATCH (n:CustomerIssue {project_slug: $p, ticket_id: $t}) RETURN id(n)` and call `retrieve(node_id, project_slug, client)`. If no node is found, it shall exit `1` with a usage error.
+- [x] **CLI-RET-002** [U]: When `--node-id <int>` is supplied, `modok retrieve` shall call `retrieve(node_id, project_slug, client)` directly without performing a graph lookup.
+- [x] **CLI-RET-003** [U]: When both `--ticket` and `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error before any other validation or graph operation.
+- [x] **CLI-RET-004** [U]: When neither `--ticket` nor `--node-id` are supplied, `modok retrieve` shall exit `1` with a usage error.
 - [x] **CLI-RET-006** [U]: When `retrieve` raises `DRENotFoundError`, `modok retrieve` shall exit `1` with the message "issue not found in project `<slug>`".
 - [x] **CLI-RET-007** [U]: When `retrieve` raises `DREGraphUnavailableError`, `modok retrieve` shall exit `2`.
 - [x] **CLI-RET-008** [U]: When `retrieve` raises `DRELLMUnavailableError`, `modok retrieve` shall exit `2`.

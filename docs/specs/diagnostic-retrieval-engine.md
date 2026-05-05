@@ -29,12 +29,13 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **DRE-ANCH-001** [U]: When the `CustomerIssue` node has outbound `AFFECTS` edges to `Feature` nodes in the same project, the system shall use those feature slugs as anchors and shall not call the LLM gateway.
 - [x] **DRE-ANCH-002** [U]: When the `CustomerIssue` node has outbound `HAS_ERROR` edges to `ErrorSignature` nodes in the same project, the system shall use those normalized error strings as anchors and shall not call the LLM gateway.
 - [x] **DRE-ANCH-003** [U]: When graph anchors are found — at least one feature slug or one error signature after project-scoped filtering — the LLM fallback (i.e., the `parse_ticket` call) shall be skipped entirely, regardless of the `backend` parameter.
-- [x] **DRE-ANCH-004** [U]: When no graph anchors are found and `CustomerIssue.raw_text` is present, the system shall call `gateway.parse_ticket(raw_text, project_slug, backend=backend)` and use the returned `feature_slugs` and `error_signatures` as anchors.
+- [x] **DRE-ANCH-004** [U]: When no graph anchors are found and `CustomerIssue.raw_text` is present, the system shall run the mechanical pre-match, call `gateway.parse_ticket`, merge the results, then filter against `valid_slugs` to produce the final `feature_slugs` and `error_signatures`.
 - [x] **DRE-ANCH-005** [U]: When no graph anchors are found and `CustomerIssue.raw_text` is `None`, the system shall raise `DREAnchorError`.
-- [x] **DRE-ANCH-006** [U]: When `parse_ticket` raises `LLMResponseError`, the system shall raise `DREAnchorError`.
+- [x] **DRE-ANCH-006** [U]: When `parse_ticket` raises `LLMResponseError`, the system shall fall back to the mechanical pre-match results with empty `error_signatures` and `symptoms`, rather than raising `DREAnchorError`.
 - [x] **DRE-ANCH-007** [U]: When `parse_ticket` raises `LLMUnavailableError`, the system shall raise `DRELLMUnavailableError`.
 - [x] **DRE-ANCH-008** [U]: `symptoms` returned by `parse_ticket` shall be stored in `IssueAnchors.symptoms` for context but shall not be used in graph traversal or match count scoring.
-- [x] **DRE-ANCH-009** [U]: When no graph anchors are found and `raw_text` is present, the system shall pre-scan `raw_text` for literal source file path mentions using `module_source_files` and seed matching module slugs before calling `parse_ticket`. Pre-matched slugs shall appear first in the merged `feature_slugs` list.
+- [x] **DRE-ANCH-009** [U]: When no graph anchors are found and `raw_text` is present, the system shall pre-scan `raw_text` for (a) literal source file path mentions using `module_source_files`, and (b) element-name token matches using `module_elements` — tokenizing words from `raw_text` and checking whether any element's token set is a subset of those tokens. Matching module slugs are seeded before calling `parse_ticket` and appear first in the merged list.
+- [x] **DRE-ANCH-010** [U]: After merging pre-matched and LLM-returned slugs, the system shall filter all `feature_slugs` against `valid_slugs` (when provided) before any Quine traversal.
 
 ---
 

@@ -25,7 +25,7 @@ modok ingest      --project <slug>
 modok ingest-git      --project <slug> [--full] [--since <date>] [--max-commits <n>]
 modok ingest-github   --project <slug> [--full]
 modok ingest-elements --project <slug>
-modok retrieve    --project <slug> --source <system> --ticket <id>
+modok retrieve    --project <slug> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
 modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
@@ -135,17 +135,19 @@ Fetches a debug packet for a customer issue and prints it as JSON to stdout.
 
 **Primary form** (for agents and humans):
 ```
-modok retrieve --project <slug> --source <system> --ticket <id>
+modok retrieve --project <slug> --ticket <id>
 ```
-Computes the Quine node ID internally via `idFrom("customer-issue", project_slug, source_system, ticket_id)`, then calls `retrieve(node_id, project_slug, client)`.
+Looks up the `CustomerIssue` node via `MATCH (n:CustomerIssue {project_slug, ticket_id})`, then calls `retrieve(node_id, project_slug, client)`. Exits `1` if no matching node is found.
 
 **Power-user form** (when node ID is already known):
 ```
 modok retrieve --project <slug> --node-id <int>
 ```
-Skips the `idFrom` computation and calls `retrieve` directly with the supplied integer.
+Skips the graph lookup and calls `retrieve` directly with the supplied integer.
 
-`--source` + `--ticket` and `--node-id` are mutually exclusive. Supplying both or neither exits `1`.
+`--ticket` and `--node-id` are mutually exclusive. Supplying both or neither exits `1`.
+
+> **Note:** `--source` was intentionally omitted. The current lookup assumes ticket IDs are unique within a project. If multi-source disambiguation becomes necessary (e.g. Zendesk and Jira sharing ticket IDs in the same project), add `--source` back and switch the lookup to `idFrom("customer-issue", project_slug, source_system, ticket_id)`. The `source_system` field is already stored on `CustomerIssue` nodes via ingest.
 
 Exit codes: `0` on success, `1` if the issue is not found in the specified project or args are invalid, `2` if Quine or the LLM gateway is unreachable. `DRENotFoundError` maps to exit `1` with the message "issue not found in project `<slug>`".
 
@@ -310,7 +312,7 @@ modok = "modok.cli.main:cli"
 | Stdout/stderr split | Data to stdout, diagnostics to stderr | Everything to stdout | Agents calling via subprocess capture stdout without filtering noise. Standard Unix convention. |
 | Exit codes | `0/1/2/3` | `0/1` only | Agents and CI need to distinguish "Quine is down" from "bad argument" without parsing stderr. |
 | `--project` required everywhere | Always explicit | Ambient project from cwd or config | No ambient state; no cross-project contamination. Agents constructing subprocess calls always know what they're touching. |
-| `retrieve` input | `--source` + `--ticket` (primary); `--node-id` (power user) | Node ID only; source+ticket only | Agents can't call `idFrom` directly — they have source system and ticket ID from their context. Node ID form retained for power users and testing. |
+| `retrieve` input | `--ticket` (primary); `--node-id` (power user) | `--source` + `--ticket` via `idFrom`; node ID only | `--source` deferred — ticket IDs assumed unique per project for now. `idFrom`-based path retained as the upgrade path when multi-source disambiguation is needed. |
 | Config location | `~/.modok/config.toml` fixed | `.modok.toml` in cwd, `$MODOK_CONFIG` env var | Fixed location makes agent subprocess calls predictable without path coordination. |
 | Config parsing | stdlib `tomllib` + pydantic | `tomli` backport, `tomlkit` | `tomllib` is in stdlib from Python 3.11 (already required). No extra dependency. |
 | `ingest-git` incremental start | `last_git_sha` in config; default 6 months if absent | Always full history; always explicit `--since` | Full history is expensive on large repos. 6-month default covers most active development. `--full` is the explicit escape hatch. | 

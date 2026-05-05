@@ -130,10 +130,15 @@ If at least one feature slug or error signature is found, the LLM fallback is sk
 
 If no graph anchors are found and `raw_text` is present on the `CustomerIssue` node:
 
-1. `_pre_match_modules(raw_text, module_source_files)` checks whether any source file path appears verbatim in the ticket text and pre-seeds matching module slugs.
-2. `gateway.parse_ticket(raw_text, ...)` is called with all available slug hints. It returns `feature_slugs`, `error_signatures`, `symptoms`, and `mentioned_files`.
-3. Pre-matched slugs are merged with LLM-returned slugs (pre-match first, deduped).
-4. `symptoms` are stored for context but not used in graph traversal. `mentioned_files` are seeded directly into evidence maps as `ticket_mention` items.
+1. **Mechanical pre-match** — `_pre_match_modules(raw_text, module_source_files, module_elements)` checks two signals independently:
+   - Literal source file path mentions (e.g. `agent/src/main.c` appears verbatim in the text).
+   - Element-name token overlap: words from `raw_text` are tokenized (camelCase/snake_case split, length > 2), and any module whose element name's token set is a subset of those tokens is matched. Example: ticket text containing `tracker_lost_logged` → tokens `{tracker, lost, logged}` → matches any module with an element `tracker_lost_logged`.
+2. **LLM augmentation** — `gateway.parse_ticket(raw_text, ...)` is called to validate the pre-matched candidates and identify anything the mechanical pass missed. It returns `feature_slugs`, `error_signatures`, `symptoms`, and `mentioned_files`.
+   - On `LLMResponseError` (bad output): fall back to pre-match results only; `error_signatures`, `symptoms`, and `mentioned_files` are empty.
+   - On `LLMUnavailableError`: raises `DRELLMUnavailableError`.
+3. **Merge** — pre-matched slugs are unioned with LLM-returned slugs (pre-match first, deduped).
+4. **Mechanical validation pass** — all merged slugs are filtered against `valid_slugs` before any Quine traversal. This prevents hallucinated slugs from reaching the graph.
+5. `symptoms` are stored for context but not used in graph traversal. `mentioned_files` are seeded directly into evidence maps as `ticket_mention` items.
 
 If `raw_text` is `None` and no graph anchors exist, raises `DREAnchorError`.
 

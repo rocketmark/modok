@@ -24,23 +24,18 @@ from modok.retrieval.errors import (
 
 @click.command("retrieve")
 @click.option("--project", required=True, help="Project slug.")
-@click.option("--source", default=None, help="Source system (e.g. zendesk).")
 @click.option("--ticket", default=None, help="Ticket ID.")
 @click.option("--node-id", "node_id", default=None, type=int, help="Quine node ID (power-user).")
 @click.option("--stream", "stream_mode", is_flag=True, default=False, help="Emit NDJSON progress lines before the final result.")
-def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: int | None, stream_mode: bool) -> None:
-    # Mutual exclusivity checks (before any graph operation)
-    has_source_ticket = source is not None or ticket is not None
+def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_mode: bool) -> None:
+    has_ticket = ticket is not None
     has_node_id = node_id is not None
 
-    if has_source_ticket and has_node_id:
-        raise click.ClickException("--source/--ticket and --node-id are mutually exclusive.")
+    if has_ticket and has_node_id:
+        raise click.ClickException("--ticket and --node-id are mutually exclusive.")
 
-    if not has_source_ticket and not has_node_id:
-        raise click.ClickException("Supply --source and --ticket, or --node-id.")
-
-    if has_source_ticket and (source is None or ticket is None):
-        raise click.ClickException("--source and --ticket must both be supplied together.")
+    if not has_ticket and not has_node_id:
+        raise click.ClickException("Supply --ticket or --node-id.")
 
     config = ModokConfig.load()
     proj = config.project(project)  # validates slug; raises ClickException if unknown
@@ -76,12 +71,16 @@ def retrieve_cmd(project: str, source: str | None, ticket: str | None, node_id: 
     if has_node_id:
         resolved_id = str(node_id)
     else:
-        # Resolve via Quine's native idFrom() — returns a UUID string, not a Python int.
-        # The Python ids.idFrom is a test-harness stub that uses a different algorithm.
+        # Look up the CustomerIssue node by (project_slug, ticket_id).
+        # NOTE: This assumes ticket IDs are unique within a project. If multi-source
+        # disambiguation is needed in future (e.g. Zendesk + Jira sharing IDs),
+        # add a --source flag and switch back to idFrom('customer-issue', p, source, t).
         rows = asyncio.run(client.query(
-            "RETURN idFrom('customer-issue', $p, $s, $t)",
-            {"p": project, "s": source, "t": ticket},
+            "MATCH (n:CustomerIssue {project_slug: $p, ticket_id: $t}) RETURN id(n) LIMIT 1",
+            {"p": project, "t": ticket},
         ))
+        if not rows or not rows[0]:
+            raise click.ClickException(f"issue not found in project `{project}`")
         resolved_id = rows[0][0]
 
     def _on_progress(step: str, partial) -> None:

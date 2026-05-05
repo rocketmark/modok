@@ -43,16 +43,19 @@ def make_customer_issue(
 
 def make_ticket_parse_result(
     feature_slug: str | None = "shtp-receiver",
+    feature_slugs: list[str] | None = None,
     error_signatures: list[str] | None = None,
     symptoms: list[str] | None = None,
 ) -> TicketParseResult:
+    slugs = feature_slugs if feature_slugs is not None else ([feature_slug] if feature_slug else [])
     return TicketParseResult(
-        feature_slugs=[feature_slug] if feature_slug else [],
+        feature_slugs=slugs,
         error_signatures=error_signatures or ["shtp-version-mismatch"],
         environment={},
         symptoms=symptoms or ["pose dropout"],
         confidence=0.8,
         raw_response="{}",
+        mentioned_files=[],
     )
 
 
@@ -228,12 +231,13 @@ async def test_raises_anchor_error_when_no_graph_anchors_and_no_raw_text():
 
 
 @pytest.mark.asyncio
-async def test_raises_anchor_error_when_llm_response_error():
-    # @spec DRE-ANCH-006, DRE-ERR-003
+async def test_llm_response_error_falls_back_to_pre_match():
+    # @spec DRE-ANCH-006
+    # When parse_ticket raises LLMResponseError, the engine falls back to mechanical
+    # pre-match results and returns a packet rather than raising DREAnchorError.
     from modok.retrieval.engine import retrieve
-    from modok.retrieval.errors import DREAnchorError
 
-    issue = make_customer_issue(raw_text="some text")
+    issue = make_customer_issue(raw_text="Problem in agent/src/shtp.c")
     mock_client = AsyncMock()
     mock_client.get_node.return_value = issue
     mock_client.query.side_effect = _make_query_side_effect(
@@ -243,8 +247,19 @@ async def test_raises_anchor_error_when_llm_response_error():
 
     with patch("modok.retrieval.engine.gateway") as mock_gw:
         mock_gw.parse_ticket = AsyncMock(side_effect=LLMResponseError("bad json"))
-        with pytest.raises(DREAnchorError):
-            await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+        mock_gw.summarise_packet = AsyncMock(return_value="summary")
+        packet = await retrieve(
+            issue_id=1,
+            project_slug="stagehand",
+            client=mock_client,
+            module_source_files={"shtp-receiver": ["agent/src/shtp.c"]},
+        )
+
+    # Engine did not raise — returned a packet
+    from modok.retrieval.models import DebugPacket
+    assert isinstance(packet, DebugPacket)
+    # parse_ticket was attempted (confirming we hit the LLM path)
+    assert mock_gw.parse_ticket.called
 
 
 @pytest.mark.asyncio
@@ -2201,6 +2216,72 @@ async def test_pre_matched_slug_not_duplicated_when_llm_also_returns_it():
 
     # "shtp-receiver" should appear at most once in anchors
     assert packet.issue.anchors.features.count("shtp-receiver") <= 1
+
+
+def test_pre_match_element_token_match():
+    # @spec DRE-ANCH-009
+    from modok.retrieval.engine import _pre_match_modules
+
+    text = "tracker_lost_logged is never cleared after recovery"
+    result = _pre_match_modules(
+        text,
+        module_source_files={"pi-agent": []},
+        module_elements={"pi-agent": ["tracker_lost_logged", "announced"]},
+    )
+    assert "pi-agent" in result
+
+
+def test_pre_match_element_token_no_partial_match():
+    # @spec DRE-ANCH-009
+    # Partial token overlap must not match — all element tokens must be present in text.
+    from modok.retrieval.engine import _pre_match_modules
+
+    # Text has "tracker" but not "lost" or "logged"
+    text = "the tracker is working fine, no issues reported"
+    result = _pre_match_modules(
+        text,
+        module_source_files={"pi-agent": []},
+        module_elements={"pi-agent": ["tracker_lost_logged"]},
+    )
+    assert "pi-agent" not in result
+
+
+@pytest.mark.asyncio
+async def test_mechanical_validation_pass_removes_invalid_llm_slugs():
+    # @spec DRE-ANCH-010
+    # After merging pre-matched and LLM slugs, slugs not in valid_slugs are filtered
+    # before Quine traversal.
+    from modok.retrieval.engine import retrieve
+
+    traversed: list[str] = []
+
+    async def tracking_traverse(slug, project_slug, client):
+        traversed.append(slug)
+        return [], [], "module"
+
+    issue = make_customer_issue(raw_text="some issue")
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=[],
+        has_errors=[],
+    )
+
+    with patch("modok.retrieval.engine.gateway") as mock_gw:
+        with patch("modok.retrieval.engine._traverse_feature_to_files", side_effect=tracking_traverse):
+            mock_gw.parse_ticket = AsyncMock(return_value=make_ticket_parse_result(
+                feature_slugs=["real-module", "hallucinated-module"],
+            ))
+            mock_gw.summarise_packet = AsyncMock(return_value="summary")
+            await retrieve(
+                issue_id=1,
+                project_slug="stagehand",
+                client=mock_client,
+                valid_slugs=["real-module"],
+            )
+
+    assert "real-module" in traversed
+    assert "hallucinated-module" not in traversed
 
 
 # ---------------------------------------------------------------------------

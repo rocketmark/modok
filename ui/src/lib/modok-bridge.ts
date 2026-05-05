@@ -157,7 +157,7 @@ export async function runModok(ticketId: string): Promise<ModokRun> {
   const ingestPartial = ingestResult.exitCode === 3
 
   // @spec DEMO-BRIDGE-015 (exit 0) and DEMO-BRIDGE-009 (exit 3) both proceed here
-  const retrieveArgs = ['retrieve', '--project', config.project_slug, '--source', config.modok_source, '--ticket', ticketId]
+  const retrieveArgs = ['retrieve', '--project', config.project_slug, '--ticket', ticketId]
   let retrieveResult: SpawnResult
 
   try {
@@ -282,7 +282,7 @@ export async function runModokStream(
   const ingestPartial = ingestResult.exitCode === 3
   emit({ type: 'status', message: 'Analyzing…' })
 
-  const retrieveArgs = ['retrieve', '--project', config.project_slug, '--source', config.modok_source, '--ticket', ticketId, '--stream']
+  const retrieveArgs = ['retrieve', '--project', config.project_slug, '--ticket', ticketId, '--stream']
   let lastPartialPacket: DebugPacket | undefined
   let retrieveStdout = ''
 
