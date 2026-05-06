@@ -2,6 +2,7 @@
 Property tests — Layer 2.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -35,8 +36,11 @@ def known_issue_node(draw):
     project = draw(projects)
     ki_id = draw(slugs)
     return KnownIssue(
-        node_type="KnownIssue", project_slug=project,
-        issue_id=ki_id, summary="test", status="open",
+        node_type="KnownIssue",
+        project_slug=project,
+        issue_id=ki_id,
+        summary="test",
+        status="open",
     )
 
 
@@ -44,8 +48,16 @@ def known_issue_node(draw):
 # Property Tests
 # ---------------------------------------------------------------------------
 
+
 # @spec PT-001
-@given(st.lists(feature_node(), min_size=1, max_size=10, unique_by=lambda f: (f.project_slug, f.feature_slug)))
+@given(
+    st.lists(
+        feature_node(),
+        min_size=1,
+        max_size=10,
+        unique_by=lambda f: (f.project_slug, f.feature_slug),
+    )
+)
 @settings(max_examples=50)
 @pytest.mark.asyncio
 async def test_node_exists_after_upsert(features):
@@ -59,8 +71,14 @@ async def test_node_exists_after_upsert(features):
 
 # @spec PT-002
 @given(
-    st.lists(feature_node(), min_size=1, max_size=5, unique_by=lambda f: (f.project_slug, f.feature_slug)),
-    st.lists(st.tuples(st.integers(1, 100), st.just("IMPLEMENTS"), st.integers(1, 100)), min_size=0, max_size=5),
+    st.lists(
+        feature_node(), min_size=1, max_size=5, unique_by=lambda f: (f.project_slug, f.feature_slug)
+    ),
+    st.lists(
+        st.tuples(st.integers(1, 100), st.just("IMPLEMENTS"), st.integers(1, 100)),
+        min_size=0,
+        max_size=5,
+    ),
 )
 @settings(max_examples=50)
 @pytest.mark.asyncio
@@ -90,16 +108,25 @@ async def test_packet_ki_ids_exist_in_dummy_quine():
     """Every known_issue id in the packet must resolve to a node in DummyQuine."""
     project = "stagehand"
     ci = CustomerIssue(
-        node_type="CustomerIssue", project_slug=project,
-        source_system="zendesk", ticket_id="PT003", summary="x", status="open",
+        node_type="CustomerIssue",
+        project_slug=project,
+        source_system="zendesk",
+        ticket_id="PT003",
+        summary="x",
+        status="open",
     )
     err = ErrorSignature(
-        node_type="ErrorSignature", project_slug=project,
-        normalized_error="pt003_err", display_text="pt003_err",
+        node_type="ErrorSignature",
+        project_slug=project,
+        normalized_error="pt003_err",
+        display_text="pt003_err",
     )
     ki = KnownIssue(
-        node_type="KnownIssue", project_slug=project,
-        issue_id="KI-PT003", summary="test", status="open",
+        node_type="KnownIssue",
+        project_slug=project,
+        issue_id="KI-PT003",
+        summary="test",
+        status="open",
     )
     ci_id = idFrom("customer-issue", project, "zendesk", "PT003")
     err_id = idFrom("error", project, "pt003_err")
@@ -115,8 +142,9 @@ async def test_packet_ki_ids_exist_in_dummy_quine():
 
     for ki_ref in actual.known_issues:
         expected_node_id = idFrom("known-issue", project, ki_ref.id)
-        assert expected_node_id in dq._nodes, \
+        assert expected_node_id in dq._nodes, (
             f"known_issue id={ki_ref.id!r} not in DummyQuine._nodes"
+        )
 
 
 # @spec PT-004
@@ -127,24 +155,38 @@ async def test_packet_contains_only_queried_project_nodes():
     proj_b = "project-b"
 
     ci_a = CustomerIssue(
-        node_type="CustomerIssue", project_slug=proj_a,
-        source_system="zendesk", ticket_id="PT004", summary="x", status="open",
+        node_type="CustomerIssue",
+        project_slug=proj_a,
+        source_system="zendesk",
+        ticket_id="PT004",
+        summary="x",
+        status="open",
     )
     err_a = ErrorSignature(
-        node_type="ErrorSignature", project_slug=proj_a,
-        normalized_error="shared_err", display_text="shared_err",
+        node_type="ErrorSignature",
+        project_slug=proj_a,
+        normalized_error="shared_err",
+        display_text="shared_err",
     )
     ki_a = KnownIssue(
-        node_type="KnownIssue", project_slug=proj_a,
-        issue_id="KI-A", summary="from a", status="open",
+        node_type="KnownIssue",
+        project_slug=proj_a,
+        issue_id="KI-A",
+        summary="from a",
+        status="open",
     )
     ki_b = KnownIssue(
-        node_type="KnownIssue", project_slug=proj_b,
-        issue_id="KI-B", summary="from b", status="open",
+        node_type="KnownIssue",
+        project_slug=proj_b,
+        issue_id="KI-B",
+        summary="from b",
+        status="open",
     )
     err_b = ErrorSignature(
-        node_type="ErrorSignature", project_slug=proj_b,
-        normalized_error="shared_err", display_text="shared_err",
+        node_type="ErrorSignature",
+        project_slug=proj_b,
+        normalized_error="shared_err",
+        display_text="shared_err",
     )
 
     ci_a_id = idFrom("customer-issue", proj_a, "zendesk", "PT004")
@@ -166,5 +208,6 @@ async def test_packet_contains_only_queried_project_nodes():
         node_id = idFrom("known-issue", proj_a, ki_ref.id)
         node = dq._nodes.get(node_id)
         assert node is not None
-        assert node.project_slug == proj_a, \
+        assert node.project_slug == proj_a, (
             f"Expected project_slug={proj_a!r}, got {node.project_slug!r} for KI={ki_ref.id}"
+        )

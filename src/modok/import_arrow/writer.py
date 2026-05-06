@@ -1,5 +1,6 @@
 # @spec IA-OUT-001, IA-OUT-002, IA-OUT-003, IA-OUT-004, IA-OUT-005
 """Output writing for features.yml and modules.yml."""
+
 from __future__ import annotations
 
 from pathlib import Path

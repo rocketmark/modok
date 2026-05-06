@@ -75,6 +75,7 @@ def make_feature(project_slug: str = "proj-a", feature_slug: str = "feat-x") -> 
 # Production MODOK uses Quine's Cypher-native idFrom() function instead.
 # ---------------------------------------------------------------------------
 
+
 def test_idFrom_is_deterministic():
     assert idFrom("feature", "proj-a", "feat-x") == idFrom("feature", "proj-a", "feat-x")
 
@@ -158,6 +159,7 @@ def test_similarity_match_id_includes_project_slug(slug_a, slug_b):
 # Unit tests for QuineClient — use httpx.MockTransport
 # ---------------------------------------------------------------------------
 
+
 def make_client(transport: httpx.MockTransport) -> QuineClient:
     return QuineClient(base_url="http://localhost:8080", transport=transport)
 
@@ -167,10 +169,13 @@ def quine_upsert_response() -> httpx.Response:
 
 
 def quine_node_response(node_id: int, properties: dict) -> httpx.Response:
-    return httpx.Response(200, json={
-        "columns": ["n"],
-        "results": [[{"id": node_id, "labels": [], "properties": properties}]],
-    })
+    return httpx.Response(
+        200,
+        json={
+            "columns": ["n"],
+            "results": [[{"id": node_id, "labels": [], "properties": properties}]],
+        },
+    )
 
 
 def quine_empty_response() -> httpx.Response:
@@ -185,6 +190,7 @@ def quine_error_response(status: int) -> httpx.Response:
 # QC-NW-001 — upsert creates node when missing
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-NW-001
 @pytest.mark.asyncio
 async def test_upsert_node_creates_new_node():
@@ -198,6 +204,7 @@ async def test_upsert_node_creates_new_node():
 # ---------------------------------------------------------------------------
 # QC-NW-002 — upsert replaces all properties on existing node
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-NW-002
 @pytest.mark.asyncio
@@ -216,8 +223,14 @@ async def test_upsert_node_replaces_properties():
 
 
 # @spec QC-NW-002
-@given(name_a=st.text(alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50),
-       name_b=st.text(alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50))
+@given(
+    name_a=st.text(
+        alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50
+    ),
+    name_b=st.text(
+        alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=50
+    ),
+)
 @pytest.mark.asyncio
 async def test_upsert_node_sends_full_property_set(name_a, name_b):
     assume(name_a != name_b)
@@ -225,6 +238,7 @@ async def test_upsert_node_sends_full_property_set(name_a, name_b):
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json as _json
+
         sent_params.append(_json.loads(request.content)["parameters"])
         return quine_upsert_response()
 
@@ -239,6 +253,7 @@ async def test_upsert_node_sends_full_property_set(name_a, name_b):
 # QC-NW-003 — upsert never modifies edges
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-NW-003
 @pytest.mark.asyncio
 async def test_upsert_node_does_not_send_edge_mutations():
@@ -248,6 +263,7 @@ async def test_upsert_node_does_not_send_edge_mutations():
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
+
         cypher_bodies.append(json.loads(request.content)["text"])
         return quine_upsert_response()
 
@@ -256,12 +272,13 @@ async def test_upsert_node_does_not_send_edge_mutations():
     assert len(cypher_bodies) == 1
     cypher = cypher_bodies[0].upper()
     assert "CREATE" not in cypher or "-[" not in cypher  # no relationship CREATE
-    assert "SET" in cypher or "MERGE" in cypher          # must be a property write
+    assert "SET" in cypher or "MERGE" in cypher  # must be a property write
 
 
 # ---------------------------------------------------------------------------
 # QC-NW-004 — edge lifecycle is exclusively via write_edge
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-NW-004
 @pytest.mark.asyncio
@@ -270,6 +287,7 @@ async def test_removing_property_does_not_trigger_edge_change():
     # Dropping product_area_slug from a Feature must not produce a
     # relationship CREATE/DELETE in either Cypher call.
     import json
+
     cypher_bodies = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -277,10 +295,16 @@ async def test_removing_property_does_not_trigger_edge_change():
         return quine_upsert_response()
 
     client = make_client(httpx.MockTransport(handler))
-    full = Feature(node_type="Feature", project_slug="p", feature_slug="f",
-                   name="F", product_area_slug="billing")
-    sparse = Feature(node_type="Feature", project_slug="p", feature_slug="f",
-                     name="F", product_area_slug=None)
+    full = Feature(
+        node_type="Feature",
+        project_slug="p",
+        feature_slug="f",
+        name="F",
+        product_area_slug="billing",
+    )
+    sparse = Feature(
+        node_type="Feature", project_slug="p", feature_slug="f", name="F", product_area_slug=None
+    )
     await client.upsert_node(full)
     await client.upsert_node(sparse)
     assert len(cypher_bodies) == 2
@@ -295,14 +319,18 @@ async def test_removing_property_does_not_trigger_edge_change():
 # QC-NR-001 — get_node returns deserialized node
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-NR-001
 @pytest.mark.asyncio
 async def test_get_node_returns_deserialized_node():
     from modok.quine.ids import idFrom as _idFrom
+
     node_id = _idFrom("project", "proj-a")
-    transport = httpx.MockTransport(lambda r: quine_node_response(
-        node_id, {"node_type": "Project", "project_slug": "proj-a", "name": "Project A"}
-    ))
+    transport = httpx.MockTransport(
+        lambda r: quine_node_response(
+            node_id, {"node_type": "Project", "project_slug": "proj-a", "name": "Project A"}
+        )
+    )
     client = make_client(transport)
     result = await client.get_node(node_id, Project)
     assert isinstance(result, Project)
@@ -312,6 +340,7 @@ async def test_get_node_returns_deserialized_node():
 # ---------------------------------------------------------------------------
 # QC-NR-002 — get_node raises QuineNodeNotFoundError when missing
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-NR-002
 @pytest.mark.asyncio
@@ -326,14 +355,18 @@ async def test_get_node_raises_on_missing():
 # QC-NR-003 — node_exists returns bool without raising
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-NR-003
 @pytest.mark.asyncio
 async def test_node_exists_returns_true_when_present():
     from modok.quine.ids import idFrom as _idFrom
+
     node_id = _idFrom("project", "proj-a")
-    transport = httpx.MockTransport(lambda r: quine_node_response(
-        node_id, {"node_type": "Project", "project_slug": "proj-a", "name": "Project A"}
-    ))
+    transport = httpx.MockTransport(
+        lambda r: quine_node_response(
+            node_id, {"node_type": "Project", "project_slug": "proj-a", "name": "Project A"}
+        )
+    )
     client = make_client(transport)
     assert await client.node_exists(node_id) is True
 
@@ -350,10 +383,12 @@ async def test_node_exists_returns_false_when_absent():
 # QC-EW-001 — write_edge creates edge when missing
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-EW-001
 @pytest.mark.asyncio
 async def test_write_edge_creates_edge():
     from modok.quine.ids import idFrom as _idFrom
+
     requests_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -371,10 +406,12 @@ async def test_write_edge_creates_edge():
 # QC-EW-002 — write_edge is no-op on duplicate
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-EW-002
 @pytest.mark.asyncio
 async def test_write_edge_duplicate_does_not_raise():
     from modok.quine.ids import idFrom as _idFrom
+
     transport = httpx.MockTransport(lambda r: quine_upsert_response())
     client = make_client(transport)
     from_id = _idFrom("project", "proj-a")
@@ -388,6 +425,7 @@ async def test_write_edge_duplicate_does_not_raise():
 @pytest.mark.asyncio
 async def test_write_edge_idempotent_under_repetition(n):
     from modok.quine.ids import idFrom as _idFrom
+
     transport = httpx.MockTransport(lambda r: quine_upsert_response())
     client = make_client(transport)
     from_id = _idFrom("project", "proj-a")
@@ -400,10 +438,12 @@ async def test_write_edge_idempotent_under_repetition(n):
 # QC-EW-003 — edge-before-node writes are permitted (shell nodes)
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-EW-003
 @pytest.mark.asyncio
 async def test_write_edge_before_upsert_does_not_raise():
     from modok.quine.ids import idFrom as _idFrom
+
     transport = httpx.MockTransport(lambda r: quine_upsert_response())
     client = make_client(transport)
     from_id = _idFrom("project", "proj-a")
@@ -415,14 +455,17 @@ async def test_write_edge_before_upsert_does_not_raise():
 # QC-EW-004 — replace_edges deletes stale edges then recreates
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-EW-004
 @pytest.mark.asyncio
 async def test_replace_edges_deletes_then_recreates():
     from modok.quine.ids import idFrom as _idFrom
+
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
+
         body = json.loads(request.content)
         calls.append(body["text"])
         return quine_upsert_response()
@@ -443,10 +486,12 @@ async def test_replace_edges_deletes_then_recreates():
 @pytest.mark.asyncio
 async def test_replace_edges_with_empty_list_only_deletes():
     from modok.quine.ids import idFrom as _idFrom
+
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
+
         body = json.loads(request.content)
         calls.append(body["text"])
         return quine_upsert_response()
@@ -465,10 +510,12 @@ async def test_replace_edges_with_empty_list_only_deletes():
 # QC-EW-005 — write_edge_by_parts accepts optional properties dict
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-EW-005
 @pytest.mark.asyncio
 async def test_write_edge_by_parts_with_properties_includes_set_clause():
     import json
+
     queries_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -493,6 +540,7 @@ async def test_write_edge_by_parts_with_properties_includes_set_clause():
 @pytest.mark.asyncio
 async def test_write_edge_by_parts_without_properties_omits_set_clause():
     import json
+
     queries_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -515,6 +563,7 @@ async def test_write_edge_by_parts_without_properties_omits_set_clause():
 @pytest.mark.asyncio
 async def test_write_edge_by_parts_with_empty_properties_omits_set_clause():
     import json
+
     queries_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -538,26 +587,37 @@ async def test_write_edge_by_parts_with_empty_properties_omits_set_clause():
 # QC-TR-001 — traverse returns hydrated nodes in one round-trip
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-TR-001
 @pytest.mark.asyncio
 async def test_traverse_returns_hydrated_nodes():
     from modok.quine.ids import idFrom as _idFrom
+
     start_id = _idFrom("project", "proj-a")
     feat_id = _idFrom("feature", "proj-a", "feat-x")
 
-    responses = [httpx.Response(200, json={
-        "columns": ["n"],
-        "results": [[{
-            "id": feat_id,
-            "labels": [],
-            "properties": {
-                "node_type": "Feature",
-                "project_slug": "proj-a",
-                "feature_slug": "feat-x",
-                "name": "Feature X",
+    responses = [
+        httpx.Response(
+            200,
+            json={
+                "columns": ["n"],
+                "results": [
+                    [
+                        {
+                            "id": feat_id,
+                            "labels": [],
+                            "properties": {
+                                "node_type": "Feature",
+                                "project_slug": "proj-a",
+                                "feature_slug": "feat-x",
+                                "name": "Feature X",
+                            },
+                        }
+                    ]
+                ],
             },
-        }]],
-    })]
+        )
+    ]
     request_count = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -577,9 +637,11 @@ async def test_traverse_returns_hydrated_nodes():
 # QC-TR-002 — raw query() not exposed via MCP
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-TR-002
 def test_query_method_exists_on_client():
     import inspect
+
     assert hasattr(QuineClient, "query")
     assert inspect.iscoroutinefunction(QuineClient.query)
 
@@ -595,23 +657,34 @@ def test_query_method_exists_on_client():
 # QC-TR-003 — traverse raises QuineDeserializationError on malformed node
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-TR-003
 @pytest.mark.asyncio
 async def test_traverse_raises_on_malformed_node():
     from modok.quine.ids import idFrom as _idFrom
+
     start_id = _idFrom("project", "proj-a")
 
-    transport = httpx.MockTransport(lambda r: httpx.Response(200, json={
-        "columns": ["n"],
-        "results": [[{
-            "id": 99999,
-            "labels": [],
-            "properties": {
-                "node_type": "Feature",
-                # missing required fields: project_slug, feature_slug, name
+    transport = httpx.MockTransport(
+        lambda r: httpx.Response(
+            200,
+            json={
+                "columns": ["n"],
+                "results": [
+                    [
+                        {
+                            "id": 99999,
+                            "labels": [],
+                            "properties": {
+                                "node_type": "Feature",
+                                # missing required fields: project_slug, feature_slug, name
+                            },
+                        }
+                    ]
+                ],
             },
-        }]],
-    }))
+        )
+    )
     client = make_client(transport)
     with pytest.raises(QuineDeserializationError):
         await client.traverse(start_id, [TraversalStep("HAS_FEATURE", "out")])
@@ -620,6 +693,7 @@ async def test_traverse_raises_on_malformed_node():
 # ---------------------------------------------------------------------------
 # QC-CN-001 — retry up to 3x on 5xx and timeout
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-CN-001
 @pytest.mark.asyncio
@@ -677,6 +751,7 @@ async def test_retries_up_to_3_times_property(n_failures):
 # QC-CN-002 — no retry on 4xx
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-CN-002
 @given(status=st.integers(min_value=400, max_value=499))
 @pytest.mark.asyncio
@@ -698,6 +773,7 @@ async def test_no_retry_on_4xx(status):
 # QC-CN-003 — 10s timeout per attempt
 # ---------------------------------------------------------------------------
 
+
 # @spec QC-CN-003
 def test_client_default_timeout_is_per_attempt():
     client = QuineClient(base_url="http://localhost:8080")
@@ -707,6 +783,7 @@ def test_client_default_timeout_is_per_attempt():
 # ---------------------------------------------------------------------------
 # QC-CN-004 — ping returns True/False without raising
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-CN-004
 @pytest.mark.asyncio
@@ -740,6 +817,7 @@ async def test_ping_never_raises():
 # ---------------------------------------------------------------------------
 # QC-MP-001 — project_slug in IDs prevents cross-project collision
 # ---------------------------------------------------------------------------
+
 
 # @spec QC-MP-001
 @given(

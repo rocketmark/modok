@@ -24,8 +24,12 @@ class Registry:
         self._features: dict = self._load(reg_dir / "features.yml").get("features", {}) or {}
         self._modules: dict = self._load(reg_dir / "modules.yml").get("modules", {}) or {}
         self._errors: dict = self._load_optional(reg_dir / "errors.yml").get("errors", {}) or {}
-        self._doc_types: dict = self._load_optional(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
-        self._elements: dict[str, list[str]] = self._load_optional(reg_dir / "elements.yml").get("elements", {}) or {}
+        self._doc_types: dict = (
+            self._load_optional(reg_dir / "doc-types.yml").get("doc_types", {}) or {}
+        )
+        self._elements: dict[str, list[str]] = (
+            self._load_optional(reg_dir / "elements.yml").get("elements", {}) or {}
+        )
 
     @staticmethod
     def _load(path: Path) -> dict:
@@ -94,7 +98,8 @@ class Registry:
     def features_for_source_file(self, repo_path: str) -> list[str]:
         """Return feature slugs that list the given path in source_files."""
         return [
-            slug for slug, entry in self._features.items()
+            slug
+            for slug, entry in self._features.items()
             if isinstance(entry, dict) and repo_path in entry.get("source_files", [])
         ]
 

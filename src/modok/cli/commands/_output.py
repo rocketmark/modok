@@ -10,6 +10,7 @@ import click
 def require_quine(config):
     """Return a connected QuineClient or print an error and exit with code 2."""
     from modok.quine.client import QuineClient
+
     client = QuineClient(base_url=config.quine.url)
     if not asyncio.run(client.ping()):
         click.echo(
@@ -44,7 +45,9 @@ def print_node(node: dict) -> None:
     props = node.get("properties", node)
     node_type = props.get("node_type", "Node")
     if node_type == "DocSection":
-        click.echo(f"  [DocSection] {props.get('doc_path', '')}:{props.get('line_start', '')}  {props.get('heading_text', '')}")
+        click.echo(
+            f"  [DocSection] {props.get('doc_path', '')}:{props.get('line_start', '')}  {props.get('heading_text', '')}"
+        )
     elif node_type == "Module":
         click.echo(f"  [Module] {props.get('module_slug', '')}  {props.get('name', '')}")
     elif node_type == "File":
@@ -54,10 +57,16 @@ def print_node(node: dict) -> None:
     elif node_type == "Feature":
         click.echo(f"  [Feature] {props.get('feature_slug', '')}  {props.get('name', '')}")
     elif node_type == "KnownIssue":
-        click.echo(f"  [KnownIssue] {props.get('issue_id', '')}  {props.get('summary', '')}  [{props.get('status', '')}]")
+        click.echo(
+            f"  [KnownIssue] {props.get('issue_id', '')}  {props.get('summary', '')}  [{props.get('status', '')}]"
+        )
     elif node_type == "ErrorSignature":
-        click.echo(f"  [ErrorSignature] {props.get('normalized_error', '')}  {props.get('display_text', '')}")
+        click.echo(
+            f"  [ErrorSignature] {props.get('normalized_error', '')}  {props.get('display_text', '')}"
+        )
     elif node_type == "Fix":
-        click.echo(f"  [Fix] {props.get('fix_id', '')}  {props.get('summary', '')}  [{props.get('kind', '')}]")
+        click.echo(
+            f"  [Fix] {props.get('fix_id', '')}  {props.get('summary', '')}  [{props.get('kind', '')}]"
+        )
     else:
         click.echo(f"  [{node_type}] {props}")

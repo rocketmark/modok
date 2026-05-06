@@ -2,6 +2,7 @@
 Tests for DummyQuine — the in-memory QuineClient replacement.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 
@@ -26,6 +27,7 @@ from tests.hifi.dummy_quine.client import DummyQuine
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def make_feature(slug: str = "shtp", project: str = "stagehand") -> Feature:
     return Feature(node_type="Feature", project_slug=project, feature_slug=slug, name=slug.upper())
@@ -98,6 +100,7 @@ def make_similarity_match(
 # DummyQuine — Node Writes
 # ---------------------------------------------------------------------------
 
+
 # @spec DQ-NW-001
 @pytest.mark.asyncio
 async def test_upsert_node_stores_new_node():
@@ -114,7 +117,9 @@ async def test_upsert_node_stores_new_node():
 async def test_upsert_node_overwrites_existing():
     dq = DummyQuine()
     feat1 = make_feature(slug="shtp")
-    feat2 = Feature(node_type="Feature", project_slug="stagehand", feature_slug="shtp", name="UPDATED")
+    feat2 = Feature(
+        node_type="Feature", project_slug="stagehand", feature_slug="shtp", name="UPDATED"
+    )
     await dq.upsert_node(feat1)
     await dq.upsert_node(feat2)
     node_id = idFrom("feature", "stagehand", "shtp")
@@ -124,6 +129,7 @@ async def test_upsert_node_overwrites_existing():
 # ---------------------------------------------------------------------------
 # DummyQuine — Node Reads
 # ---------------------------------------------------------------------------
+
 
 # @spec DQ-NR-001
 @pytest.mark.asyncio
@@ -164,6 +170,7 @@ async def test_node_exists_false_when_absent():
 # ---------------------------------------------------------------------------
 # DummyQuine — Edge Writes
 # ---------------------------------------------------------------------------
+
 
 # @spec DQ-EW-001
 @pytest.mark.asyncio
@@ -223,6 +230,7 @@ async def test_edge_exists_false_when_absent():
 # ---------------------------------------------------------------------------
 # DummyQuine — Query Dispatch
 # ---------------------------------------------------------------------------
+
 
 # @spec DQ-QD-001
 @pytest.mark.asyncio
@@ -437,6 +445,7 @@ async def test_query_row_format():
 # ---------------------------------------------------------------------------
 # DummyQuine — Lifecycle
 # ---------------------------------------------------------------------------
+
 
 # @spec DQ-LC-001
 @pytest.mark.asyncio

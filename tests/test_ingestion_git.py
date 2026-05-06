@@ -31,6 +31,7 @@ from modok.ingestion.registry import Registry
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def write_file(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(content))
@@ -81,10 +82,12 @@ M\tagent/src/shtp.c
 # SI-GIT-001 — modok ingest-git command exists
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-001
 def test_ingest_git_command_exists():
     from click.testing import CliRunner
     from modok.cli.main import cli
+
     runner = CliRunner()
     result = runner.invoke(cli, ["ingest-git", "--help"])
     assert result.exit_code == 0
@@ -94,6 +97,7 @@ def test_ingest_git_command_exists():
 # ---------------------------------------------------------------------------
 # SI-GIT-002 — Commit node schema
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-GIT-002
 def test_parse_commit_log_returns_commit_records():
@@ -147,6 +151,7 @@ def test_commit_record_branch_field_present():
 # ---------------------------------------------------------------------------
 # SI-GIT-003 — TOUCHES edge per changed file (A, C, M, R — not D)
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-GIT-003
 def test_parse_commit_log_includes_touched_files():
@@ -252,7 +257,9 @@ async def test_touches_edge_written_without_properties(tmp_path):
     # Edge is written without properties (Quine does not persist relationship properties)
     assert client.write_edge_by_parts.call_count == 1
     call_args = client.write_edge_by_parts.call_args
-    props = call_args.kwargs.get("properties") or (call_args.args[3] if len(call_args.args) > 3 else None)
+    props = call_args.kwargs.get("properties") or (
+        call_args.args[3] if len(call_args.args) > 3 else None
+    )
     assert isinstance(props, dict)
     assert props.get("change_type") == "A"
 
@@ -260,6 +267,7 @@ async def test_touches_edge_written_without_properties(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-GIT-004 — only registered files pass the commit filter
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-GIT-004
 def test_build_registered_file_set_includes_source_files():
@@ -307,7 +315,13 @@ def test_build_registered_file_set_includes_doc_paths():
 
 # @spec SI-GIT-004
 def test_build_registered_file_set_excludes_unregistered_files():
-    features = {"pi-agent": {"name": "Pi Agent", "product_area": "tracking", "source_files": ["agent/src/main.c"]}}
+    features = {
+        "pi-agent": {
+            "name": "Pi Agent",
+            "product_area": "tracking",
+            "source_files": ["agent/src/main.c"],
+        }
+    }
     arrow_index = {"arrows": []}
     file_set = build_registered_file_set(features, arrow_index)
     assert "ci/build.yml" not in file_set
@@ -331,8 +345,9 @@ M\tpackage-lock.json
 """
     client = AsyncMock()
     with patch("modok.ingestion.git_history._get_git_log", return_value=log_for_unreg_only):
-        with patch("modok.ingestion.git_history.build_registered_file_set",
-                   return_value=registered_files):
+        with patch(
+            "modok.ingestion.git_history.build_registered_file_set", return_value=registered_files
+        ):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="e" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
                     with patch("modok.ingestion.git_history.save_last_git_sha"):
@@ -350,6 +365,7 @@ M\tpackage-lock.json
 # ---------------------------------------------------------------------------
 # SI-GIT-005 — default: last 6 months or last 500 commits
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-GIT-005
 def test_default_ingest_uses_6_month_window(tmp_path):
@@ -388,6 +404,7 @@ def test_default_max_commits_is_500(tmp_path):
 # SI-GIT-006 — --full: no lookback limit
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-006
 def test_full_flag_removes_lookback_limit(tmp_path):
     from modok.ingestion.git_history import _build_git_log_command
@@ -409,6 +426,7 @@ def test_full_flag_removes_lookback_limit(tmp_path):
 # SI-GIT-007 — incremental: last_git_sha stored; updated after successful write
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-007
 def test_load_last_git_sha_returns_none_when_not_set(tmp_path):
     config = {"projects": [{"slug": "stagehand"}]}
@@ -426,9 +444,7 @@ def test_load_last_git_sha_returns_stored_value(tmp_path):
 # @spec SI-GIT-007
 def test_save_last_git_sha_writes_to_config(tmp_path):
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        "[projects]\n[[projects]]\nslug = \"stagehand\"\n"
-    )
+    config_path.write_text('[projects]\n[[projects]]\nslug = "stagehand"\n')
     save_last_git_sha(config_path, "stagehand", "b" * 40)
     content = config_path.read_text()
     assert "b" * 40 in content
@@ -454,12 +470,18 @@ async def test_last_git_sha_updated_only_after_successful_writes(tmp_path):
     registered = {"agent/src/shtp.c", "agent/tests/test_shtp.c"}
 
     with patch("modok.ingestion.git_history._get_git_log", return_value=commit_log):
-        with patch("modok.ingestion.git_history.build_registered_file_set", return_value=registered):
+        with patch(
+            "modok.ingestion.git_history.build_registered_file_set", return_value=registered
+        ):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="a" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
-                    with patch("modok.ingestion.git_history.save_last_git_sha", side_effect=fake_save):
-                        with patch("modok.ingestion.git_history.write_commit_to_quine",
-                                   side_effect=fake_write_commit):
+                    with patch(
+                        "modok.ingestion.git_history.save_last_git_sha", side_effect=fake_save
+                    ):
+                        with patch(
+                            "modok.ingestion.git_history.write_commit_to_quine",
+                            side_effect=fake_write_commit,
+                        ):
                             await ingest_git(
                                 project_slug="stagehand",
                                 repo_root=tmp_path,
@@ -483,14 +505,20 @@ async def test_last_git_sha_not_updated_on_write_failure(tmp_path):
         raise RuntimeError("Quine connection error")
 
     with patch("modok.ingestion.git_history._get_git_log", return_value=_SAMPLE_LOG):
-        with patch("modok.ingestion.git_history.build_registered_file_set",
-                   return_value={"agent/src/shtp.c"}):
+        with patch(
+            "modok.ingestion.git_history.build_registered_file_set",
+            return_value={"agent/src/shtp.c"},
+        ):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="a" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
-                    with patch("modok.ingestion.git_history.save_last_git_sha",
-                               side_effect=lambda *a: save_calls.append(a)):
-                        with patch("modok.ingestion.git_history.write_commit_to_quine",
-                                   side_effect=failing_write):
+                    with patch(
+                        "modok.ingestion.git_history.save_last_git_sha",
+                        side_effect=lambda *a: save_calls.append(a),
+                    ):
+                        with patch(
+                            "modok.ingestion.git_history.write_commit_to_quine",
+                            side_effect=failing_write,
+                        ):
                             with pytest.raises(RuntimeError):
                                 await ingest_git(
                                     project_slug="stagehand",
@@ -507,9 +535,11 @@ async def test_last_git_sha_not_updated_on_write_failure(tmp_path):
 # SI-GIT-008 — post-commit hook invokes ingest-git unconditionally
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-008
 def test_hook_invokes_ingest_git_unconditionally():
     from modok.ingestion.hook import hook_content
+
     content = hook_content("stagehand", ["docs/", "registries/"])
     assert "ingest-git" in content
 
@@ -517,6 +547,7 @@ def test_hook_invokes_ingest_git_unconditionally():
 # @spec SI-GIT-008
 def test_hook_ingest_git_not_inside_path_guard():
     from modok.ingestion.hook import hook_content
+
     content = hook_content("stagehand", ["docs/", "registries/"])
     lines = content.splitlines()
 
@@ -539,6 +570,7 @@ def test_hook_ingest_git_not_inside_path_guard():
 # SI-GIT-009 — running ingest-git twice produces no duplicates
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-009
 @pytest.mark.asyncio
 async def test_double_ingest_git_produces_no_duplicate_commit_nodes(tmp_path):
@@ -552,27 +584,39 @@ async def test_double_ingest_git_produces_no_duplicate_commit_nodes(tmp_path):
         writes_first.append(commit.sha)
 
     with patch("modok.ingestion.git_history._get_git_log", return_value=_SAMPLE_LOG):
-        with patch("modok.ingestion.git_history.build_registered_file_set", return_value=registered):
+        with patch(
+            "modok.ingestion.git_history.build_registered_file_set", return_value=registered
+        ):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="a" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value=None):
                     with patch("modok.ingestion.git_history.save_last_git_sha"):
-                        with patch("modok.ingestion.git_history.write_commit_to_quine",
-                                   side_effect=fake_write):
+                        with patch(
+                            "modok.ingestion.git_history.write_commit_to_quine",
+                            side_effect=fake_write,
+                        ):
                             client = AsyncMock()
                             await ingest_git(
-                                project_slug="stagehand", repo_root=tmp_path,
-                                registry=MagicMock(), client=client, config={},
+                                project_slug="stagehand",
+                                repo_root=tmp_path,
+                                registry=MagicMock(),
+                                client=client,
+                                config={},
                             )
     # Second run: last_git_sha == HEAD → git log range is empty
     with patch("modok.ingestion.git_history._get_git_log", return_value=""):
-        with patch("modok.ingestion.git_history.build_registered_file_set", return_value=registered):
+        with patch(
+            "modok.ingestion.git_history.build_registered_file_set", return_value=registered
+        ):
             with patch("modok.ingestion.git_history.get_head_sha", return_value="a" * 40):
                 with patch("modok.ingestion.git_history.load_last_git_sha", return_value="a" * 40):
                     with patch("modok.ingestion.git_history.save_last_git_sha"):
                         client2 = AsyncMock()
                         await ingest_git(
-                            project_slug="stagehand", repo_root=tmp_path,
-                            registry=MagicMock(), client=client2, config={},
+                            project_slug="stagehand",
+                            repo_root=tmp_path,
+                            registry=MagicMock(),
+                            client=client2,
+                            config={},
                         )
                         second_count = client2.upsert_node.call_count
 
@@ -605,6 +649,7 @@ M\tagent/src/shtp.c
 # ---------------------------------------------------------------------------
 # SI-GIT-010 — --since flag behavior
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-GIT-010
 def test_since_flag_overrides_6_month_default():
@@ -749,8 +794,8 @@ def test_parse_diff_returns_file_keys():
 def test_parse_diff_extracts_hunk_line_range():
     result = _parse_diff(_PYTHON_DIFF)
     hunks = result["src/shtp.py"]
-    assert hunks[0].lines == (10, 14)   # +10,5 → lines 10..14
-    assert hunks[1].lines == (52, 53)   # +52,2 → lines 52..53
+    assert hunks[0].lines == (10, 14)  # +10,5 → lines 10..14
+    assert hunks[1].lines == (52, 53)  # +52,2 → lines 52..53
 
 
 def test_parse_diff_extracts_function_context_from_header():
@@ -842,7 +887,9 @@ async def test_commit_node_carries_file_hunks_when_populated():
         touched_files=[("src/shtp.py", "M")],
         file_hunks={
             "src/shtp.py": [
-                HunkRecord(lines=(10, 12), function_context="class Shtp:", added_defs=["handle_packet"])
+                HunkRecord(
+                    lines=(10, 12), function_context="class Shtp:", added_defs=["handle_packet"]
+                )
             ]
         },
     )

@@ -1,5 +1,6 @@
 # @spec IA-WIRE-001, IA-WIRE-002, IA-WIRE-003
 """Feature → Module wiring."""
+
 from __future__ import annotations
 
 

@@ -48,11 +48,15 @@ def recall_cmd(
     nodes = []
 
     if feature:
-        rows = asyncio.run(client.query(_FEATURE_CYPHER, {"project_slug": project, "feature_slug": feature}))
+        rows = asyncio.run(
+            client.query(_FEATURE_CYPHER, {"project_slug": project, "feature_slug": feature})
+        )
         nodes.extend(collect_nodes(rows))
 
     if module_slug:
-        rows = asyncio.run(client.query(_MODULE_CYPHER, {"project_slug": project, "module_slug": module_slug}))
+        rows = asyncio.run(
+            client.query(_MODULE_CYPHER, {"project_slug": project, "module_slug": module_slug})
+        )
         nodes.extend(collect_nodes(rows))
 
     unique = dedup_nodes(nodes)

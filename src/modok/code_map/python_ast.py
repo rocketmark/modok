@@ -35,28 +35,34 @@ def extract_symbols(path: Path) -> dict:
     # Collect top-level classes and functions only
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
-            symbols.append({
-                "name": node.name,
-                "kind": "class",
-                "line_start": node.lineno,
-                "line_end": node.end_lineno,
-            })
+            symbols.append(
+                {
+                    "name": node.name,
+                    "kind": "class",
+                    "line_start": node.lineno,
+                    "line_end": node.end_lineno,
+                }
+            )
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    symbols.append({
-                        "name": child.name,
-                        "kind": "method",
-                        "parent": node.name,
-                        "line_start": child.lineno,
-                        "line_end": child.end_lineno,
-                    })
+                    symbols.append(
+                        {
+                            "name": child.name,
+                            "kind": "method",
+                            "parent": node.name,
+                            "line_start": child.lineno,
+                            "line_end": child.end_lineno,
+                        }
+                    )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbols.append({
-                "name": node.name,
-                "kind": "function",
-                "line_start": node.lineno,
-                "line_end": node.end_lineno,
-            })
+            symbols.append(
+                {
+                    "name": node.name,
+                    "kind": "function",
+                    "line_start": node.lineno,
+                    "line_end": node.end_lineno,
+                }
+            )
 
     symbols.sort(key=lambda s: s["line_start"])
     imports.sort(key=lambda i: i["module"])

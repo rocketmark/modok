@@ -19,7 +19,7 @@ from modok.quine.client import QuineClient
 
 QUINE_PID_PATH = Path.home() / ".modok" / "quine.pid"
 QUINE_START_TIMEOUT = 30  # seconds
-QUINE_STOP_TIMEOUT = 10   # seconds
+QUINE_STOP_TIMEOUT = 10  # seconds
 
 
 @click.group("quine")

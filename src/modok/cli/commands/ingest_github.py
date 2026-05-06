@@ -17,8 +17,12 @@ from modok.ingestion.github import GithubIngester, save_last_github_sync
 
 @click.command("ingest-github")
 @click.option("--project", required=True, help="Project slug.")
-@click.option("--full", is_flag=True, default=False,
-              help="Fetch all issues and PRs, ignoring last_github_sync.")
+@click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Fetch all issues and PRs, ignoring last_github_sync.",
+)
 def ingest_github_cmd(project: str, full: bool) -> None:
     """Pull GitHub issues and merged PRs into the graph."""
     config = ModokConfig.load()
@@ -28,7 +32,7 @@ def ingest_github_cmd(project: str, full: bool) -> None:
     if not proj.github_repo:
         raise click.ClickException(
             f"github_repo not set for project `{project}` — "
-            f"add `github_repo = \"owner/repo\"` to config"
+            f'add `github_repo = "owner/repo"` to config'
         )
 
     # @spec GHING-CONF-002

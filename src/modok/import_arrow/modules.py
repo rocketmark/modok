@@ -1,5 +1,6 @@
 # @spec IA-MOD-001, IA-MOD-002, IA-MOD-003, IA-MOD-003b, IA-MOD-004, IA-MOD-005, IA-OVER-001, IA-OVER-002, IA-OVER-003, IA-OVER-004, IA-OVER-005, IA-OVER-006
 """Module extraction passes 1 (mechanical) and 2 (Key Components overlay)."""
+
 from __future__ import annotations
 
 import re
@@ -117,12 +118,14 @@ def parse_key_components(section: str) -> list[dict]:
     components = []
     for line in section.splitlines():
         line = line.strip()
-        m = re.match(r'\d+\.\s+`([^`]+)`\s*(?:—|–|-)\s*(.+)', line)
+        m = re.match(r"\d+\.\s+`([^`]+)`\s*(?:—|–|-)\s*(.+)", line)
         if m:
-            components.append({
-                "class_name": m.group(1).strip(),
-                "description": m.group(2).strip(),
-            })
+            components.append(
+                {
+                    "class_name": m.group(1).strip(),
+                    "description": m.group(2).strip(),
+                }
+            )
     return components
 
 

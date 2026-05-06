@@ -2,6 +2,7 @@
 Tests for the HiFi harness — loader, runner, and comparison utilities.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -26,6 +27,7 @@ from tests.hifi.harness.compare import assert_packets_equivalent
 # ---------------------------------------------------------------------------
 # Harness — Scenario Loading
 # ---------------------------------------------------------------------------
+
 
 # @spec HFI-LOAD-001
 def test_load_scenario_parses_yaml(tmp_path):
@@ -140,6 +142,7 @@ def test_load_scenario_edge_refs_match_node_ids(tmp_path):
 # Harness — Scenario Execution
 # ---------------------------------------------------------------------------
 
+
 # @spec HFI-RUN-001
 @pytest.mark.asyncio
 async def test_run_scenario_constructs_fresh_dummy_quine(tmp_path):
@@ -171,6 +174,7 @@ async def test_run_scenario_constructs_fresh_dummy_quine(tmp_path):
     load_scenario(f)
     # run_scenario should not accept a DummyQuine argument
     import inspect
+
     sig = inspect.signature(run_scenario)
     assert "dummy_quine" not in sig.parameters
 
@@ -234,7 +238,9 @@ async def test_run_scenario_writes_nodes_before_edges(tmp_path, monkeypatch):
 
     # All node writes must precede any edge write
     last_node = max((i for i, v in enumerate(write_order) if v == "node"), default=-1)
-    first_edge = min((i for i, v in enumerate(write_order) if v == "edge"), default=len(write_order))
+    first_edge = min(
+        (i for i, v in enumerate(write_order) if v == "edge"), default=len(write_order)
+    )
     assert last_node < first_edge
 
 
@@ -440,6 +446,7 @@ async def test_run_scenario_isolates_state_between_runs(tmp_path):
 # ---------------------------------------------------------------------------
 # Harness — Comparison
 # ---------------------------------------------------------------------------
+
 
 # @spec HFI-CMP-001
 def test_assert_packets_equivalent_passes_when_ids_match():

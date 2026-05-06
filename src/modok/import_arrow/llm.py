@@ -1,5 +1,6 @@
 # @spec IA-LLM-001, IA-LLM-002, IA-LLM-003, IA-LLM-004, IA-LLM-005, IA-LLM-007, IA-LLM-008
 """LLM passes for name/description generation and dedup resolution."""
+
 from __future__ import annotations
 
 import sys
@@ -16,12 +17,14 @@ def filter_modules_for_llm_pass(modules: dict) -> list[dict]:
         description = entry.get("description", "")
         if description and _is_self_evident_slug(slug):
             continue
-        candidates.append({
-            "slug": slug,
-            "primary_class": entry.get("primary_class", ""),
-            "source_file": (entry.get("source_files") or [""])[0],
-            "language": entry.get("language", "unknown"),
-        })
+        candidates.append(
+            {
+                "slug": slug,
+                "primary_class": entry.get("primary_class", ""),
+                "source_file": (entry.get("source_files") or [""])[0],
+                "language": entry.get("language", "unknown"),
+            }
+        )
     return candidates
 
 
@@ -33,8 +36,24 @@ def _is_self_evident_slug(slug: str) -> bool:
     self-evident rather than over-batching to the LLM.
     """
     _known_acronyms = {
-        "shtp", "ltc", "smll", "usb", "udp", "tcp", "ip", "llm", "api",
-        "rpc", "ssl", "tls", "xml", "json", "csv", "sql", "url", "uri",
+        "shtp",
+        "ltc",
+        "smll",
+        "usb",
+        "udp",
+        "tcp",
+        "ip",
+        "llm",
+        "api",
+        "rpc",
+        "ssl",
+        "tls",
+        "xml",
+        "json",
+        "csv",
+        "sql",
+        "url",
+        "uri",
     }
     for part in slug.split("-"):
         if part in _known_acronyms:

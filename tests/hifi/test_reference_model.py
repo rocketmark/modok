@@ -2,6 +2,7 @@
 Tests for ReferenceModok — the independent in-memory reference implementation.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,58 +26,82 @@ from tests.hifi.reference.model import ReferenceModok
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ci(ticket: str = "1001", project: str = "stagehand") -> CustomerIssue:
     return CustomerIssue(
-        node_type="CustomerIssue", project_slug=project,
-        source_system="zendesk", ticket_id=ticket,
-        summary="tracker dropout", status="open",
+        node_type="CustomerIssue",
+        project_slug=project,
+        source_system="zendesk",
+        ticket_id=ticket,
+        summary="tracker dropout",
+        status="open",
     )
+
 
 def _feature(slug: str = "shtp", project: str = "stagehand") -> Feature:
     return Feature(node_type="Feature", project_slug=project, feature_slug=slug, name=slug)
 
+
 def _module(slug: str = "shtp-mod", project: str = "stagehand") -> Module:
     return Module(node_type="Module", project_slug=project, module_slug=slug, name=slug)
+
 
 def _file(path: str = "agent/src/shtp.c", project: str = "stagehand") -> File:
     return File(node_type="File", project_slug=project, repo_path=path)
 
+
 def _error(err: str = "shtp_mismatch", project: str = "stagehand") -> ErrorSignature:
     return ErrorSignature(
-        node_type="ErrorSignature", project_slug=project,
-        normalized_error=err, display_text=err,
+        node_type="ErrorSignature",
+        project_slug=project,
+        normalized_error=err,
+        display_text=err,
     )
+
 
 def _ki(ki_id: str = "KI-001", project: str = "stagehand") -> KnownIssue:
     return KnownIssue(
-        node_type="KnownIssue", project_slug=project,
-        issue_id=ki_id, summary="SHTP mismatch", status="open",
+        node_type="KnownIssue",
+        project_slug=project,
+        issue_id=ki_id,
+        summary="SHTP mismatch",
+        status="open",
     )
+
 
 def _fix(fix_id: str = "FIX-001", project: str = "stagehand") -> Fix:
     return Fix(
-        node_type="Fix", project_slug=project,
-        fix_id=fix_id, summary="Upgrade SHTP", kind="patch",
+        node_type="Fix",
+        project_slug=project,
+        fix_id=fix_id,
+        summary="Upgrade SHTP",
+        kind="patch",
     )
 
 
 def _ci_id(ticket: str = "1001", project: str = "stagehand") -> int:
     return idFrom("customer-issue", project, "zendesk", ticket)
 
+
 def _feat_id(slug: str = "shtp", project: str = "stagehand") -> int:
     return idFrom("feature", project, slug)
+
 
 def _mod_id(slug: str = "shtp-mod", project: str = "stagehand") -> int:
     return idFrom("module", project, slug)
 
+
 def _file_id(path: str = "agent/src/shtp.c", project: str = "stagehand") -> int:
     return idFrom("file", project, path)
+
 
 def _err_id(err: str = "shtp_mismatch", project: str = "stagehand") -> int:
     return idFrom("error", project, err)
 
+
 def _ki_id(ki_id: str = "KI-001", project: str = "stagehand") -> int:
     return idFrom("known-issue", project, ki_id)
+
 
 def _fix_id(fix_id: str = "FIX-001", project: str = "stagehand") -> int:
     return idFrom("fix", project, fix_id)
@@ -85,6 +110,7 @@ def _fix_id(fix_id: str = "FIX-001", project: str = "stagehand") -> int:
 # ---------------------------------------------------------------------------
 # Reference Model — Ingest
 # ---------------------------------------------------------------------------
+
 
 # @spec REF-ING-001
 def test_ingest_stores_node_by_id():
@@ -124,6 +150,7 @@ def test_ingest_uses_same_idfrom_as_production():
 # ---------------------------------------------------------------------------
 # Reference Model — Retrieval
 # ---------------------------------------------------------------------------
+
 
 # @spec REF-RET-001
 def test_retrieve_missing_issue_raises():

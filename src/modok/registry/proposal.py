@@ -62,7 +62,11 @@ def propose_registries(repo_root: Path, cfg) -> ProposalSummary:
     from modok.registry.discovery import discover_docs
     from modok.registry.parser import parse_sections
     from modok.registry.slugify import resolve_slug_collisions
-    from modok.registry.writer import write_errors_raw_yml, write_features_raw_yml, write_modules_raw_yml
+    from modok.registry.writer import (
+        write_errors_raw_yml,
+        write_features_raw_yml,
+        write_modules_raw_yml,
+    )
 
     docs, _ = discover_docs(repo_root)
 

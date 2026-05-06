@@ -18,12 +18,22 @@ from modok.ingestion.registry import Registry
 @click.command("ingest-git")
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--repo", default=None, help="Path to project repo (overrides config).")
-@click.option("--full", is_flag=True, default=False,
-              help="Import all history with no lookback limit.")
-@click.option("--since", "since_date", default=None, metavar="DATE",
-              help="Import commits authored after DATE (ISO-8601). Mutually exclusive with --full.")
-@click.option("--max-commits", default=500, show_default=True,
-              help="Maximum number of commits to import (default 500).")
+@click.option(
+    "--full", is_flag=True, default=False, help="Import all history with no lookback limit."
+)
+@click.option(
+    "--since",
+    "since_date",
+    default=None,
+    metavar="DATE",
+    help="Import commits authored after DATE (ISO-8601). Mutually exclusive with --full.",
+)
+@click.option(
+    "--max-commits",
+    default=500,
+    show_default=True,
+    help="Maximum number of commits to import (default 500).",
+)
 def ingest_git_cmd(
     project: str,
     repo: str | None,
@@ -56,22 +66,26 @@ def ingest_git_cmd(
         doc_paths = []
 
     # Pass raw config dict for last_git_sha persistence
-    config_dict = {"projects": [
-        {"slug": p.slug, "repo": p.repo, "last_git_sha": getattr(p, "last_git_sha", None)}
-        for p in config.projects
-    ]}
+    config_dict = {
+        "projects": [
+            {"slug": p.slug, "repo": p.repo, "last_git_sha": getattr(p, "last_git_sha", None)}
+            for p in config.projects
+        ]
+    }
 
-    commit_count, edges_with_hunks, defs_found = asyncio.run(ingest_git(
-        project_slug=project,
-        repo_root=repo_root,
-        registry=registry,
-        client=client,
-        config=config_dict,
-        full=full,
-        since_date=since_date,
-        max_commits=max_commits,
-        doc_paths=doc_paths,
-    ))
+    commit_count, edges_with_hunks, defs_found = asyncio.run(
+        ingest_git(
+            project_slug=project,
+            repo_root=repo_root,
+            registry=registry,
+            client=client,
+            config=config_dict,
+            full=full,
+            since_date=since_date,
+            max_commits=max_commits,
+            doc_paths=doc_paths,
+        )
+    )
     click.echo(
         f"Git history ingested for project '{project}': "
         f"{commit_count} commits written, "

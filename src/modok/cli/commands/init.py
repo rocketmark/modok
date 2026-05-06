@@ -25,7 +25,9 @@ _REGISTRY_STUBS = {
 @click.command("init")
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--repo", required=True, type=click.Path(), help="Path to the project git repo.")
-@click.option("--assisted", is_flag=True, default=False, help="Use LLM to propose registry contents.")
+@click.option(
+    "--assisted", is_flag=True, default=False, help="Use LLM to propose registry contents."
+)
 def init_cmd(project: str, repo: str, assisted: bool) -> None:
     repo_path = Path(repo).expanduser().resolve()
 
@@ -55,7 +57,9 @@ def init_cmd(project: str, repo: str, assisted: bool) -> None:
         click.echo(f"Processed {processed} sections across {docs} docs{fail_note}.")
         for fname, count in summary.entries_written.items():
             click.echo(f"Wrote registries/{fname} ({count} raw entries)")
-        click.echo("Run `modok normalise --project <slug>` to normalise and write final registries.")
+        click.echo(
+            "Run `modok normalise --project <slug>` to normalise and write final registries."
+        )
 
         # Emit failed sections to stderr
         for heading, doc_path in summary.failed_sections:

@@ -2,6 +2,7 @@
 Verifier property tests — Layer 2.
 Pure-function invariants on verify_proposal; no I/O, no graph.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -19,7 +20,8 @@ from modok.llm.models import MetadataProposal
 
 _slugs = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789-",
-    min_size=1, max_size=20,
+    min_size=1,
+    max_size=20,
 )
 _values = st.one_of(
     st.text(min_size=1, max_size=30),
@@ -54,6 +56,7 @@ def _permissive_registry():
 # ---------------------------------------------------------------------------
 # Property Tests
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-001, LLM-VER-002, LLM-VER-003, LLM-VER-004, LLM-VER-005,
 #       LLM-VER-006, LLM-VER-007, LLM-VER-008
@@ -107,7 +110,7 @@ def test_is_valid_iff_no_rejected_fields(fields):
 @given(
     fields=st.lists(_slugs, min_size=1, max_size=6, unique=True),
     evidence=st.one_of(
-        st.text(max_size=14),                                   # too short
+        st.text(max_size=14),  # too short
         st.just("the document is about the pipeline failure"),  # filler prefix
         st.just("this document describes something"),
         st.just("based on the document content here"),

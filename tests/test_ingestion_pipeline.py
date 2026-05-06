@@ -47,6 +47,7 @@ from modok.ingestion.report import IngestionReport
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def write_file(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(content))
@@ -84,6 +85,7 @@ MINIMAL_FRONTMATTER = """\
 # SI-DISC-001 — discover supported file types recursively
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-DISC-001
 def test_discover_finds_supported_extensions(tmp_path):
     for ext in [".md", ".mdx", ".yaml", ".yml"]:
@@ -109,6 +111,7 @@ def test_discover_ignores_unsupported_extensions(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-DISC-002 — never ingest ignored paths
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-DISC-002
 @given(pattern=st.sampled_from(IGNORE_PATTERNS))
@@ -150,6 +153,7 @@ def test_discover_never_ingests_dotenv(tmp_path):
 # SI-DISC-003 — skip files with no modok: frontmatter
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-DISC-003
 def test_has_modok_frontmatter_returns_true_when_present(tmp_path):
     path = write_file(tmp_path / "doc.md", MINIMAL_FRONTMATTER)
@@ -179,6 +183,7 @@ def test_discover_skipped_count_increments_for_no_frontmatter(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-FMTR-001 — parse frontmatter, validate schema structure only
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-FMTR-001
 def test_parse_frontmatter_returns_modok_block(tmp_path):
@@ -223,6 +228,7 @@ def test_parse_frontmatter_accepts_unregistered_slug(tmp_path):
 # SI-FMTR-002 / SI-LLM-001 / SI-LLM-002 — missing fields without --fix
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-FMTR-002
 def test_missing_required_field_emits_warning(tmp_path):
     content = """\
@@ -239,6 +245,7 @@ def test_missing_required_field_emits_warning(tmp_path):
 
     fm = parse_frontmatter(path)
     from modok.ingestion.pipeline import check_required_fields
+
     warnings, errors = check_required_fields(fm, "lld")
     assert any("modules" in w or "source_files" in w for w in warnings + errors)
 
@@ -246,6 +253,7 @@ def test_missing_required_field_emits_warning(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-REF-001/002/003 — invalid registry slugs halt file
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-REF-001
 def test_invalid_feature_slug_raises(tmp_path):
@@ -255,6 +263,7 @@ def test_invalid_feature_slug_raises(tmp_path):
     registry.has_error.return_value = True
 
     from modok.ingestion.pipeline import validate_references
+
     with pytest.raises(InvalidSlugReferenceError, match="feature"):
         validate_references(
             {"feature": "bad-slug", "modules": ["shtp"], "error_signatures": []},
@@ -270,6 +279,7 @@ def test_invalid_module_slug_raises(tmp_path):
     registry.has_error.return_value = True
 
     from modok.ingestion.pipeline import validate_references
+
     with pytest.raises(InvalidSlugReferenceError, match="module"):
         validate_references(
             {"feature": "shtp-receiver", "modules": ["bad-module"], "error_signatures": []},
@@ -285,6 +295,7 @@ def test_invalid_error_slug_raises(tmp_path):
     registry.has_error.return_value = False
 
     from modok.ingestion.pipeline import validate_references
+
     with pytest.raises(InvalidSlugReferenceError, match="error"):
         validate_references(
             {"feature": "shtp-receiver", "modules": ["shtp"], "error_signatures": ["bad-err"]},
@@ -296,9 +307,11 @@ def test_invalid_error_slug_raises(tmp_path):
 # SI-REF-004 — missing file → warning + confidence penalty on prose facts only
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-REF-004
 def test_missing_source_file_emits_warning_not_error(tmp_path):
     from modok.ingestion.pipeline import validate_file_references
+
     warnings, errors = validate_file_references(
         {"source_files": ["/nonexistent/file.c"], "test_files": []},
         repo_root=tmp_path,
@@ -325,6 +338,7 @@ def test_missing_file_does_not_penalise_modok_block_facts(tmp_path):
 # SI-REF-005 — never write node or edge referencing invalid slug
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-REF-005
 @given(
     feature=st.text(min_size=1, max_size=20),
@@ -337,6 +351,7 @@ def test_invalid_slug_suppresses_node_and_edge(feature, module):
     registry.has_error.return_value = True
 
     from modok.ingestion.pipeline import validate_references
+
     with pytest.raises(InvalidSlugReferenceError):
         validate_references(
             {"feature": feature, "modules": [module], "error_signatures": []},
@@ -347,6 +362,7 @@ def test_invalid_slug_suppresses_node_and_edge(feature, module):
 # ---------------------------------------------------------------------------
 # SI-BLOCK-001 — parse fenced modok blocks
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-BLOCK-001
 def test_parse_modok_blocks_extracts_structured_facts():
@@ -377,6 +393,7 @@ def test_parse_modok_blocks_returns_empty_when_none_present():
 # SI-BLOCK-002 — MODOK block facts always confidence 1.00
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-BLOCK-002
 @pytest.mark.asyncio
 async def test_block_facts_always_verified(tmp_path):
@@ -398,6 +415,7 @@ async def test_block_facts_always_verified(tmp_path):
 # SI-BLOCK-003 — unrecognised block kind → warn, skip block, continue
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-BLOCK-003
 def test_unknown_block_kind_emits_warning_not_error():
     content = textwrap.dedent("""\
@@ -407,6 +425,7 @@ def test_unknown_block_kind_emits_warning_not_error():
         ```
         """)
     from modok.ingestion.pipeline import process_modok_blocks
+
     nodes, warnings, errors = process_modok_blocks(parse_modok_blocks(content))
     assert len(errors) == 0
     assert any("unknown" in w.lower() or "unrecognised" in w.lower() for w in warnings)
@@ -416,6 +435,7 @@ def test_unknown_block_kind_emits_warning_not_error():
 # ---------------------------------------------------------------------------
 # SI-HEAD-001 — extract H2/H3 headings as DocSection nodes
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-HEAD-001
 def test_parse_headings_extracts_h2_and_h3():
@@ -454,6 +474,7 @@ def test_parse_headings_includes_line_numbers():
 # SI-HEAD-002 — DESCRIBED_BY edge from Feature to DocSection
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-HEAD-002
 @pytest.mark.asyncio
 async def test_described_by_edges_written_for_each_section(tmp_path):
@@ -488,7 +509,9 @@ More.
 
     client = AsyncMock()
 
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
 
     edge_calls = [str(c) for c in client.write_edge_by_parts.call_args_list]
     described_by = [c for c in edge_calls if "DESCRIBED_BY" in c]
@@ -498,6 +521,7 @@ More.
 # ---------------------------------------------------------------------------
 # SI-SHA-001 — commit SHA from git log for Doc/DocSection nodes
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-SHA-001
 def test_get_commit_sha_returns_string(tmp_path):
@@ -521,6 +545,7 @@ def test_get_commit_sha_not_used_for_fix_nodes():
     # Verify ingest_fix_yaml and ingest_resolution_yaml never call get_commit_sha.
     from modok.ingestion import pipeline
     import inspect
+
     src = inspect.getsource(pipeline)
     for fn_name in ("ingest_fix_yaml", "ingest_resolution_yaml"):
         if f"def {fn_name}" in src:
@@ -531,6 +556,7 @@ def test_get_commit_sha_not_used_for_fix_nodes():
 # ---------------------------------------------------------------------------
 # SI-SHA-002 — Fix/ResolutionEvent YAML missing commit_sha → error
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-SHA-002
 def test_fix_yaml_missing_commit_sha_raises(tmp_path):
@@ -549,6 +575,7 @@ def test_fix_yaml_missing_commit_sha_raises(tmp_path):
         """
     path = write_file(tmp_path / "fix.yml", fix_yaml)
     from modok.ingestion.pipeline import ingest_fix_yaml
+
     with pytest.raises(MissingCommitShaError):
         ingest_fix_yaml(path)
 
@@ -564,6 +591,7 @@ def test_resolution_yaml_missing_commit_sha_raises(tmp_path):
         """
     path = write_file(tmp_path / "resolution.yml", resolution_yaml)
     from modok.ingestion.pipeline import ingest_resolution_yaml
+
     with pytest.raises(MissingCommitShaError):
         ingest_resolution_yaml(path)
 
@@ -572,10 +600,12 @@ def test_resolution_yaml_missing_commit_sha_raises(tmp_path):
 # SI-SHA-003 — dirty working tree → visible warning, complete normally
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-SHA-003
 def test_dirty_working_tree_emits_warning_not_error(tmp_path):
     with patch("modok.ingestion.pipeline.is_working_tree_dirty", return_value=True):
         from modok.ingestion.pipeline import check_working_tree
+
         warnings = check_working_tree(tmp_path)
         assert any("dirty" in w.lower() or "last commit" in w.lower() for w in warnings)
 
@@ -583,6 +613,7 @@ def test_dirty_working_tree_emits_warning_not_error(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-CONF-001 — confidence model scope: prose only
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-CONF-001
 @given(base=st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
@@ -595,6 +626,7 @@ def test_confidence_band_only_for_prose_extraction(base):
 # ---------------------------------------------------------------------------
 # SI-CONF-002 — computed score ≥ 0.90 → write automatically
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-CONF-002
 @pytest.mark.asyncio
@@ -626,6 +658,7 @@ async def test_score_at_threshold_writes_immediately(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-CONF-003 — strong band (0.75–0.89) written with confidence properties
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-CONF-003
 @pytest.mark.asyncio
@@ -671,6 +704,7 @@ async def test_below_strong_band_goes_to_pending(tmp_path):
 # @spec SI-CONF-004
 def test_pending_facts_batched_not_written_immediately():
     from modok.ingestion.pipeline import IngestionContext
+
     ctx = IngestionContext()
     ctx.add_pending_fact(value="some-file.cs", score=0.60, evidence="mentioned in prose")
     ctx.add_pending_fact(value="other.cs", score=0.50, evidence="weak match")
@@ -681,6 +715,7 @@ def test_pending_facts_batched_not_written_immediately():
 # ---------------------------------------------------------------------------
 # SI-CONF-005 — confidence score always in [0.0, 1.0]
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-CONF-005
 @given(
@@ -700,6 +735,7 @@ def test_confidence_band_always_in_range(base, boosts, penalties):
 # SI-CONF-006 — pending items count in report
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-CONF-006
 def test_report_includes_pending_items_count():
     report = IngestionReport(pending_items=3)
@@ -710,13 +746,26 @@ def test_report_includes_pending_items_count():
 # SI-WRITE-001 — node write order
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-WRITE-001
 def test_node_write_order_is_respected():
     from modok.ingestion.pipeline import NODE_WRITE_ORDER
+
     expected = [
-        "Project", "ProductArea", "Feature", "Module", "File",
-        "Doc", "Commit", "ErrorSignature", "FailureMode", "Risk",
-        "KnownIssue", "Fix", "CustomerIssue", "ResolutionEvent",
+        "Project",
+        "ProductArea",
+        "Feature",
+        "Module",
+        "File",
+        "Doc",
+        "Commit",
+        "ErrorSignature",
+        "FailureMode",
+        "Risk",
+        "KnownIssue",
+        "Fix",
+        "CustomerIssue",
+        "ResolutionEvent",
     ]
     assert NODE_WRITE_ORDER == expected
 
@@ -725,10 +774,12 @@ def test_node_write_order_is_respected():
 # SI-WRITE-002 — idempotency: same inputs → same graph state
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-WRITE-002
 @pytest.mark.asyncio
 async def test_double_ingest_calls_upsert_not_create(tmp_path):
     from modok.ingestion.pipeline import ingest_doc
+
     path = write_file(tmp_path / "doc.md", MINIMAL_FRONTMATTER)
 
     registry = MagicMock(spec=Registry)
@@ -740,12 +791,16 @@ async def test_double_ingest_calls_upsert_not_create(tmp_path):
     client = AsyncMock()
 
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+        await ingest_doc(
+            path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+        )
         first_upsert_count = client.upsert_node.call_count
         client.upsert_node.reset_mock()
         client.write_edge.reset_mock()
 
-        await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+        await ingest_doc(
+            path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+        )
         second_upsert_count = client.upsert_node.call_count
 
     assert first_upsert_count == second_upsert_count
@@ -755,10 +810,12 @@ async def test_double_ingest_calls_upsert_not_create(tmp_path):
 # SI-WRITE-003 — re-ingest replaces all node properties
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-WRITE-003
 @pytest.mark.asyncio
 async def test_re_ingest_same_doc_twice_does_not_error(tmp_path):
     from modok.ingestion.pipeline import ingest_doc
+
     path = write_file(tmp_path / "doc.md", MINIMAL_FRONTMATTER)
 
     registry = MagicMock(spec=Registry)
@@ -769,19 +826,26 @@ async def test_re_ingest_same_doc_twice_does_not_error(tmp_path):
     client = AsyncMock()
 
     # Two successive ingests of the same doc must not raise
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
 
 
 # ---------------------------------------------------------------------------
 # SI-REG-001 — registries from {repo_root}/registries/
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-REG-001
 def test_registry_loads_from_repo_root(tmp_path):
     reg_dir = tmp_path / "registries"
     reg_dir.mkdir()
-    (reg_dir / "features.yml").write_text("features:\n  shtp-receiver:\n    name: SHTP\n    product_area: net\n")
+    (reg_dir / "features.yml").write_text(
+        "features:\n  shtp-receiver:\n    name: SHTP\n    product_area: net\n"
+    )
     (reg_dir / "modules.yml").write_text("modules:\n  shtp:\n    name: SHTP\n")
     (reg_dir / "errors.yml").write_text("errors:\n  shtp-err:\n    text: err\n")
     (reg_dir / "doc-types.yml").write_text("doc_types:\n  lld:\n    required_fields: [feature]\n")
@@ -816,6 +880,7 @@ def test_registry_does_not_load_from_modok_home(tmp_path, monkeypatch):
 # SI-REG-002 — missing registry file → error, halt project
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-REG-002
 def test_missing_registry_file_raises(tmp_path):
     # No registries/ directory at all
@@ -826,6 +891,7 @@ def test_missing_registry_file_raises(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-HOOK-001 — modok init installs post-commit hook
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-HOOK-001
 def test_install_hook_creates_post_commit(tmp_path):
@@ -846,6 +912,7 @@ def test_install_hook_creates_post_commit(tmp_path):
 # SI-HOOK-002 — hook exits if no changed file matches registered paths
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-HOOK-002
 def test_hook_content_includes_path_guard():
     content = hook_content("stagehand", ["docs/", "registries/"])
@@ -859,6 +926,7 @@ def test_hook_content_includes_path_guard():
 # ---------------------------------------------------------------------------
 # SI-HOOK-003 — existing hook → append MODOK section
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-HOOK-003
 def test_install_hook_appends_to_existing_hook(tmp_path):
@@ -879,6 +947,7 @@ def test_install_hook_appends_to_existing_hook(tmp_path):
 # SI-HOOK-004 — existing MODOK section → replace only that section
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-HOOK-004
 def test_install_hook_replaces_existing_modok_section(tmp_path):
     git_dir = tmp_path / ".git" / "hooks"
@@ -891,8 +960,8 @@ def test_install_hook_replaces_existing_modok_section(tmp_path):
     install_post_commit_hook(tmp_path, "stagehand", ["docs/"])
 
     content = hook_path.read_text()
-    assert "other" in content           # other hook content preserved
-    assert "old modok" not in content   # old MODOK section replaced
+    assert "other" in content  # other hook content preserved
+    assert "old modok" not in content  # old MODOK section replaced
     assert MODOK_HOOK_START in content  # new MODOK section present
     assert content.count(MODOK_HOOK_START) == 1  # only one MODOK section
 
@@ -900,6 +969,7 @@ def test_install_hook_replaces_existing_modok_section(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-003 — with --fix, write to doc frontmatter then re-parse
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-003
 def test_fix_mode_writes_proposals_to_doc_not_quine(tmp_path):
@@ -917,6 +987,7 @@ def test_fix_mode_writes_proposals_to_doc_not_quine(tmp_path):
 
     with patch("modok.ingestion.pipeline.user_approves", return_value=True):
         from modok.ingestion.pipeline import apply_llm_proposals
+
         apply_llm_proposals(path, proposals={"modules": ["shtp"]}, client=client)
 
     # LLM proposals must not call upsert_node directly
@@ -929,6 +1000,7 @@ def test_fix_mode_writes_proposals_to_doc_not_quine(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-RPT-001 — structured report with all required fields
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-RPT-001
 def test_report_has_all_required_fields():
@@ -957,6 +1029,7 @@ def test_report_has_all_required_fields():
 # SI-RPT-002 — warnings don't halt; errors halt affected file only
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-RPT-002
 @pytest.mark.asyncio
 async def test_error_in_one_file_does_not_halt_others(tmp_path):
@@ -973,17 +1046,22 @@ async def test_error_in_one_file_does_not_halt_others(tmp_path):
     client = AsyncMock()
     # Quine raises for the first upsert on bad_path, succeeds for good_path
     call_count = 0
+
     async def upsert_side_effect(node):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise RuntimeError("Quine write failed")
+
     client.upsert_node.side_effect = upsert_side_effect
 
-    with patch("modok.ingestion.discovery.discover_docs",
-               return_value=([bad_rec, good_rec], [], 0)):
+    with patch(
+        "modok.ingestion.discovery.discover_docs", return_value=([bad_rec, good_rec], [], 0)
+    ):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-            report = await run_ingestion(tmp_path, registry=registry, client=client, project_slug="stagehand")
+            report = await run_ingestion(
+                tmp_path, registry=registry, client=client, project_slug="stagehand"
+            )
 
     assert report.errors  # bad_rec produced an error
     assert report.docs_processed >= 1  # good_rec was processed
@@ -992,6 +1070,7 @@ async def test_error_in_one_file_does_not_halt_others(tmp_path):
 # ---------------------------------------------------------------------------
 # LLM-META-004 — propose_metadata errors → warning only, other files continue
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-META-004
 @pytest.mark.asyncio
@@ -1008,7 +1087,9 @@ async def test_propose_metadata_llm_response_error_emits_warning_does_not_halt(t
     with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             report = await run_ingestion(
-                tmp_path, registry=registry, client=client,
+                tmp_path,
+                registry=registry,
+                client=client,
                 project_slug="stagehand",
             )
 
@@ -1031,7 +1112,9 @@ async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_
     with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             report = await run_ingestion(
-                tmp_path, registry=registry, client=client,
+                tmp_path,
+                registry=registry,
+                client=client,
                 project_slug="stagehand",
             )
 
@@ -1042,6 +1125,7 @@ async def test_propose_metadata_llm_unavailable_emits_warning_does_not_halt(tmp_
 # ---------------------------------------------------------------------------
 # SI-LLM-003 — verifier is called before any write
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-003
 @pytest.mark.asyncio
@@ -1072,8 +1156,10 @@ async def test_verifier_called_before_doc_write(tmp_path):
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": False},
+            ):
                 await run_llm_proposal_pass(
                     doc_path=tmp_path / "doc.md",
                     frontmatter={},
@@ -1089,6 +1175,7 @@ async def test_verifier_called_before_doc_write(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-004 — default mode: write valid_fields, warn per rejected
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-004
 @pytest.mark.asyncio
@@ -1110,20 +1197,24 @@ async def test_default_mode_writes_valid_fields_warns_on_rejected(tmp_path):
     def fake_verify(proposal, missing_fields, frontmatter, registry):
         return VerificationResult(
             valid_fields={"feature_slug": "ingestion"},
-            rejected_fields=[RejectedField(
-                field="owner",
-                bad_value="platform",
-                reason="field was not requested",
-                repair_instruction="Only propose fields in missing_fields.",
-            )],
+            rejected_fields=[
+                RejectedField(
+                    field="owner",
+                    bad_value="platform",
+                    reason="field was not requested",
+                    repair_instruction="Only propose fields in missing_fields.",
+                )
+            ],
             is_valid=False,
         )
 
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": False},
+            ):
                 result = await run_llm_proposal_pass(
                     doc_path=tmp_path / "doc.md",
                     frontmatter={},
@@ -1140,6 +1231,7 @@ async def test_default_mode_writes_valid_fields_warns_on_rejected(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-005 — strict mode: write nothing if any field rejected after repair
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-005
 @pytest.mark.asyncio
@@ -1161,20 +1253,24 @@ async def test_strict_mode_writes_nothing_on_any_rejection(tmp_path):
     def fake_verify(proposal, missing_fields, frontmatter, registry):
         return VerificationResult(
             valid_fields={},
-            rejected_fields=[RejectedField(
-                field="feature_slug",
-                bad_value="docs",
-                reason="not in registry",
-                repair_instruction="Choose an allowed slug.",
-            )],
+            rejected_fields=[
+                RejectedField(
+                    field="feature_slug",
+                    bad_value="docs",
+                    reason="not in registry",
+                    repair_instruction="Choose an allowed slug.",
+                )
+            ],
             is_valid=False,
         )
 
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": False},
+            ):
                 result = await run_llm_proposal_pass(
                     doc_path=tmp_path / "doc.md",
                     frontmatter={},
@@ -1192,6 +1288,7 @@ async def test_strict_mode_writes_nothing_on_any_rejection(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-006 — dry-run makes LLM calls but writes nothing
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-006
 @pytest.mark.asyncio
@@ -1226,8 +1323,10 @@ async def test_dry_run_makes_llm_call_but_writes_nothing(tmp_path):
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": False},
+            ):
                 result = await run_llm_proposal_pass(
                     doc_path=doc,
                     frontmatter={},
@@ -1237,7 +1336,7 @@ async def test_dry_run_makes_llm_call_but_writes_nothing(tmp_path):
                     dry_run=True,
                 )
 
-    assert len(propose_calls) == 1          # LLM was called
+    assert len(propose_calls) == 1  # LLM was called
     assert doc.stat().st_mtime == original_mtime  # file not modified
     assert result.dry_run is True
 
@@ -1245,6 +1344,7 @@ async def test_dry_run_makes_llm_call_but_writes_nothing(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-007 — emit-counterexamples writes fixture file to configured dir
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-007
 @pytest.mark.asyncio
@@ -1270,21 +1370,27 @@ async def test_emit_counterexamples_writes_fixture_to_configured_dir(tmp_path):
     def fake_verify(proposal, missing_fields, frontmatter, registry):
         return VerificationResult(
             valid_fields={},
-            rejected_fields=[RejectedField(
-                field="feature_slug",
-                bad_value="docs",
-                reason="not in registry",
-                repair_instruction="Choose an allowed slug.",
-            )],
+            rejected_fields=[
+                RejectedField(
+                    field="feature_slug",
+                    bad_value="docs",
+                    reason="not in registry",
+                    repair_instruction="Choose an allowed slug.",
+                )
+            ],
             is_valid=False,
         )
 
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False,
-                                     "counterexample_fixture_dir": str(fixture_dir)}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={
+                    "cegis_fix_enabled": False,
+                    "counterexample_fixture_dir": str(fixture_dir),
+                },
+            ):
                 await run_llm_proposal_pass(
                     doc_path=Path("doc.md"),
                     frontmatter={},
@@ -1320,9 +1426,10 @@ async def test_emit_counterexamples_exits_1_when_dir_not_configured(tmp_path):
 
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-        with patch("modok.ingestion.pipeline._load_llm_config",
-                   return_value={"cegis_fix_enabled": False,
-                                 "counterexample_fixture_dir": ""}):
+        with patch(
+            "modok.ingestion.pipeline._load_llm_config",
+            return_value={"cegis_fix_enabled": False, "counterexample_fixture_dir": ""},
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 await run_llm_proposal_pass(
                     doc_path=Path("doc.md"),
@@ -1340,6 +1447,7 @@ async def test_emit_counterexamples_exits_1_when_dir_not_configured(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-008 — non-interactive mode suppresses all LLM calls
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-008
 @pytest.mark.asyncio
@@ -1372,6 +1480,7 @@ async def test_non_interactive_suppresses_llm_proposal_and_repair(tmp_path):
 # SI-LLM-009 — LLMResponseError caught, doc skipped, ingestion continues
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-LLM-009
 @pytest.mark.asyncio
 async def test_llm_response_error_skips_doc_continues_ingestion(tmp_path):
@@ -1387,7 +1496,9 @@ async def test_llm_response_error_skips_doc_continues_ingestion(tmp_path):
     with patch("modok.ingestion.discovery.discover_docs", return_value=([rec], [], 0)):
         with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
             report = await run_ingestion(
-                tmp_path, registry=registry, client=client,
+                tmp_path,
+                registry=registry,
+                client=client,
                 project_slug="stagehand",
             )
 
@@ -1398,6 +1509,7 @@ async def test_llm_response_error_skips_doc_continues_ingestion(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-LLM-010 — re-run stages 2-5 after writing valid_fields (not stage 1 or 6)
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-LLM-010
 @pytest.mark.asyncio
@@ -1430,14 +1542,22 @@ async def test_reruns_stages_2_to_5_after_patch_not_stage_1_or_6(tmp_path):
     registry = MagicMock()
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
         with patch("modok.ingestion.pipeline.verify_proposal", new=fake_verify):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": False}):
-                with patch("modok.ingestion.discovery.discover_docs",
-                           side_effect=lambda *a, **kw: discover_calls.append(1) or ([], [], 0)) as _disc:
-                    with patch("modok.ingestion.parser.get_commit_sha",
-                               side_effect=lambda *a: sha_calls.append(1) or "abc") as _sha:
-                        with patch("modok.ingestion.parser.parse_frontmatter",
-                                   side_effect=lambda *a, **kw: parse_calls.append(1) or {}) as _pf:
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": False},
+            ):
+                with patch(
+                    "modok.ingestion.discovery.discover_docs",
+                    side_effect=lambda *a, **kw: discover_calls.append(1) or ([], [], 0),
+                ) as _disc:
+                    with patch(
+                        "modok.ingestion.parser.get_commit_sha",
+                        side_effect=lambda *a: sha_calls.append(1) or "abc",
+                    ) as _sha:
+                        with patch(
+                            "modok.ingestion.parser.parse_frontmatter",
+                            side_effect=lambda *a, **kw: parse_calls.append(1) or {},
+                        ) as _pf:
                             await run_llm_proposal_pass(
                                 doc_path=tmp_path / "doc.md",
                                 frontmatter={"doc_type": "lld"},
@@ -1447,14 +1567,15 @@ async def test_reruns_stages_2_to_5_after_patch_not_stage_1_or_6(tmp_path):
                                 dry_run=False,
                             )
 
-    assert len(discover_calls) == 0   # stage 1 not re-run
-    assert len(sha_calls) == 0        # stage 6 not re-run
-    assert len(parse_calls) >= 1      # stage 2 re-run after patch
+    assert len(discover_calls) == 0  # stage 1 not re-run
+    assert len(sha_calls) == 0  # stage 6 not re-run
+    assert len(parse_calls) >= 1  # stage 2 re-run after patch
 
 
 # ---------------------------------------------------------------------------
 # HAS_TEST edges — test files anchored on Feature, not Module
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_has_test_edges_written_for_test_files(tmp_path):
@@ -1485,7 +1606,9 @@ modok:
 
     client = AsyncMock()
 
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
 
     edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
 
@@ -1527,7 +1650,9 @@ modok:
 
     client = AsyncMock()
 
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
 
     edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
     defined_in = [c for c in edge_calls if c[1] == "DEFINED_IN" and c[2][2] == "agent/src/shtp.c"]
@@ -1538,6 +1663,7 @@ modok:
 # ---------------------------------------------------------------------------
 # SI-UNREG-003 — HAS_SECTION containment edges for unregistered docs
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-UNREG-003
 @pytest.mark.asyncio
@@ -1603,6 +1729,7 @@ async def test_no_has_section_edges_when_unregistered_doc_has_no_headings(tmp_pa
 # SI-BLOCK-004 — HAS_FIX edge for fix MODOK blocks
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-BLOCK-004
 @pytest.mark.asyncio
 async def test_fix_block_writes_has_fix_edge_in_registered_doc(tmp_path):
@@ -1636,7 +1763,9 @@ summary: Fix version byte offset comparison
 
     client = AsyncMock()
 
-    await ingest_doc(path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path)
+    await ingest_doc(
+        path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+    )
 
     edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
     has_fix = [c for c in edge_calls if c[1] == "HAS_FIX"]

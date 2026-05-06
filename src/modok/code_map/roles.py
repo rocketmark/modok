@@ -13,16 +13,32 @@ _TEST_STEM_SUFFIXES = ("_test", "_tests", "Tests", "_props")
 _TEST_DIRS = {"tests", "test", "Tests", "Test"}
 
 _CONFIG_EXTS = {
-    ".toml", ".yaml", ".yml", ".json", ".ini", ".config", ".cfg",
-    ".csproj", ".sln", ".uplugin", ".uproject",
-    ".rules", ".service", ".timer", ".template",  # systemd / udev
-    ".patch",                                      # diff/patch files
-    ".plist",                                      # Apple property lists
-    ".spec",                                       # PyInstaller / RPM spec files
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".ini",
+    ".config",
+    ".cfg",
+    ".csproj",
+    ".sln",
+    ".uplugin",
+    ".uproject",
+    ".rules",
+    ".service",
+    ".timer",
+    ".template",  # systemd / udev
+    ".patch",  # diff/patch files
+    ".plist",  # Apple property lists
+    ".spec",  # PyInstaller / RPM spec files
 }
 _CONFIG_NAMES = {
-    ".coveragerc", ".gitignore", ".gitattributes", ".editorconfig",
-    "CMakeLists.txt", "Makefile",
+    ".coveragerc",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
+    "CMakeLists.txt",
+    "Makefile",
 }
 _CONFIG_STEM_PREFIXES = ("requirements",)  # requirements.txt, requirements-dev.txt
 

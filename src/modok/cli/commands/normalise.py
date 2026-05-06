@@ -1,4 +1,5 @@
 """modok normalise command."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +18,9 @@ def normalise_cmd(project: str) -> None:
 
     proj = next((p for p in cfg.projects if p.slug == project), None)
     if proj is None:
-        raise click.ClickException(f"project `{project}` not found — run `modok init --project {project} --repo <path>` first")
+        raise click.ClickException(
+            f"project `{project}` not found — run `modok init --project {project} --repo <path>` first"
+        )
 
     repo_path = Path(proj.repo).expanduser().resolve()
 
@@ -40,6 +43,7 @@ def normalise_cmd(project: str) -> None:
 
 def _raw_count(repo_path: Path, field_type: str) -> int:
     import yaml
+
     raw_path = repo_path / "registries" / f"{field_type}.raw.yml"
     if not raw_path.exists():
         return 0

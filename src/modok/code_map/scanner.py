@@ -15,13 +15,33 @@ from modok.code_map.roles import classify_role
 from modok.ingestion.discovery import IGNORE_DIR_NAMES
 
 _IGNORED_DIRS = IGNORE_DIR_NAMES | {
-    "__pycache__", ".modok", ".ruff_cache", ".venv", "venv",
+    "__pycache__",
+    ".modok",
+    ".ruff_cache",
+    ".venv",
+    "venv",
     "states",  # TLC model checker output (TLA+)
 }
 _IGNORED_EXTS = {
-    ".pyc", ".pyo", ".key", ".pem", ".pfx",
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",  # images
-    ".jar", ".class", ".so", ".dylib", ".dll", ".exe", ".o",   # binaries
+    ".pyc",
+    ".pyo",
+    ".key",
+    ".pem",
+    ".pfx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".svg",
+    ".webp",  # images
+    ".jar",
+    ".class",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".exe",
+    ".o",  # binaries
 }
 _IGNORED_FILES = {".env"}
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB

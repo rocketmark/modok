@@ -1,6 +1,7 @@
 """
 Comparison utilities for HiFi differential testing.
 """
+
 from __future__ import annotations
 
 from modok.retrieval.models import DebugPacket

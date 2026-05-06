@@ -29,6 +29,7 @@ def _modok_covered_by_gitignore(gitignore: Path) -> bool:
 def extract_code_map_cmd(project: str, repo: str | None, output: str | None) -> None:
     if repo is None:
         from modok.cli.config import ModokConfig
+
         config = ModokConfig.load()
         proj = config.project(project)
         repo_root = Path(proj.repo)
@@ -43,7 +44,9 @@ def extract_code_map_cmd(project: str, repo: str | None, output: str | None) -> 
 
     entries = scan_repo(repo_root)
     git_commit = get_head_sha(repo_root)
-    write_code_map(out_path, project=project, repo_root=repo_root, entries=entries, git_commit=git_commit)
+    write_code_map(
+        out_path, project=project, repo_root=repo_root, entries=entries, git_commit=git_commit
+    )
 
     source_count = sum(1 for e in entries if e.get("role") == "source")
     test_count = sum(1 for e in entries if e.get("role") == "test")

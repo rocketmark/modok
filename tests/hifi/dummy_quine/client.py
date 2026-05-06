@@ -4,6 +4,7 @@ DummyQuine — in-memory duck-type replacement for QuineClient.
 Stores nodes in _nodes and edges in _edges, and dispatches query() calls
 by matching Cypher fingerprints to Python traversal functions.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,8 +12,18 @@ from typing import Any
 from modok.quine.errors import QuineNodeNotFoundError
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import (
-    QuineNode, Project, Feature, Module, File, DocSection, ErrorSignature,
-    KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
+    QuineNode,
+    Project,
+    Feature,
+    Module,
+    File,
+    DocSection,
+    ErrorSignature,
+    KnownIssue,
+    CustomerIssue,
+    SimilarityMatch,
+    Fix,
+    ResolutionEvent,
     DiagnosticNote,
 )
 
@@ -40,13 +51,19 @@ def _node_id_from_model_hifi(node: QuineNode) -> int:
     if isinstance(node, CustomerIssue):
         return _idFrom("customer-issue", node.project_slug, node.source_system, node.ticket_id)
     if isinstance(node, SimilarityMatch):
-        return _idFrom("similarity-match", node.project_slug, node.customer_issue_id,
-                       node.known_issue_id, node.method)
+        return _idFrom(
+            "similarity-match",
+            node.project_slug,
+            node.customer_issue_id,
+            node.known_issue_id,
+            node.method,
+        )
     if isinstance(node, Fix):
         return _idFrom("fix", node.project_slug, node.fix_id)
     if isinstance(node, ResolutionEvent):
-        return _idFrom("resolution", node.project_slug, node.source_system,
-                       node.ticket_id, node.fix_id)
+        return _idFrom(
+            "resolution", node.project_slug, node.source_system, node.ticket_id, node.fix_id
+        )
     if isinstance(node, DiagnosticNote):
         return _idFrom("diagnostic-note", node.project_slug, node.note_id)
     raise ValueError(f"No ID scheme for node type {type(node).__name__}")
@@ -94,8 +111,7 @@ class DummyQuine:
     # @spec DQ-EW-003, DQ-EW-004
     async def replace_edges(self, from_id: int, edge_type: str, to_ids: list[int]) -> None:
         self._edges = [
-            (f, et, t) for (f, et, t) in self._edges
-            if not (f == from_id and et == edge_type)
+            (f, et, t) for (f, et, t) in self._edges if not (f == from_id and et == edge_type)
         ]
         for to_id in to_ids:
             await self.write_edge(from_id, edge_type, to_id)
@@ -117,7 +133,7 @@ class DummyQuine:
         issue_id = params.get("issue_id")
         project_slug = params.get("project_slug")
         results = []
-        for (f, et, t) in self._edges:
+        for f, et, t in self._edges:
             if f == issue_id and et == "AFFECTS":
                 node = self._nodes.get(t)
                 if node is not None and node.node_type == "Feature":
@@ -130,7 +146,7 @@ class DummyQuine:
         issue_id = params.get("issue_id")
         project_slug = params.get("project_slug")
         results = []
-        for (f, et, t) in self._edges:
+        for f, et, t in self._edges:
             if f == issue_id and et == "HAS_ERROR":
                 node = self._nodes.get(t)
                 if node is not None and node.node_type == "ErrorSignature":
@@ -145,9 +161,11 @@ class DummyQuine:
         # Find the Feature node
         feat_id = None
         for node_id, node in self._nodes.items():
-            if (node.node_type == "Feature"
-                    and node.feature_slug == feature_slug
-                    and (project_slug is None or node.project_slug == project_slug)):
+            if (
+                node.node_type == "Feature"
+                and node.feature_slug == feature_slug
+                and (project_slug is None or node.project_slug == project_slug)
+            ):
                 feat_id = node_id
                 break
         if feat_id is None:
@@ -156,18 +174,20 @@ class DummyQuine:
         # Return 3-column rows: [feature_dict, module_dict, file_dict] matching RETURN f, m, file
         feat_node = self._nodes.get(feat_id)
         results = []
-        for (f1, et1, mod_id) in self._edges:
+        for f1, et1, mod_id in self._edges:
             if f1 == feat_id and et1 == "IMPLEMENTED_BY":
                 mod_node = self._nodes.get(mod_id)
-                for (f2, et2, file_id) in self._edges:
+                for f2, et2, file_id in self._edges:
                     if f2 == mod_id and et2 == "DEFINED_IN":
                         file_node = self._nodes.get(file_id)
                         if file_node is not None and file_node.node_type == "File":
-                            results.append([
-                                self._node_to_row(feat_id, feat_node)[0],
-                                self._node_to_row(mod_id, mod_node)[0],
-                                self._node_to_row(file_id, file_node)[0],
-                            ])
+                            results.append(
+                                [
+                                    self._node_to_row(feat_id, feat_node)[0],
+                                    self._node_to_row(mod_id, mod_node)[0],
+                                    self._node_to_row(file_id, file_node)[0],
+                                ]
+                            )
         return results
 
     def _dispatch_module_slug_to_files(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -175,8 +195,11 @@ class DummyQuine:
         module_slug = params.get("feature_slug")  # engine reuses the same param name
         mod_id = None
         for node_id, node in self._nodes.items():
-            if (node.node_type == "Module" and node.module_slug == module_slug
-                    and (project_slug is None or node.project_slug == project_slug)):
+            if (
+                node.node_type == "Module"
+                and node.module_slug == module_slug
+                and (project_slug is None or node.project_slug == project_slug)
+            ):
                 mod_id = node_id
                 break
         if mod_id is None:
@@ -184,14 +207,16 @@ class DummyQuine:
         # Return 2-column rows: [module_dict, file_dict] matching RETURN m, file
         mod_node = self._nodes.get(mod_id)
         results = []
-        for (f, et, file_id) in self._edges:
+        for f, et, file_id in self._edges:
             if f == mod_id and et == "DEFINED_IN":
                 file_node = self._nodes.get(file_id)
                 if file_node is not None and file_node.node_type == "File":
-                    results.append([
-                        self._node_to_row(mod_id, mod_node)[0],
-                        self._node_to_row(file_id, file_node)[0],
-                    ])
+                    results.append(
+                        [
+                            self._node_to_row(mod_id, mod_node)[0],
+                            self._node_to_row(file_id, file_node)[0],
+                        ]
+                    )
         return results
 
     def _dispatch_file_to_commits(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -202,8 +227,11 @@ class DummyQuine:
         file_id = None
         file_node = None
         for node_id, node in self._nodes.items():
-            if (node.node_type == "File" and node.repo_path == file_path
-                    and (project_slug is None or node.project_slug == project_slug)):
+            if (
+                node.node_type == "File"
+                and node.repo_path == file_path
+                and (project_slug is None or node.project_slug == project_slug)
+            ):
                 file_id = node_id
                 file_node = node
                 break
@@ -211,14 +239,16 @@ class DummyQuine:
             return []
         # Find Commit nodes that TOUCH this file: Commit -TOUCHES-> File
         results = []
-        for (from_id, edge_type, to_id) in self._edges:
+        for from_id, edge_type, to_id in self._edges:
             if edge_type == "TOUCHES" and to_id == file_id:
                 commit_node = self._nodes.get(from_id)
                 if commit_node is not None and commit_node.node_type == "Commit":
-                    results.append([
-                        self._node_to_row(file_id, file_node)[0],
-                        self._node_to_row(from_id, commit_node)[0],
-                    ])
+                    results.append(
+                        [
+                            self._node_to_row(file_id, file_node)[0],
+                            self._node_to_row(from_id, commit_node)[0],
+                        ]
+                    )
         return results
 
     # @spec DQ-QD-004
@@ -228,16 +258,18 @@ class DummyQuine:
         # Find the ErrorSignature node
         err_id = None
         for node_id, node in self._nodes.items():
-            if (node.node_type == "ErrorSignature"
-                    and node.normalized_error == normalized_error
-                    and (project_slug is None or node.project_slug == project_slug)):
+            if (
+                node.node_type == "ErrorSignature"
+                and node.normalized_error == normalized_error
+                and (project_slug is None or node.project_slug == project_slug)
+            ):
                 err_id = node_id
                 break
         if err_id is None:
             return []
         # Reverse walk: KnownIssue -HAS_ERROR-> ErrorSignature
         results = []
-        for (f, et, t) in self._edges:
+        for f, et, t in self._edges:
             if t == err_id and et == "HAS_ERROR":
                 node = self._nodes.get(f)
                 if node is not None and node.node_type == "KnownIssue":
@@ -249,7 +281,7 @@ class DummyQuine:
         ki_node_id = params.get("ki_node_id")
         project_slug = params.get("project_slug")
         results = []
-        for (f, et, t) in self._edges:
+        for f, et, t in self._edges:
             if f == ki_node_id and et == "RESOLVED_BY":
                 node = self._nodes.get(t)
                 if node is not None and node.node_type == "Fix":
@@ -262,14 +294,14 @@ class DummyQuine:
         issue_id = params.get("issue_id")
         project_slug = params.get("project_slug")
         results = []
-        for (f, et, sm_id) in self._edges:
+        for f, et, sm_id in self._edges:
             if f == issue_id and et == "HAS_SIMILARITY_MATCH":
                 sm_node = self._nodes.get(sm_id)
                 if sm_node is None or sm_node.node_type != "SimilarityMatch":
                     continue
                 if sm_node.review_status not in ("candidate", "confirmed"):
                     continue
-                for (f2, et2, ki_id) in self._edges:
+                for f2, et2, ki_id in self._edges:
                     if f2 == sm_id and et2 == "MATCHES":
                         ki_node = self._nodes.get(ki_id)
                         if ki_node is not None and ki_node.node_type == "KnownIssue":
@@ -279,20 +311,24 @@ class DummyQuine:
         return results
 
     _FINGERPRINTS = [
-        ("AFFECTS]->(f:Feature",            "_dispatch_affects_feature"),
-        ("HAS_ERROR]->(e:ErrorSignature",   "_dispatch_has_error_signature"),
+        ("AFFECTS]->(f:Feature", "_dispatch_affects_feature"),
+        ("HAS_ERROR]->(e:ErrorSignature", "_dispatch_has_error_signature"),
         ("IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)", "_dispatch_feature_to_files"),
-        ("idFrom('feature'",                "_dispatch_feature_to_files"),
-        ("idFrom('module'",                 "_dispatch_module_slug_to_files"),
-        ("idFrom('file'",                   "_dispatch_file_to_commits"),
-        ("HAS_ERROR]-(ki:KnownIssue)",      "_dispatch_error_to_known_issues"),
-        ("RESOLVED_BY]->(fix:Fix",          "_dispatch_ki_to_fixes"),
-        ("HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue",
-         "_dispatch_similarity"),
+        ("idFrom('feature'", "_dispatch_feature_to_files"),
+        ("idFrom('module'", "_dispatch_module_slug_to_files"),
+        ("idFrom('file'", "_dispatch_file_to_commits"),
+        ("HAS_ERROR]-(ki:KnownIssue)", "_dispatch_error_to_known_issues"),
+        ("RESOLVED_BY]->(fix:Fix", "_dispatch_ki_to_fixes"),
+        (
+            "HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue",
+            "_dispatch_similarity",
+        ),
     ]
 
     # @spec DQ-QD-001 through DQ-QD-007
-    async def query(self, cypher: str, params: dict[str, Any] | None = None) -> list[list[dict[str, Any]]]:
+    async def query(
+        self, cypher: str, params: dict[str, Any] | None = None
+    ) -> list[list[dict[str, Any]]]:
         params = params or {}
         for fingerprint, method_name in self._FINGERPRINTS:
             if fingerprint in cypher:

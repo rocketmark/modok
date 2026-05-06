@@ -88,8 +88,8 @@ class CustomerIssue(QuineNode):
 class SimilarityMatch(QuineNode):
     node_type: Literal["SimilarityMatch"]
     project_slug: str
-    customer_issue_id: str   # str repr of the CustomerIssue QuineNodeId
-    known_issue_id: str      # str repr of the KnownIssue QuineNodeId
+    customer_issue_id: str  # str repr of the CustomerIssue QuineNodeId
+    known_issue_id: str  # str repr of the KnownIssue QuineNodeId
     method: str
     score: float
     evidence_anchors: list[str]

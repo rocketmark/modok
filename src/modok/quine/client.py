@@ -51,7 +51,9 @@ class QuineClient:
             kwargs["transport"] = self._transport
         return httpx.AsyncClient(**kwargs)
 
-    async def _cypher(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def _cypher(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         # @spec QC-CN-001, QC-CN-002, QC-CN-003
         payload = {"text": query, "parameters": params or {}}
         last_exc: Exception | None = None
@@ -65,7 +67,7 @@ class QuineClient:
                             f"HTTP {resp.status_code}", request=resp.request, response=resp
                         )
                         if attempt < _MAX_RETRIES - 1:
-                            await asyncio.sleep(_BACKOFF_BASE * (2 ** attempt))
+                            await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
                         continue
                     resp.raise_for_status()
                     data = resp.json()
@@ -73,7 +75,7 @@ class QuineClient:
                 except httpx.TimeoutException as exc:
                     last_exc = exc
                     if attempt < _MAX_RETRIES - 1:
-                        await asyncio.sleep(_BACKOFF_BASE * (2 ** attempt))
+                        await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
 
         raise last_exc or RuntimeError("Quine request failed")
 
@@ -87,9 +89,7 @@ class QuineClient:
         node_type = props.get("node_type")
         model_cls = _NODE_TYPE_MAP.get(node_type)
         if model_cls is None:
-            raise QuineDeserializationError(
-                f"Unknown node_type '{node_type}' on node id={node_id}"
-            )
+            raise QuineDeserializationError(f"Unknown node_type '{node_type}' on node id={node_id}")
         try:
             return model_cls(**props)
         except Exception as exc:
@@ -131,9 +131,7 @@ class QuineClient:
         return bool(results)
 
     # @spec QC-EW-001, QC-EW-002, QC-EW-003
-    async def write_edge(
-        self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId
-    ) -> None:
+    async def write_edge(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> None:
         # MERGE on both endpoints and the relationship — idempotent by construction.
         query = (
             "MATCH (a) WHERE id(a) = $from_id "
@@ -185,20 +183,15 @@ class QuineClient:
         for to_id in to_ids:
             await self.write_edge(from_id, edge_type, to_id)
 
-    async def edge_exists(
-        self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId
-    ) -> bool:
+    async def edge_exists(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> bool:
         results = await self._cypher(
-            f"MATCH (a)-[r:{edge_type}]->(b) "
-            "WHERE id(a) = $from_id AND id(b) = $to_id RETURN r",
+            f"MATCH (a)-[r:{edge_type}]->(b) WHERE id(a) = $from_id AND id(b) = $to_id RETURN r",
             {"from_id": from_id, "to_id": to_id},
         )
         return bool(results)
 
     # @spec QC-TR-001
-    async def traverse(
-        self, start_id: QuineNodeId, steps: list[TraversalStep]
-    ) -> list[QuineNode]:
+    async def traverse(self, start_id: QuineNodeId, steps: list[TraversalStep]) -> list[QuineNode]:
         if not steps:
             return []
         match_clauses = ["MATCH (n0) WHERE id(n0) = $start_id"]
@@ -241,64 +234,111 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
     Param keys are prefixed with 'idf_' to avoid collision with node property params.
     """
     from modok.quine.models import (
-        Project, Feature, Module, File, TestFile, Doc, DocSection, ErrorSignature,
-        KnownIssue, CustomerIssue, SimilarityMatch, Fix, ResolutionEvent,
-        DiagnosticNote, Commit,
+        Project,
+        Feature,
+        Module,
+        File,
+        TestFile,
+        Doc,
+        DocSection,
+        ErrorSignature,
+        KnownIssue,
+        CustomerIssue,
+        SimilarityMatch,
+        Fix,
+        ResolutionEvent,
+        DiagnosticNote,
+        Commit,
     )
+
     if isinstance(node, Doc):
-        return ("'doc', $idf_project_slug, $idf_doc_path",
-                {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path})
+        return (
+            "'doc', $idf_project_slug, $idf_doc_path",
+            {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path},
+        )
     if isinstance(node, Commit):
-        return ("'commit', $idf_project_slug, $idf_sha",
-                {"idf_project_slug": node.project_slug, "idf_sha": node.sha})
+        return (
+            "'commit', $idf_project_slug, $idf_sha",
+            {"idf_project_slug": node.project_slug, "idf_sha": node.sha},
+        )
     if isinstance(node, Project):
-        return ("'project', $idf_project_slug",
-                {"idf_project_slug": node.project_slug})
+        return ("'project', $idf_project_slug", {"idf_project_slug": node.project_slug})
     if isinstance(node, Feature):
-        return ("'feature', $idf_project_slug, $idf_feature_slug",
-                {"idf_project_slug": node.project_slug, "idf_feature_slug": node.feature_slug})
+        return (
+            "'feature', $idf_project_slug, $idf_feature_slug",
+            {"idf_project_slug": node.project_slug, "idf_feature_slug": node.feature_slug},
+        )
     if isinstance(node, Module):
-        return ("'module', $idf_project_slug, $idf_module_slug",
-                {"idf_project_slug": node.project_slug, "idf_module_slug": node.module_slug})
+        return (
+            "'module', $idf_project_slug, $idf_module_slug",
+            {"idf_project_slug": node.project_slug, "idf_module_slug": node.module_slug},
+        )
     if isinstance(node, File):
-        return ("'file', $idf_project_slug, $idf_repo_path",
-                {"idf_project_slug": node.project_slug, "idf_repo_path": node.repo_path})
+        return (
+            "'file', $idf_project_slug, $idf_repo_path",
+            {"idf_project_slug": node.project_slug, "idf_repo_path": node.repo_path},
+        )
     if isinstance(node, TestFile):
-        return ("'test-file', $idf_project_slug, $idf_repo_path",
-                {"idf_project_slug": node.project_slug, "idf_repo_path": node.repo_path})
+        return (
+            "'test-file', $idf_project_slug, $idf_repo_path",
+            {"idf_project_slug": node.project_slug, "idf_repo_path": node.repo_path},
+        )
     if isinstance(node, DocSection):
-        return ("'doc-section', $idf_project_slug, $idf_doc_path, $idf_heading_slug",
-                {"idf_project_slug": node.project_slug, "idf_doc_path": node.doc_path,
-                 "idf_heading_slug": node.heading_slug})
+        return (
+            "'doc-section', $idf_project_slug, $idf_doc_path, $idf_heading_slug",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_doc_path": node.doc_path,
+                "idf_heading_slug": node.heading_slug,
+            },
+        )
     if isinstance(node, ErrorSignature):
-        return ("'error', $idf_project_slug, $idf_normalized_error",
-                {"idf_project_slug": node.project_slug,
-                 "idf_normalized_error": node.normalized_error})
+        return (
+            "'error', $idf_project_slug, $idf_normalized_error",
+            {"idf_project_slug": node.project_slug, "idf_normalized_error": node.normalized_error},
+        )
     if isinstance(node, KnownIssue):
-        return ("'known-issue', $idf_project_slug, $idf_issue_id",
-                {"idf_project_slug": node.project_slug, "idf_issue_id": node.issue_id})
+        return (
+            "'known-issue', $idf_project_slug, $idf_issue_id",
+            {"idf_project_slug": node.project_slug, "idf_issue_id": node.issue_id},
+        )
     if isinstance(node, CustomerIssue):
-        return ("'customer-issue', $idf_project_slug, $idf_source_system, $idf_ticket_id",
-                {"idf_project_slug": node.project_slug, "idf_source_system": node.source_system,
-                 "idf_ticket_id": node.ticket_id})
+        return (
+            "'customer-issue', $idf_project_slug, $idf_source_system, $idf_ticket_id",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_source_system": node.source_system,
+                "idf_ticket_id": node.ticket_id,
+            },
+        )
     if isinstance(node, SimilarityMatch):
         return (
             "'similarity-match', $idf_project_slug, $idf_customer_issue_id, $idf_known_issue_id, $idf_method",
-            {"idf_project_slug": node.project_slug,
-             "idf_customer_issue_id": node.customer_issue_id,
-             "idf_known_issue_id": node.known_issue_id,
-             "idf_method": node.method},
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_customer_issue_id": node.customer_issue_id,
+                "idf_known_issue_id": node.known_issue_id,
+                "idf_method": node.method,
+            },
         )
     if isinstance(node, Fix):
-        return ("'fix', $idf_project_slug, $idf_fix_id",
-                {"idf_project_slug": node.project_slug, "idf_fix_id": node.fix_id})
+        return (
+            "'fix', $idf_project_slug, $idf_fix_id",
+            {"idf_project_slug": node.project_slug, "idf_fix_id": node.fix_id},
+        )
     if isinstance(node, ResolutionEvent):
         return (
             "'resolution', $idf_project_slug, $idf_source_system, $idf_ticket_id, $idf_fix_id",
-            {"idf_project_slug": node.project_slug, "idf_source_system": node.source_system,
-             "idf_ticket_id": node.ticket_id, "idf_fix_id": node.fix_id},
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_source_system": node.source_system,
+                "idf_ticket_id": node.ticket_id,
+                "idf_fix_id": node.fix_id,
+            },
         )
     if isinstance(node, DiagnosticNote):
-        return ("'diagnostic-note', $idf_project_slug, $idf_note_id",
-                {"idf_project_slug": node.project_slug, "idf_note_id": node.note_id})
+        return (
+            "'diagnostic-note', $idf_project_slug, $idf_note_id",
+            {"idf_project_slug": node.project_slug, "idf_note_id": node.note_id},
+        )
     raise ValueError(f"No idFrom() scheme for node type {type(node).__name__}")

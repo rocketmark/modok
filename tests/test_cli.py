@@ -56,7 +56,9 @@ repo = "{repo_path}"
 """
 
 
-def write_config(path: Path, jar_path: str = "/fake/quine.jar", repo_path: str = "/fake/repo") -> Path:
+def write_config(
+    path: Path, jar_path: str = "/fake/quine.jar", repo_path: str = "/fake/repo"
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(MINIMAL_CONFIG.format(jar_path=jar_path, repo_path=repo_path))
     return path
@@ -68,7 +70,9 @@ def make_debug_packet() -> DebugPacket:
             summary="Tracker drops out after USB reset",
             anchors=IssueAnchors(features=["shtp-receiver"], errors=[], symptoms=[]),
         ),
-        affected_areas=[AffectedArea(type="feature", id="feature:shtp-receiver", name="shtp-receiver")],
+        affected_areas=[
+            AffectedArea(type="feature", id="feature:shtp-receiver", name="shtp-receiver")
+        ],
         relevant_files=["agent/src/shtp.c"],
         relevant_tests=[],
         known_issues=[KnownIssueRef(id="KI-001", summary="SHTP version mismatch")],
@@ -82,7 +86,9 @@ def make_clean_report() -> IngestionReport:
 
 def make_errored_report() -> IngestionReport:
     return IngestionReport(
-        docs_processed=4, nodes_written=38, edges_written=16,
+        docs_processed=4,
+        nodes_written=38,
+        edges_written=16,
         errors=["bad-doc.md: unknown feature slug 'missing-feat'"],
     )
 
@@ -102,6 +108,7 @@ def _invoke(runner, cli, args, config_path=None, env=None):
 # Config Loading
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-CFG-001
 def test_config_path_tilde_is_expanded(tmp_path):
     from click.testing import CliRunner
@@ -119,7 +126,9 @@ def test_config_path_tilde_is_expanded(tmp_path):
     # is expanded to an absolute path in the loaded config.
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
-            result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo_path)])
+            result = runner.invoke(
+                cli, ["init", "--project", "stagehand", "--repo", str(repo_path)]
+            )
     assert result.exit_code != 1 or "not found in config" not in result.output
 
 
@@ -168,6 +177,7 @@ def test_unknown_project_slug_exits_1(tmp_path):
 # Quine Startup Check
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-PING-001
 def test_quine_unreachable_exits_2_without_graph_op(tmp_path):
     from click.testing import CliRunner
@@ -193,6 +203,7 @@ def test_quine_unreachable_exits_2_without_graph_op(tmp_path):
 # ---------------------------------------------------------------------------
 # modok init
 # ---------------------------------------------------------------------------
+
 
 # @spec CLI-INIT-001
 def test_init_non_git_repo_exits_1(tmp_path):
@@ -242,24 +253,29 @@ def test_init_assisted_does_not_create_stubs(tmp_path):
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
     summary = ProposalSummary(
-        sections_processed=0, sections_failed=0,
-        docs_processed=0, docs_skipped=0,
+        sections_processed=0,
+        sections_failed=0,
+        docs_processed=0,
+        docs_skipped=0,
         entries_written={"features.yml": 0, "modules.yml": 0, "errors.yml": 0},
         failed_sections=[],
     )
     runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.install_post_commit_hook"):
-            with patch("modok.cli.commands.init.propose_registries", return_value=summary) as mock_propose:
-                runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+            with patch(
+                "modok.cli.commands.init.propose_registries", return_value=summary
+            ) as mock_propose:
+                runner.invoke(
+                    cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"]
+                )
 
     # propose_registries was called — stubs were NOT written by the CLI
     mock_propose.assert_called_once()
     # registries/ may or may not exist (proposal engine owns it), but no stub was written by CLI
     stub_written_by_cli = (
-        (repo / "registries" / "features.yml").exists() and
-        mock_propose.call_count == 0
-    )
+        repo / "registries" / "features.yml"
+    ).exists() and mock_propose.call_count == 0
     assert not stub_written_by_cli
 
 
@@ -279,7 +295,9 @@ def test_init_installs_post_commit_hook(tmp_path):
 
     mock_hook.assert_called_once()
     call_args = mock_hook.call_args
-    assert str(repo) in str(call_args) or repo in call_args.args or repo in call_args.kwargs.values()
+    assert (
+        str(repo) in str(call_args) or repo in call_args.args or repo in call_args.kwargs.values()
+    )
 
 
 # @spec CLI-INIT-004
@@ -365,6 +383,7 @@ def test_init_creates_config_when_absent(tmp_path):
 # modok ingest
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-INGEST-001
 def test_ingest_prints_report_to_stdout(tmp_path):
     from click.testing import CliRunner
@@ -413,12 +432,13 @@ def test_ingest_exits_3_on_errored_report(tmp_path):
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
             mock_cls.return_value.ping = AsyncMock(return_value=True)
-            with patch("modok.cli.commands.ingest.run_ingestion", return_value=make_errored_report()):
+            with patch(
+                "modok.cli.commands.ingest.run_ingestion", return_value=make_errored_report()
+            ):
                 with patch("modok.cli.commands.ingest.Registry"):
                     result = runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert result.exit_code == 3
-
 
 
 # @spec CLI-INGEST-005
@@ -452,6 +472,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
 # modok retrieve
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-RET-001
 def test_retrieve_ticket_looks_up_by_project_and_ticket_id(tmp_path):
     from click.testing import CliRunner
@@ -472,10 +493,16 @@ def test_retrieve_ticket_looks_up_by_project_and_ticket_id(tmp_path):
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 mock_cls.return_value.query = AsyncMock(return_value=[[fake_quine_id]])
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                    runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--ticket", "1842",
-                    ])
+                    runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--ticket",
+                            "1842",
+                        ],
+                    )
 
     assert captured_node_ids == [fake_quine_id]
 
@@ -498,10 +525,16 @@ def test_retrieve_node_id_calls_retrieve_directly(tmp_path):
             with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                    runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--node-id", "12345",
-                    ])
+                    runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--node-id",
+                            "12345",
+                        ],
+                    )
 
     assert captured_node_ids == ["12345"]
 
@@ -518,11 +551,18 @@ def test_retrieve_ticket_and_node_id_together_exits_1(tmp_path):
         with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
             mock_cls.return_value.ping = AsyncMock(return_value=True)
             with patch("modok.cli.commands.retrieve.retrieve") as mock_ret:
-                result = runner.invoke(cli, [
-                    "retrieve", "--project", "stagehand",
-                    "--ticket", "1842",
-                    "--node-id", "99",
-                ])
+                result = runner.invoke(
+                    cli,
+                    [
+                        "retrieve",
+                        "--project",
+                        "stagehand",
+                        "--ticket",
+                        "1842",
+                        "--node-id",
+                        "99",
+                    ],
+                )
 
     assert result.exit_code == 1
     mock_ret.assert_not_called()
@@ -563,10 +603,16 @@ def test_retrieve_not_found_exits_1_with_message(tmp_path):
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_not_found):
-                    result = runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--ticket", "1842",
-                    ])
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--ticket",
+                            "1842",
+                        ],
+                    )
 
     assert result.exit_code == 1
     output = result.output
@@ -590,11 +636,19 @@ def test_retrieve_graph_unavailable_exits_2(tmp_path):
             with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
-                with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_graph_unavailable):
-                    result = runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--ticket", "1842",
-                    ])
+                with patch(
+                    "modok.cli.commands.retrieve.retrieve", side_effect=raise_graph_unavailable
+                ):
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--ticket",
+                            "1842",
+                        ],
+                    )
 
     assert result.exit_code == 2
 
@@ -615,11 +669,19 @@ def test_retrieve_llm_unavailable_exits_2(tmp_path):
             with patch("modok.cli.commands.retrieve.QuineClient") as mock_cls:
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
-                with patch("modok.cli.commands.retrieve.retrieve", side_effect=raise_llm_unavailable):
-                    result = runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--ticket", "1842",
-                    ])
+                with patch(
+                    "modok.cli.commands.retrieve.retrieve", side_effect=raise_llm_unavailable
+                ):
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--ticket",
+                            "1842",
+                        ],
+                    )
 
     assert result.exit_code == 2
 
@@ -642,10 +704,16 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
                 mock_cls.return_value.ping = AsyncMock(return_value=True)
                 mock_cls.return_value.query = AsyncMock(return_value=[["fake-id"]])
                 with patch("modok.cli.commands.retrieve.retrieve", side_effect=fake_retrieve):
-                    result = runner.invoke(cli, [
-                        "retrieve", "--project", "stagehand",
-                        "--ticket", "1842",
-                    ])
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "retrieve",
+                            "--project",
+                            "stagehand",
+                            "--ticket",
+                            "1842",
+                        ],
+                    )
 
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -656,6 +724,7 @@ def test_retrieve_success_prints_json_to_stdout(tmp_path):
 # ---------------------------------------------------------------------------
 # modok recall
 # ---------------------------------------------------------------------------
+
 
 def _recall_with_results(tmp_path, runner, feature_results, extra_args=None):
     """Helper: run recall with a mocked graph result."""
@@ -678,11 +747,22 @@ def test_recall_prints_results_to_stdout(tmp_path):
     from click.testing import CliRunner
 
     runner = CliRunner()
-    result = _recall_with_results(tmp_path, runner, feature_results=[
-        [{"id": 1, "properties": {
-            "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
-        }}]
-    ])
+    result = _recall_with_results(
+        tmp_path,
+        runner,
+        feature_results=[
+            [
+                {
+                    "id": 1,
+                    "properties": {
+                        "node_type": "File",
+                        "project_slug": "stagehand",
+                        "repo_path": "agent/src/shtp.c",
+                    },
+                }
+            ]
+        ],
+    )
     assert result.exit_code == 0
     assert "shtp" in result.output.lower() or result.output.strip()
 
@@ -701,11 +781,22 @@ def test_recall_default_output_is_tabular(tmp_path):
     from click.testing import CliRunner
 
     runner = CliRunner()
-    result = _recall_with_results(tmp_path, runner, feature_results=[
-        [{"id": 1, "properties": {
-            "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
-        }}]
-    ])
+    result = _recall_with_results(
+        tmp_path,
+        runner,
+        feature_results=[
+            [
+                {
+                    "id": 1,
+                    "properties": {
+                        "node_type": "File",
+                        "project_slug": "stagehand",
+                        "repo_path": "agent/src/shtp.c",
+                    },
+                }
+            ]
+        ],
+    )
     assert result.exit_code == 0
     # Tabular output is not JSON
     try:
@@ -720,11 +811,23 @@ def test_recall_json_flag_outputs_json(tmp_path):
     from click.testing import CliRunner
 
     runner = CliRunner()
-    result = _recall_with_results(tmp_path, runner, feature_results=[
-        [{"id": 1, "properties": {
-            "node_type": "File", "project_slug": "stagehand", "repo_path": "agent/src/shtp.c"
-        }}]
-    ], extra_args=["--json"])
+    result = _recall_with_results(
+        tmp_path,
+        runner,
+        feature_results=[
+            [
+                {
+                    "id": 1,
+                    "properties": {
+                        "node_type": "File",
+                        "project_slug": "stagehand",
+                        "repo_path": "agent/src/shtp.c",
+                    },
+                }
+            ]
+        ],
+        extra_args=["--json"],
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert isinstance(parsed, dict)
@@ -741,9 +844,9 @@ def test_recall_quine_unreachable_exits_2(tmp_path):
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.recall.QuineClient") as mock_cls:
             mock_cls.return_value.ping = AsyncMock(return_value=False)
-            result = runner.invoke(cli, [
-                "recall", "--project", "stagehand", "--feature", "shtp-receiver"
-            ])
+            result = runner.invoke(
+                cli, ["recall", "--project", "stagehand", "--feature", "shtp-receiver"]
+            )
 
     assert result.exit_code == 2
 
@@ -751,6 +854,7 @@ def test_recall_quine_unreachable_exits_2(tmp_path):
 # ---------------------------------------------------------------------------
 # modok quine start
 # ---------------------------------------------------------------------------
+
 
 # @spec CLI-QS-001
 def test_quine_start_already_running_exits_0_no_spawn(tmp_path):
@@ -875,6 +979,7 @@ def test_quine_start_success_exits_0(tmp_path):
 # modok quine stop
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-QSTOP-001
 def test_quine_stop_no_pid_file_exits_1(tmp_path):
     from click.testing import CliRunner
@@ -905,8 +1010,10 @@ def test_quine_stop_dead_process_exits_2_leaves_pid_file(tmp_path):
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.quine.QUINE_PID_PATH", pid_file):
-            with patch("modok.cli.commands.quine.os.kill",
-                       side_effect=ProcessLookupError("no such process")):
+            with patch(
+                "modok.cli.commands.quine.os.kill",
+                side_effect=ProcessLookupError("no such process"),
+            ):
                 result = runner.invoke(cli, ["quine", "stop"])
 
     assert result.exit_code == 2
@@ -962,6 +1069,7 @@ def test_quine_stop_timeout_exits_2_leaves_pid_file(tmp_path):
 # modok quine status
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-QSTAT-001
 def test_quine_status_running_prints_running(tmp_path):
     from click.testing import CliRunner
@@ -1000,6 +1108,7 @@ def test_quine_status_stopped_prints_stopped(tmp_path):
 # modok init --assisted  (CLI-INIT-008 through CLI-INIT-011)
 # ---------------------------------------------------------------------------
 
+
 # @spec CLI-INIT-008
 def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
     from click.testing import CliRunner
@@ -1011,8 +1120,10 @@ def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
     (repo / ".git").mkdir()
     config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
     summary = ProposalSummary(
-        sections_processed=5, sections_failed=0,
-        docs_processed=2, docs_skipped=0,
+        sections_processed=5,
+        sections_failed=0,
+        docs_processed=2,
+        docs_skipped=0,
         entries_written={"features.yml": 3, "modules.yml": 2, "errors.yml": 1},
         failed_sections=[],
     )
@@ -1029,13 +1140,18 @@ def test_init_assisted_delegates_to_propose_registries_before_hook(tmp_path):
     runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         with patch("modok.cli.commands.init.propose_registries", side_effect=recording_propose):
-            with patch("modok.cli.commands.init.install_post_commit_hook", side_effect=recording_hook):
-                runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+            with patch(
+                "modok.cli.commands.init.install_post_commit_hook", side_effect=recording_hook
+            ):
+                runner.invoke(
+                    cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"]
+                )
 
     assert "propose" in call_order, "propose_registries must be called with --assisted"
     assert "hook" in call_order, "install_post_commit_hook must still be called"
-    assert call_order.index("propose") < call_order.index("hook"), \
+    assert call_order.index("propose") < call_order.index("hook"), (
         "propose_registries must run before install_post_commit_hook"
+    )
 
 
 # @spec CLI-INIT-009
@@ -1051,9 +1167,13 @@ def test_init_assisted_exits_2_when_llm_unreachable(tmp_path):
     runner = CliRunner()
 
     with patch("modok.cli.config.CONFIG_PATH", config_path):
-        with patch("modok.cli.commands.init.propose_registries",
-                   side_effect=LLMUnavailableError("Ollama not running")):
-            result = runner.invoke(cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"])
+        with patch(
+            "modok.cli.commands.init.propose_registries",
+            side_effect=LLMUnavailableError("Ollama not running"),
+        ):
+            result = runner.invoke(
+                cli, ["init", "--project", "stagehand", "--repo", str(repo), "--assisted"]
+            )
 
     assert result.exit_code == 2
     output = result.output

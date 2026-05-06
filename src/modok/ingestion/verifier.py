@@ -22,7 +22,7 @@ _ENUM_VALUES: dict[str, set[str]] = {
 # Slug fields and their registry lookup
 _SLUG_CHECKS = {
     "feature_slug": ("has_feature", "feature_slugs"),
-    "feature":      ("has_feature", "feature_slugs"),
+    "feature": ("has_feature", "feature_slugs"),
 }
 _MODULE_SLUG_LIST_FIELDS = {"modules"}
 _ERROR_SLUG_LIST_FIELDS = {"error_signatures"}
@@ -80,59 +80,68 @@ def verify_proposal(
     evidence_failure = _check_evidence(proposal.evidence)
     if evidence_failure:
         for key, val in proposal.proposed_fields.items():
-            rejected.append(RejectedField(
-                field=key,
-                bad_value=val,
-                reason=evidence_failure,
-                repair_instruction="Provide a specific, non-generic evidence sentence (≥15 characters) quoting or paraphrasing the document body.",
-            ))
+            rejected.append(
+                RejectedField(
+                    field=key,
+                    bad_value=val,
+                    reason=evidence_failure,
+                    repair_instruction="Provide a specific, non-generic evidence sentence (≥15 characters) quoting or paraphrasing the document body.",
+                )
+            )
         return VerificationResult(valid_fields={}, rejected_fields=rejected, is_valid=False)
 
     missing_set = set(missing_fields)
 
     for key, val in proposal.proposed_fields.items():
-
         # VER-001: field must be in missing_fields
         if key not in missing_set:
-            rejected.append(RejectedField(
-                field=key,
-                bad_value=val,
-                reason="field was not requested in missing_fields",
-                repair_instruction="Only propose fields listed in missing_fields.",
-            ))
+            rejected.append(
+                RejectedField(
+                    field=key,
+                    bad_value=val,
+                    reason="field was not requested in missing_fields",
+                    repair_instruction="Only propose fields listed in missing_fields.",
+                )
+            )
             continue
 
         # VER-002: must not overwrite existing frontmatter
         if key in existing_frontmatter:
-            rejected.append(RejectedField(
-                field=key,
-                bad_value=val,
-                reason=f"would overwrite existing frontmatter field '{key}'",
-                repair_instruction="Do not propose values for fields that already exist.",
-            ))
+            rejected.append(
+                RejectedField(
+                    field=key,
+                    bad_value=val,
+                    reason=f"would overwrite existing frontmatter field '{key}'",
+                    repair_instruction="Do not propose values for fields that already exist.",
+                )
+            )
             continue
 
         # VER-007: empty values not permitted
         if val is None or val == "" or val == []:
-            rejected.append(RejectedField(
-                field=key,
-                bad_value=val,
-                reason="empty value not permitted",
-                repair_instruction="Provide a non-empty value or omit the field.",
-            ))
+            rejected.append(
+                RejectedField(
+                    field=key,
+                    bad_value=val,
+                    reason="empty value not permitted",
+                    repair_instruction="Provide a non-empty value or omit the field.",
+                )
+            )
             continue
 
         # VER-005: enum check
         if key in _ENUM_VALUES:
             allowed = _ENUM_VALUES[key]
             if val not in allowed:
-                rejected.append(RejectedField(
-                    field=key,
-                    bad_value=val,
-                    reason=f"value {val!r} is not a known enum value for '{key}'",
-                    repair_instruction="Use one of the allowed values.",
-                    allowed_values=sorted(allowed),
-                ))
+                rejected.append(
+                    RejectedField(
+                        field=key,
+                        bad_value=val,
+                        reason=f"value {val!r} is not a known enum value for '{key}'",
+                        repair_instruction="Use one of the allowed values.",
+                        allowed_values=sorted(allowed),
+                    )
+                )
                 continue
 
         # VER-004: single slug fields
@@ -140,59 +149,69 @@ def verify_proposal(
             has_method, slugs_method = _SLUG_CHECKS[key]
             if not getattr(registry, has_method)(val):
                 allowed = getattr(registry, slugs_method, lambda: [])()
-                rejected.append(RejectedField(
-                    field=key,
-                    bad_value=val,
-                    reason=f"slug {val!r} not found in registry",
-                    repair_instruction="Choose a slug that exists in the feature registry, or omit the field.",
-                    allowed_values=list(allowed),
-                ))
+                rejected.append(
+                    RejectedField(
+                        field=key,
+                        bad_value=val,
+                        reason=f"slug {val!r} not found in registry",
+                        repair_instruction="Choose a slug that exists in the feature registry, or omit the field.",
+                        allowed_values=list(allowed),
+                    )
+                )
                 continue
 
         # List field checks
         if key in _LIST_STR_FIELDS:
             # VER-003: must be a list
             if not isinstance(val, list):
-                rejected.append(RejectedField(
-                    field=key,
-                    bad_value=val,
-                    reason=f"expected a list, got {type(val).__name__}",
-                    repair_instruction="Provide a YAML list, not a scalar.",
-                ))
+                rejected.append(
+                    RejectedField(
+                        field=key,
+                        bad_value=val,
+                        reason=f"expected a list, got {type(val).__name__}",
+                        repair_instruction="Provide a YAML list, not a scalar.",
+                    )
+                )
                 continue
 
             # VER-006: no duplicates
             if len(val) != len(set(val)):
-                rejected.append(RejectedField(
-                    field=key,
-                    bad_value=val,
-                    reason="list contains duplicates",
-                    repair_instruction="Remove duplicate entries from the list.",
-                ))
+                rejected.append(
+                    RejectedField(
+                        field=key,
+                        bad_value=val,
+                        reason="list contains duplicates",
+                        repair_instruction="Remove duplicate entries from the list.",
+                    )
+                )
                 continue
 
             # VER-004: module slug validation
             if key in _MODULE_SLUG_LIST_FIELDS:
                 bad_slugs = [s for s in val if not registry.has_module(s)]
                 if bad_slugs:
-                    rejected.append(RejectedField(
-                        field=key,
-                        bad_value=val,
-                        reason=f"unknown module slugs: {bad_slugs}",
-                        repair_instruction="Use only slugs present in the module registry.",
-                    ))
+                    rejected.append(
+                        RejectedField(
+                            field=key,
+                            bad_value=val,
+                            reason=f"unknown module slugs: {bad_slugs}",
+                            repair_instruction="Use only slugs present in the module registry.",
+                        )
+                    )
                     continue
 
             # VER-004: error signature slug validation
             if key in _ERROR_SLUG_LIST_FIELDS:
                 bad_slugs = [s for s in val if not registry.has_error(s)]
                 if bad_slugs:
-                    rejected.append(RejectedField(
-                        field=key,
-                        bad_value=val,
-                        reason=f"unknown error signature slugs: {bad_slugs}",
-                        repair_instruction="Use only slugs present in the error registry.",
-                    ))
+                    rejected.append(
+                        RejectedField(
+                            field=key,
+                            bad_value=val,
+                            reason=f"unknown error signature slugs: {bad_slugs}",
+                            repair_instruction="Use only slugs present in the error registry.",
+                        )
+                    )
                     continue
 
         valid_fields[key] = val

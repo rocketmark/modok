@@ -1,5 +1,6 @@
 # @spec IA-DEDUP-001, IA-DEDUP-002, IA-DEDUP-003, IA-DEDUP-004, IA-LLM-006
 """Deduplication pass for module candidates."""
+
 from __future__ import annotations
 
 import sys
@@ -18,15 +19,8 @@ def build_inverted_index(modules: dict) -> dict[str, list[str]]:
 
 def find_duplicate_pairs(modules: dict) -> list[tuple[str, str]]:
     """Return all slug pairs whose source_files frozensets are identical."""
-    file_sets = {
-        slug: frozenset(entry.get("source_files", []))
-        for slug, entry in modules.items()
-    }
-    return [
-        (a, b)
-        for a, b in combinations(file_sets.keys(), 2)
-        if file_sets[a] == file_sets[b]
-    ]
+    file_sets = {slug: frozenset(entry.get("source_files", [])) for slug, entry in modules.items()}
+    return [(a, b) for a, b in combinations(file_sets.keys(), 2) if file_sets[a] == file_sets[b]]
 
 
 def check_subset_pairs(modules: dict) -> None:
@@ -52,10 +46,7 @@ def check_subset_pairs(modules: dict) -> None:
 def check_shared_files(modules: dict) -> None:
     """Warn when a source file is claimed by multiple non-duplicate modules."""
     index = build_inverted_index(modules)
-    file_sets = {
-        slug: frozenset(entry.get("source_files", []))
-        for slug, entry in modules.items()
-    }
+    file_sets = {slug: frozenset(entry.get("source_files", [])) for slug, entry in modules.items()}
     warned: set[str] = set()
     for file_path, slugs in index.items():
         if len(slugs) <= 1:

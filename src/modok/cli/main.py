@@ -33,14 +33,14 @@ def _run_status() -> None:
     if reachable:
         click.echo(f"Quine:    running at {config.quine.url}")
         try:
-            count_rows = asyncio.run(client.query(
-                "MATCH (n) RETURN count(n) AS total", {}
-            ))
+            count_rows = asyncio.run(client.query("MATCH (n) RETURN count(n) AS total", {}))
             total = count_rows[0][0] if count_rows and count_rows[0] else 0
 
-            type_rows = asyncio.run(client.query(
-                "MATCH (n) RETURN DISTINCT n.node_type, count(n) ORDER BY n.node_type", {}
-            ))
+            type_rows = asyncio.run(
+                client.query(
+                    "MATCH (n) RETURN DISTINCT n.node_type, count(n) ORDER BY n.node_type", {}
+                )
+            )
             click.echo(f"Nodes:    {total} total")
             for row in type_rows:
                 if not row or len(row) < 2:

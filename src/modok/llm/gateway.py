@@ -27,8 +27,10 @@ from modok.quine.models import CustomerIssue
 # Config
 # ---------------------------------------------------------------------------
 
+
 def _load_config() -> dict:
     import tomllib
+
     config_path = Path.home() / ".modok" / "config.toml"
     if not config_path.exists():
         return {}
@@ -53,7 +55,9 @@ def _check_remote_config(cfg: dict) -> tuple[str, str, str]:
     endpoint = cfg.get("remote_endpoint", "")
     model = cfg.get("remote_model", "")
     if not endpoint or not model:
-        raise LLMConfigError("remote_endpoint and remote_model must be configured for remote backend")
+        raise LLMConfigError(
+            "remote_endpoint and remote_model must be configured for remote backend"
+        )
     api_key = _resolve_api_key(cfg)
     if not api_key:
         raise LLMConfigError(
@@ -65,6 +69,7 @@ def _check_remote_config(cfg: dict) -> tuple[str, str, str]:
 # ---------------------------------------------------------------------------
 # JSON extraction fallback
 # ---------------------------------------------------------------------------
+
 
 def _extract_json(raw: str) -> dict | None:
     """Attempt to extract a JSON object from raw text using bracket counting.
@@ -112,11 +117,13 @@ def _extract_json(raw: str) -> dict | None:
 # Core HTTP calls
 # ---------------------------------------------------------------------------
 
+
 def _check_response_status(resp: httpx.Response) -> None:
     if resp.status_code >= 500:
         raise LLMUnavailableError(f"Server error {resp.status_code}")
     if resp.status_code >= 400:
         raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
+
 
 async def _ollama_chat_completion(
     messages: list[dict],
@@ -197,6 +204,7 @@ async def _chat_completion(
 # ---------------------------------------------------------------------------
 # Retry + backend selection
 # ---------------------------------------------------------------------------
+
 
 async def _call_with_retry(
     messages: list[dict],
@@ -348,10 +356,20 @@ async def _call_auto(
 # Validators
 # ---------------------------------------------------------------------------
 
+
 def _validate_ticket(data: dict, raw: str) -> TicketParseResult:
-    expected = {"feature_slugs", "feature_slug", "error_signatures", "environment", "symptoms", "confidence"}
+    expected = {
+        "feature_slugs",
+        "feature_slug",
+        "error_signatures",
+        "environment",
+        "symptoms",
+        "confidence",
+    }
     if not expected.intersection(data.keys()):
-        raise ValueError(f"response contains none of the expected ticket fields: {list(data.keys())}")
+        raise ValueError(
+            f"response contains none of the expected ticket fields: {list(data.keys())}"
+        )
     # Accept both new list form and legacy single-slug form
     raw_slugs = data.get("feature_slugs") or []
     if not isinstance(raw_slugs, list):
@@ -407,6 +425,7 @@ def _validate_summary(data: dict, raw: str) -> str:
 # ---------------------------------------------------------------------------
 # Synchronous enrich calls (registry proposal — sequential, no asyncio)
 # ---------------------------------------------------------------------------
+
 
 def _ollama_enrich_call(
     messages: list[dict],
@@ -494,6 +513,7 @@ def _openai_enrich_call(
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
+
 
 def enrich_section(section: Any, cfg_llm: Any) -> Any:
     # @spec RP-ENRICH-001, RP-ENRICH-005, RP-ENRICH-006, RP-ENRICH-007, RP-ENRICH-008
@@ -647,7 +667,6 @@ async def parse_ticket(
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_parse_ticket")
     max_retries = int(cfg.get("max_retries", 2))
-    num_ctx = int(cfg.get("num_ctx", 8192))
 
     # Truncate long tickets — anchor information is in the summary/header.
     # File listings in ticket bodies are already handled by _pre_match_modules.
@@ -664,21 +683,34 @@ async def parse_ticket(
         elems = (module_elements or {}).get(slug, [])
         files_str = f"; files: {', '.join(files[:10])}" if files else ""
         elems_str = f"; code: {', '.join(elems)}" if elems else ""
-        return f"  - {slug}: {desc}{files_str}{elems_str}" if (desc or files_str or elems_str) else f"  - {slug}"
+        return (
+            f"  - {slug}: {desc}{files_str}{elems_str}"
+            if (desc or files_str or elems_str)
+            else f"  - {slug}"
+        )
 
-    feature_slug_list = "\n".join(_fmt_feature(s) for s in (feature_slugs or [])) or "  (none registered)"
-    module_slug_list = "\n".join(_fmt_module(s) for s in (module_slugs or [])) or "  (none registered)"
+    feature_slug_list = (
+        "\n".join(_fmt_feature(s) for s in (feature_slugs or [])) or "  (none registered)"
+    )
+    module_slug_list = (
+        "\n".join(_fmt_module(s) for s in (module_slugs or [])) or "  (none registered)"
+    )
     messages = [
-        {"role": "system", "content": prompts.PARSE_TICKET_SYSTEM.format(
-            project_slug=project_slug,
-            feature_slug_list=feature_slug_list,
-            module_slug_list=module_slug_list,
-        )},
+        {
+            "role": "system",
+            "content": prompts.PARSE_TICKET_SYSTEM.format(
+                project_slug=project_slug,
+                feature_slug_list=feature_slug_list,
+                module_slug_list=module_slug_list,
+            ),
+        },
         {"role": "user", "content": f"<ticket>\n{raw_text}\n</ticket>"},
     ]
     response_format = {"type": "json_object"}
 
-    result = await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_ticket, max_retries)
+    result = await _dispatch_async(
+        messages, response_format, timeout, cfg, backend, _validate_ticket, max_retries
+    )
     if valid_slugs:
         result.feature_slugs = [s for s in result.feature_slugs if s in valid_slugs]
     return result
@@ -702,15 +734,22 @@ async def propose_metadata(
     )
     if repair_context:
         import yaml as _yaml
+
         user_content += f"\n\nCounterexamples from previous attempt:\n{_yaml.dump(repair_context, default_flow_style=False)}"
-    system = prompts.PROPOSE_METADATA_REPAIR_SYSTEM if repair_context else prompts.PROPOSE_METADATA_SYSTEM
+    system = (
+        prompts.PROPOSE_METADATA_REPAIR_SYSTEM
+        if repair_context
+        else prompts.PROPOSE_METADATA_SYSTEM
+    )
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]
     response_format = {"type": "json_object"}
 
-    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_metadata, max_retries)
+    return await _dispatch_async(
+        messages, response_format, timeout, cfg, backend, _validate_metadata, max_retries
+    )
 
 
 async def propose_similarity(
@@ -729,17 +768,16 @@ async def propose_similarity(
         f"- id: {c.known_issue_id}\n  summary: {c.summary}\n  errors: {c.error_signatures}"
         for c in candidates
     )
-    user_content = (
-        f"Customer issue: {issue.summary}\n\n"
-        f"Known issues:\n{candidates_text}"
-    )
+    user_content = f"Customer issue: {issue.summary}\n\nKnown issues:\n{candidates_text}"
     messages = [
         {"role": "system", "content": prompts.PROPOSE_SIMILARITY_SYSTEM},
         {"role": "user", "content": user_content},
     ]
     response_format = {"type": "json_object"}
 
-    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_similarity, max_retries)
+    return await _dispatch_async(
+        messages, response_format, timeout, cfg, backend, _validate_similarity, max_retries
+    )
 
 
 # @spec LLM-SUMM-001, LLM-SUMM-002, LLM-SUMM-003, LLM-SUMM-004
@@ -758,15 +796,18 @@ async def summarise_packet(
     cfg = _load_config()
     timeout = _get_timeout(cfg, "timeout_summarise_packet")
     max_retries = int(cfg.get("max_retries", 2))
-    num_ctx = int(cfg.get("num_ctx", 8192))
 
     modules_line = ", ".join(module_slugs) if module_slugs else "unknown"
     files_block = "\n".join(f"  {f}" for f in relevant_files) if relevant_files else "  (none)"
     tests_block = "\n".join(f"  {f}" for f in relevant_tests) if relevant_tests else "  (none)"
-    commits_block = "\n".join(
-        f"  {c.get('timestamp', '')[:10]}  {c.get('author_name', '')}:  {c.get('message', '')}"
-        for c in recent_commits[:5]
-    ) if recent_commits else "  (none)"
+    commits_block = (
+        "\n".join(
+            f"  {c.get('timestamp', '')[:10]}  {c.get('author_name', '')}:  {c.get('message', '')}"
+            for c in recent_commits[:5]
+        )
+        if recent_commits
+        else "  (none)"
+    )
     errors_line = "; ".join(error_signatures) if error_signatures else "(none)"
     symptoms_line = "; ".join(symptoms) if symptoms else "(none)"
     issues_line = "; ".join(known_issues) if known_issues else "none"
@@ -789,4 +830,6 @@ async def summarise_packet(
     ]
     response_format = {"type": "json_object"}
 
-    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_summary, max_retries)
+    return await _dispatch_async(
+        messages, response_format, timeout, cfg, backend, _validate_summary, max_retries
+    )

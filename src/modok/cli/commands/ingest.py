@@ -32,12 +32,14 @@ def ingest_cmd(project: str, ticket_file: str | None) -> None:
 
     repo_root = Path(proj.repo)
     registry = Registry(repo_root)
-    report = asyncio.run(run_ingestion(
-        repo_root=repo_root,
-        registry=registry,
-        client=client,
-        project_slug=project,
-    ))
+    report = asyncio.run(
+        run_ingestion(
+            repo_root=repo_root,
+            registry=registry,
+            client=client,
+            project_slug=project,
+        )
+    )
     click.echo(str(report))
     if report.errors:
         raise SystemExit(3)
@@ -73,5 +75,3 @@ def _ingest_customer_ticket(path: Path, project_slug: str, client: QuineClient) 
     )
     asyncio.run(client.upsert_node(node))
     click.echo(f"Ingested customer ticket {ticket_id} (source: {source_system})")
-
-

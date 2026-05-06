@@ -4,6 +4,7 @@ Each test loads a YAML scenario and asserts that real MODOK and the
 reference model agree on the debug packet contents.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

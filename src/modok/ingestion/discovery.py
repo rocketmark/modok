@@ -9,9 +9,18 @@ import yaml
 if TYPE_CHECKING:
     from modok.ingestion.registry import Registry
 
-IGNORE_DIR_NAMES = frozenset([
-    ".git", "node_modules", "bin", "obj", "dist", "build", "coverage", ".vs",
-])
+IGNORE_DIR_NAMES = frozenset(
+    [
+        ".git",
+        "node_modules",
+        "bin",
+        "obj",
+        "dist",
+        "build",
+        "coverage",
+        ".vs",
+    ]
+)
 
 IGNORE_SUFFIXES = frozenset([".key", ".pem", ".pfx"])
 IGNORE_NAMES = frozenset([".env"])
@@ -98,7 +107,11 @@ def discover_docs(
             rel_path = entry.get(field_name)
             if not rel_path:
                 continue
-            abs_path = (repo_root / rel_path).resolve() if not Path(rel_path).is_absolute() else Path(rel_path)
+            abs_path = (
+                (repo_root / rel_path).resolve()
+                if not Path(rel_path).is_absolute()
+                else Path(rel_path)
+            )
             abs_path = repo_root / rel_path
             rec = DocRecord(
                 path=abs_path,
@@ -138,10 +151,16 @@ def discover_docs(
 
         # Explicit unregistered declaration — no warning
         if fm.get("doc_type") == "unregistered":
-            unregistered.append(DocRecord(
-                path=path, doc_type="unregistered", feature=None,
-                tier=3, is_unregistered=True, warned=False,
-            ))
+            unregistered.append(
+                DocRecord(
+                    path=path,
+                    doc_type="unregistered",
+                    feature=None,
+                    tier=3,
+                    is_unregistered=True,
+                    warned=False,
+                )
+            )
             continue
 
         # Tier 2: path + stem inference
@@ -165,21 +184,29 @@ def discover_docs(
             final_feature = inferred_feature
 
         if final_feature and registry.has_feature(final_feature):
-            registered.append(DocRecord(
-                path=path,
-                doc_type=final_doc_type or "hld",
-                feature=final_feature,
-                tier=2,
-                modules=list(registry.modules_for_feature(final_feature)),
-                source_files=list(registry.source_files_for_feature(final_feature)),
-                test_files=list(registry.test_files_for_feature(final_feature)),
-            ))
+            registered.append(
+                DocRecord(
+                    path=path,
+                    doc_type=final_doc_type or "hld",
+                    feature=final_feature,
+                    tier=2,
+                    modules=list(registry.modules_for_feature(final_feature)),
+                    source_files=list(registry.source_files_for_feature(final_feature)),
+                    test_files=list(registry.test_files_for_feature(final_feature)),
+                )
+            )
         else:
             # Tier 3: inferred slug not in registry → unregistered with warning
-            unregistered.append(DocRecord(
-                path=path, doc_type="unregistered", feature=None,
-                tier=3, is_unregistered=True, warned=True,
-            ))
+            unregistered.append(
+                DocRecord(
+                    path=path,
+                    doc_type="unregistered",
+                    feature=None,
+                    tier=3,
+                    is_unregistered=True,
+                    warned=True,
+                )
+            )
 
     return registered, unregistered, ignored_count
 

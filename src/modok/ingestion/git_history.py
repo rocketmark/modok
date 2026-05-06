@@ -21,21 +21,22 @@ from typing import Any
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class HunkRecord:
-    lines: tuple[int, int]        # [new_start, new_end] in post-patch file (1-indexed)
+    lines: tuple[int, int]  # [new_start, new_end] in post-patch file (1-indexed)
     function_context: str | None  # text git extracted from the @@ header (heuristic)
-    added_defs: list[str]         # function/method names first defined in this hunk
+    added_defs: list[str]  # function/method names first defined in this hunk
 
 
 @dataclass
 class CommitRecord:
     sha: str
-    timestamp: str         # ISO-8601 author date
+    timestamp: str  # ISO-8601 author date
     author_name: str
     author_email: str
-    message: str           # first line only, max 120 chars
-    branch: str | None     # branch name at ingest time; None if detached HEAD
+    message: str  # first line only, max 120 chars
+    branch: str | None  # branch name at ingest time; None if detached HEAD
     touched_files: list[tuple[str, str]] = field(default_factory=list)  # (path, change_type)
     file_hunks: dict[str, list[HunkRecord]] = field(default_factory=dict)  # path → hunks
 
@@ -43,6 +44,7 @@ class CommitRecord:
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_commit_log(log_output: str) -> list[CommitRecord]:
     """Parse git log output in COMMIT-delimited format.
@@ -100,15 +102,17 @@ def parse_commit_log(log_output: str) -> list[CommitRecord]:
                     touched.append((file_path, change_type))
             i += 1
 
-        records.append(CommitRecord(
-            sha=sha,
-            timestamp=timestamp,
-            author_name=author_name,
-            author_email=author_email,
-            message=message,
-            branch=None,
-            touched_files=touched,
-        ))
+        records.append(
+            CommitRecord(
+                sha=sha,
+                timestamp=timestamp,
+                author_name=author_name,
+                author_email=author_email,
+                message=message,
+                branch=None,
+                touched_files=touched,
+            )
+        )
 
     return records
 
@@ -116,6 +120,7 @@ def parse_commit_log(log_output: str) -> list[CommitRecord]:
 # ---------------------------------------------------------------------------
 # Registered file set
 # ---------------------------------------------------------------------------
+
 
 def build_registered_file_set(
     features: dict,
@@ -156,6 +161,7 @@ def build_registered_file_set(
 # Git command builder
 # ---------------------------------------------------------------------------
 
+
 def _build_git_log_command(
     registered_files: set[str] | frozenset[str],
     since_sha: str | None = None,
@@ -165,7 +171,8 @@ def _build_git_log_command(
 ) -> list[str]:
     """Build the git log command for commit discovery."""
     cmd = [
-        "git", "log",
+        "git",
+        "log",
         "--format=COMMIT %H%n%aI%n%aN%n%aE%n%s",
         "--name-status",
         "--diff-filter=ACMR",
@@ -192,17 +199,17 @@ def _build_git_log_command(
 
 # Matches the +new_start[,new_count] portion of a @@ hunk header, plus any
 # trailing function-context text that git extracts with its own heuristics.
-_HUNK_HEADER_RE = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@[ \t]*(.*)')
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@[ \t]*(.*)")
 
 # Detects function/method definition lines across Python, JS/TS, Go, and Rust.
 # Applied to each `+` line (leading whitespace stripped) to find new definitions.
 _FUNC_DEF_RE = re.compile(
-    r'^(?:'
-    r'(?:async\s+)?def\s+(\w+)'                                    # Python
-    r'|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)'  # JS/TS
-    r'|func\s+(?:\(\w[^)]*\)\s+)?(\w+)'                           # Go (with optional receiver)
-    r'|(?:pub(?:\s+\w+)?\s+)?fn\s+(\w+)'                          # Rust
-    r')\s*[(<\[]',
+    r"^(?:"
+    r"(?:async\s+)?def\s+(\w+)"  # Python
+    r"|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)"  # JS/TS
+    r"|func\s+(?:\(\w[^)]*\)\s+)?(\w+)"  # Go (with optional receiver)
+    r"|(?:pub(?:\s+\w+)?\s+)?fn\s+(\w+)"  # Rust
+    r")\s*[(<\[]",
     re.ASCII,
 )
 
@@ -236,7 +243,7 @@ def _parse_diff(diff_output: str) -> dict[str, list[HunkRecord]]:
     in_hunk = False
 
     for line in diff_output.splitlines():
-        if line.startswith('diff --git '):
+        if line.startswith("diff --git "):
             if in_hunk:
                 pending_hunks.append(_make_hunk(hunk_start, hunk_end, func_ctx, added_lines))
                 in_hunk = False
@@ -245,11 +252,11 @@ def _parse_diff(diff_output: str) -> dict[str, list[HunkRecord]]:
             current_file = None
             pending_hunks = []
             added_lines = []
-        elif line.startswith('+++ b/'):
+        elif line.startswith("+++ b/"):
             current_file = line[6:]
-        elif line.startswith('+++ /dev/null'):
+        elif line.startswith("+++ /dev/null"):
             current_file = None
-        elif line.startswith('@@ '):
+        elif line.startswith("@@ "):
             if in_hunk:
                 pending_hunks.append(_make_hunk(hunk_start, hunk_end, func_ctx, added_lines))
             added_lines = []
@@ -264,7 +271,7 @@ def _parse_diff(diff_output: str) -> dict[str, list[HunkRecord]]:
                 in_hunk = True
             else:
                 in_hunk = False
-        elif line.startswith('+') and not line.startswith('+++'):
+        elif line.startswith("+") and not line.startswith("+++"):
             if in_hunk:
                 added_lines.append(line[1:])
 
@@ -279,7 +286,7 @@ def _parse_diff(diff_output: str) -> dict[str, list[HunkRecord]]:
 def get_diff_hunks(sha: str, repo_root: Path) -> dict[str, list[HunkRecord]]:
     """Return parsed hunk records for every file touched by a commit."""
     result = subprocess.run(
-        ['git', 'diff-tree', '--no-commit-id', '-r', '--unified=0', '-p', sha],
+        ["git", "diff-tree", "--no-commit-id", "-r", "--unified=0", "-p", sha],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -292,6 +299,7 @@ def get_diff_hunks(sha: str, repo_root: Path) -> dict[str, list[HunkRecord]]:
 # ---------------------------------------------------------------------------
 # Git subprocess helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_git_log(cmd: list[str], repo_root: Path | None = None) -> str:
     result = subprocess.run(
@@ -333,6 +341,7 @@ def _get_current_branch(repo_root: Path) -> str | None:
 # Config persistence
 # ---------------------------------------------------------------------------
 
+
 def load_last_git_sha(config: dict, project_slug: str) -> str | None:
     """Read last_git_sha for a project from an in-memory config dict."""
     for project in config.get("projects", []):
@@ -341,7 +350,9 @@ def load_last_git_sha(config: dict, project_slug: str) -> str | None:
     return None
 
 
-def _update_project_config_field(config_path: Path, project_slug: str, key: str, value: str) -> None:
+def _update_project_config_field(
+    config_path: Path, project_slug: str, key: str, value: str
+) -> None:
     """Update or insert a single key in a [[projects]] TOML block identified by slug.
 
     Edits the file in-place. If the project block does not exist, appends a minimal one.
@@ -409,6 +420,7 @@ def save_last_git_sha(config_path: Path, project_slug: str, sha: str) -> None:
 # Quine write
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-GIT-002, SI-GIT-003
 async def write_commit_to_quine(
     commit: CommitRecord,
@@ -419,14 +431,20 @@ async def write_commit_to_quine(
     from modok.quine.models import Commit as CommitNode, File as FileNode, TestFile as TestFileNode
     from modok.retrieval.engine import _is_test_path
 
-    file_hunks_json = json.dumps({
-        file_path: [
-            {"lines": list(h.lines), "function": h.function_context, "defs": h.added_defs}
-            for h in hunks
-        ]
-        for file_path, hunks in commit.file_hunks.items()
-        if hunks
-    }) if commit.file_hunks else ""
+    file_hunks_json = (
+        json.dumps(
+            {
+                file_path: [
+                    {"lines": list(h.lines), "function": h.function_context, "defs": h.added_defs}
+                    for h in hunks
+                ]
+                for file_path, hunks in commit.file_hunks.items()
+                if hunks
+            }
+        )
+        if commit.file_hunks
+        else ""
+    )
 
     commit_node = CommitNode(
         node_type="Commit",
@@ -445,7 +463,9 @@ async def write_commit_to_quine(
         # SI-GIT-003: upsert a minimal node so the TOUCHES edge always resolves,
         # even when ingest-docs hasn't run yet for this file's feature.
         if _is_test_path(file_path):
-            node = TestFileNode(node_type="TestFile", project_slug=project_slug, repo_path=file_path)
+            node = TestFileNode(
+                node_type="TestFile", project_slug=project_slug, repo_path=file_path
+            )
             await client.upsert_node(node)
             await client.write_edge_by_parts(
                 ("commit", project_slug, commit.sha),
@@ -465,6 +485,7 @@ async def write_commit_to_quine(
 # ---------------------------------------------------------------------------
 # Main ingestion entry point
 # ---------------------------------------------------------------------------
+
 
 async def ingest_git(
     project_slug: str,
@@ -492,6 +513,7 @@ async def ingest_git(
     arrow_index: dict = {}
     if arrow_index_path.exists():
         import yaml
+
         arrow_index = yaml.safe_load(arrow_index_path.read_text()) or {}
 
     registered_files = build_registered_file_set(features_raw, arrow_index, doc_paths=doc_paths)

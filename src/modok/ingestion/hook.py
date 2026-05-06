@@ -27,7 +27,9 @@ modok ingest-git --project {project_slug}
 """
 
 
-def install_post_commit_hook(repo_root: Path, project_slug: str, ingestion_paths: list[str]) -> None:
+def install_post_commit_hook(
+    repo_root: Path, project_slug: str, ingestion_paths: list[str]
+) -> None:
     hook_path = repo_root / ".git" / "hooks" / "post-commit"
     new_section = hook_content(project_slug, ingestion_paths)
 
@@ -36,7 +38,7 @@ def install_post_commit_hook(repo_root: Path, project_slug: str, ingestion_paths
         if MODOK_HOOK_START in existing:
             # Replace existing MODOK section
             before = existing[: existing.index(MODOK_HOOK_START)]
-            after_marker = existing[existing.index(MODOK_HOOK_END) + len(MODOK_HOOK_END):]
+            after_marker = existing[existing.index(MODOK_HOOK_END) + len(MODOK_HOOK_END) :]
             content = before + new_section + after_marker
         else:
             content = existing.rstrip("\n") + "\n" + new_section
@@ -47,5 +49,3 @@ def install_post_commit_hook(repo_root: Path, project_slug: str, ingestion_paths
     # Ensure executable
     current = hook_path.stat().st_mode
     hook_path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-

@@ -9,6 +9,7 @@ All tests written before implementation (Phase 5). Tests cite specs via @spec an
   RP-NORM-001  — candidates are deduplicated by exact string before writing to .raw.yml
   RP-WRITE-006 — every written registry file is valid YAML
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -38,6 +39,7 @@ slug_safe_words = st.text(
 # ---------------------------------------------------------------------------
 # RP-PARSE-006 — parse_sections is pure; never calls LLM
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-PARSE-006
 @given(content=st.text(min_size=0, max_size=2000))
@@ -97,6 +99,7 @@ def test_parse_sections_has_no_side_effects_on_filesystem(tmp_path, content):
 # RP-SLUG-002 — slugify is a pure function
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-SLUG-002
 @given(text=st.text(min_size=0, max_size=100))
 @settings(max_examples=300)
@@ -137,6 +140,7 @@ def test_slugify_has_no_side_effects(text):
 # ---------------------------------------------------------------------------
 # RP-SLUG-003 — identical lowercased names → merge, keep longer original
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-SLUG-003
 @given(
@@ -202,6 +206,7 @@ def test_slug_collision_whitespace_only_difference_merges(name, extra_spaces, ca
 # RP-NORM-001 — per-section candidates merged and deduplicated before normalisation
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-NORM-001
 @given(
     items=st.lists(
@@ -260,6 +265,7 @@ def test_merge_candidates_handles_multiple_node_types(features, modules):
 # RP-NORM-001 — raw entry count after dedup never exceeds unique input count
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-NORM-001
 @given(
     raw_features=st.lists(
@@ -273,9 +279,7 @@ def test_merge_candidates_handles_multiple_node_types(features, modules):
 def test_raw_entry_count_does_not_exceed_unique_input(tmp_path, raw_features):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
 
-    (tmp_path / "doc.md").write_text(
-        "# Doc\n\n## Section\n\nSome content here.\n"
-    )
+    (tmp_path / "doc.md").write_text("# Doc\n\n## Section\n\nSome content here.\n")
 
     raw_result = EnrichSectionResult(features=raw_features)
 
@@ -293,6 +297,7 @@ def test_raw_entry_count_does_not_exceed_unique_input(tmp_path, raw_features):
 # ---------------------------------------------------------------------------
 # RP-WRITE-006 — every written registry file is valid YAML
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-WRITE-006
 @given(

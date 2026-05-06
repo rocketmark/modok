@@ -21,6 +21,7 @@ from modok.quine.models import CustomerIssue
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_customer_issue(
     project_slug: str = "stagehand",
     source_system: str = "linear",
@@ -61,6 +62,7 @@ def make_ticket_parse_result(
 # ---------------------------------------------------------------------------
 # Interface and Project Isolation
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_raises_not_found_when_issue_missing():
@@ -122,6 +124,7 @@ async def test_raises_graph_unavailable_when_quine_unreachable():
 # ---------------------------------------------------------------------------
 # Anchor Extraction — graph-first
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_uses_graph_feature_anchors_skips_llm():
@@ -200,10 +203,16 @@ async def test_falls_back_to_llm_when_no_graph_anchors():
         mock_gw.summarise_packet = AsyncMock(return_value=[])
         packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
         mock_gw.parse_ticket.assert_called_once_with(
-            "Tracker loses tracking", "stagehand", backend="local",
-            valid_slugs=None, feature_slugs=[], module_slugs=None,
-            feature_descriptions=None, module_descriptions=None,
-            module_elements=None, module_source_files=None,
+            "Tracker loses tracking",
+            "stagehand",
+            backend="local",
+            valid_slugs=None,
+            feature_slugs=[],
+            module_slugs=None,
+            feature_descriptions=None,
+            module_descriptions=None,
+            module_elements=None,
+            module_source_files=None,
         )
         assert (
             "shtp-receiver" in packet.issue.anchors.features
@@ -256,6 +265,7 @@ async def test_llm_response_error_falls_back_to_pre_match():
 
     # Engine did not raise — returned a packet
     from modok.retrieval.models import DebugPacket
+
     assert isinstance(packet, DebugPacket)
     # parse_ticket was attempted (confirming we hit the LLM path)
     assert mock_gw.parse_ticket.called
@@ -315,6 +325,7 @@ async def test_symptoms_in_anchor_set_not_in_packet_results():
 # Graph Traversal
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_feature_anchor_traverses_to_files():
     # @spec DRE-TRAV-001
@@ -345,7 +356,9 @@ async def test_error_anchor_traverses_to_known_issues():
     mock_client.query.side_effect = _make_query_side_effect(
         affects_features=[],
         has_errors=["shtp-version-mismatch"],
-        error_known_issues={"shtp-version-mismatch": [("KI-001", "SHTP v1 packets rejected", "open")]},
+        error_known_issues={
+            "shtp-version-mismatch": [("KI-001", "SHTP v1 packets rejected", "open")]
+        },
     )
 
     packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
@@ -464,15 +477,12 @@ async def test_ki_to_fixes_cypher_filters_by_project_slug():
     from modok.retrieval import engine
 
     import inspect
+
     src = inspect.getsource(engine._traverse_ki_to_fixes)
     assert "project_slug" in src, "_traverse_ki_to_fixes must reference project_slug in Cypher"
     # The property filter must appear in the MATCH pattern or WHERE clause on Fix
-    assert (
-        "Fix {project_slug" in src or "fix.project_slug" in src or
-        "Fix{project_slug" in src
-    ), (
-        "_traverse_ki_to_fixes Cypher does not filter Fix by project_slug: "
-        + src
+    assert "Fix {project_slug" in src or "fix.project_slug" in src or "Fix{project_slug" in src, (
+        "_traverse_ki_to_fixes Cypher does not filter Fix by project_slug: " + src
     )
 
 
@@ -509,15 +519,14 @@ async def test_similarity_cypher_filters_by_project_slug():
     from modok.retrieval import engine
 
     import inspect
+
     src = inspect.getsource(engine._traverse_similarity)
     assert "project_slug" in src, "_traverse_similarity must reference project_slug in Cypher"
     assert (
-        "KnownIssue {project_slug" in src or "ki.project_slug" in src or
-        "KnownIssue{project_slug" in src
-    ), (
-        "_traverse_similarity Cypher does not filter KnownIssue by project_slug: "
-        + src
-    )
+        "KnownIssue {project_slug" in src
+        or "ki.project_slug" in src
+        or "KnownIssue{project_slug" in src
+    ), "_traverse_similarity Cypher does not filter KnownIssue by project_slug: " + src
 
 
 @pytest.mark.asyncio
@@ -545,6 +554,7 @@ async def test_similarity_excludes_known_issues_from_other_project():
 # ---------------------------------------------------------------------------
 # Weighted Match Count and Prioritization
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_item_matched_by_two_anchors_appears_in_known_issues():
@@ -703,6 +713,7 @@ def test_fix_match_count_equals_hop_count(n_ki):
 # Confidence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_matched_feature_anchor_produces_files():
     # @spec DRE-CONF-001
@@ -783,6 +794,7 @@ def test_confidence_always_in_range(n_features, n_errors, n_matched):
 # Debug Packet Structure
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_packet_contains_all_required_fields():
     # @spec DRE-PKT-001
@@ -797,8 +809,16 @@ async def test_packet_contains_all_required_fields():
     )
 
     packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
-    for field in ("issue", "affected_areas", "relevant_files", "relevant_tests",
-                  "known_issues", "prior_fixes", "recent_commits", "summary"):
+    for field in (
+        "issue",
+        "affected_areas",
+        "relevant_files",
+        "relevant_tests",
+        "known_issues",
+        "prior_fixes",
+        "recent_commits",
+        "summary",
+    ):
         assert hasattr(packet, field), f"DebugPacket missing field: {field}"
 
 
@@ -885,6 +905,7 @@ async def test_affected_areas_contains_matched_feature():
 # Write Boundary
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_retrieve_does_not_call_write_methods():
     # @spec DRE-WRITE-001
@@ -956,6 +977,7 @@ async def test_retrieve_uses_query_not_traverse():
 # Query side-effect helper
 # ---------------------------------------------------------------------------
 
+
 def _make_query_side_effect(
     affects_features: list[str] | None = None,
     has_errors: list[str] | None = None,
@@ -984,7 +1006,7 @@ def _make_query_side_effect(
     _ki_node_id_map: dict[int, str] = {}  # quine_node_id → issue_id string
     _next_ki_id = 1000
     for kis in error_known_issues.values():
-        for (kid, _, _) in kis:
+        for kid, _, _ in kis:
             if not any(v == kid for v in _ki_node_id_map.values()):
                 _ki_node_id_map[_next_ki_id] = kid
                 _next_ki_id += 1
@@ -996,48 +1018,97 @@ def _make_query_side_effect(
 
         if "AFFECTS" in cypher and "Feature" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "feature_slug": slug, "project_slug": proj,
-                    "node_type": "Feature", "name": slug,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "feature_slug": slug,
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": slug,
+                        },
+                    }
+                ]
                 for i, slug in enumerate(affects_features)
             ]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "normalized_error": err, "project_slug": proj,
-                    "node_type": "ErrorSignature", "display_text": err,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "normalized_error": err,
+                            "project_slug": proj,
+                            "node_type": "ErrorSignature",
+                            "display_text": err,
+                        },
+                    }
+                ]
                 for i, err in enumerate(has_errors)
             ]
 
         if "idFrom('module'" in cypher:
             slug = params.get("feature_slug", "")
             files = module_files.get(slug, [])
-            mod_dict = {"id": 0, "properties": {
-                "module_slug": slug, "project_slug": proj, "node_type": "Module", "name": slug,
-            }}
+            mod_dict = {
+                "id": 0,
+                "properties": {
+                    "module_slug": slug,
+                    "project_slug": proj,
+                    "node_type": "Module",
+                    "name": slug,
+                },
+            }
             return [
-                [mod_dict, {"id": i + 1, "properties": {
-                    "repo_path": path, "project_slug": proj, "node_type": "File",
-                }}]
+                [
+                    mod_dict,
+                    {
+                        "id": i + 1,
+                        "properties": {
+                            "repo_path": path,
+                            "project_slug": proj,
+                            "node_type": "File",
+                        },
+                    },
+                ]
                 for i, path in enumerate(files)
             ]
 
         if "IMPLEMENTED_BY" in cypher:
             slug = params.get("feature_slug", "")
             files = feature_files.get(slug, [])
-            feat_dict = {"id": 0, "properties": {
-                "feature_slug": slug, "project_slug": proj, "node_type": "Feature", "name": slug,
-            }}
-            mod_dict = {"id": 1, "properties": {
-                "module_slug": slug, "project_slug": proj, "node_type": "Module", "name": slug,
-            }}
+            feat_dict = {
+                "id": 0,
+                "properties": {
+                    "feature_slug": slug,
+                    "project_slug": proj,
+                    "node_type": "Feature",
+                    "name": slug,
+                },
+            }
+            mod_dict = {
+                "id": 1,
+                "properties": {
+                    "module_slug": slug,
+                    "project_slug": proj,
+                    "node_type": "Module",
+                    "name": slug,
+                },
+            }
             return [
-                [feat_dict, mod_dict, {"id": i + 2, "properties": {
-                    "repo_path": path, "project_slug": proj, "node_type": "File",
-                }}]
+                [
+                    feat_dict,
+                    mod_dict,
+                    {
+                        "id": i + 2,
+                        "properties": {
+                            "repo_path": path,
+                            "project_slug": proj,
+                            "node_type": "File",
+                        },
+                    },
+                ]
                 for i, path in enumerate(files)
             ]
 
@@ -1045,10 +1116,18 @@ def _make_query_side_effect(
             err = params.get("normalized_error", "")
             kis = error_known_issues.get(err, [])
             return [
-                [{"id": _ki_issue_id_to_node_id.get(kid, 1000 + i), "properties": {
-                    "issue_id": kid, "summary": summary, "status": status,
-                    "project_slug": proj, "node_type": "KnownIssue",
-                }}]
+                [
+                    {
+                        "id": _ki_issue_id_to_node_id.get(kid, 1000 + i),
+                        "properties": {
+                            "issue_id": kid,
+                            "summary": summary,
+                            "status": status,
+                            "project_slug": proj,
+                            "node_type": "KnownIssue",
+                        },
+                    }
+                ]
                 for i, (kid, summary, status) in enumerate(kis)
             ]
 
@@ -1058,10 +1137,18 @@ def _make_query_side_effect(
             kid = _ki_node_id_map.get(ki_node_id, "")
             fixes = ki_fixes.get(kid, [])
             return [
-                [{"id": i, "properties": {
-                    "fix_id": fid, "summary": summary, "kind": kind,
-                    "project_slug": proj, "node_type": "Fix",
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "fix_id": fid,
+                            "summary": summary,
+                            "kind": kind,
+                            "project_slug": proj,
+                            "node_type": "Fix",
+                        },
+                    }
+                ]
                 for i, (fid, summary, kind) in enumerate(fixes)
             ]
 
@@ -1069,10 +1156,16 @@ def _make_query_side_effect(
             non_rejected = [(kid, s) for kid, s in similarity_matches if s != "rejected"]
             return [
                 [
-                    {"id": i, "properties": {
-                        "issue_id": kid, "summary": f"Similar {kid}", "status": "open",
-                        "project_slug": proj, "node_type": "KnownIssue",
-                    }},
+                    {
+                        "id": i,
+                        "properties": {
+                            "issue_id": kid,
+                            "summary": f"Similar {kid}",
+                            "status": "open",
+                            "project_slug": proj,
+                            "node_type": "KnownIssue",
+                        },
+                    },
                     {"review_status": status},
                 ]
                 for i, (kid, status) in enumerate(non_rejected)
@@ -1094,7 +1187,7 @@ def _make_query_side_effect_cross_project_fix(
     _ki_node_id_map: dict[int, str] = {}
     _next_id = 1000
     for kis in error_known_issues.values():
-        for (kid, _, _) in kis:
+        for kid, _, _ in kis:
             if kid not in _ki_issue_id_to_node_id:
                 _ki_issue_id_to_node_id[kid] = _next_id
                 _ki_node_id_map[_next_id] = kid
@@ -1109,10 +1202,17 @@ def _make_query_side_effect_cross_project_fix(
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "normalized_error": err, "project_slug": proj,
-                    "node_type": "ErrorSignature", "display_text": err,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "normalized_error": err,
+                            "project_slug": proj,
+                            "node_type": "ErrorSignature",
+                            "display_text": err,
+                        },
+                    }
+                ]
                 for i, err in enumerate(has_errors)
             ]
 
@@ -1123,10 +1223,18 @@ def _make_query_side_effect_cross_project_fix(
             err = params.get("normalized_error", "")
             kis = error_known_issues.get(err, [])
             return [
-                [{"id": _ki_issue_id_to_node_id.get(kid, 1000 + i), "properties": {
-                    "issue_id": kid, "summary": summary, "status": status,
-                    "project_slug": proj, "node_type": "KnownIssue",
-                }}]
+                [
+                    {
+                        "id": _ki_issue_id_to_node_id.get(kid, 1000 + i),
+                        "properties": {
+                            "issue_id": kid,
+                            "summary": summary,
+                            "status": status,
+                            "project_slug": proj,
+                            "node_type": "KnownIssue",
+                        },
+                    }
+                ]
                 for i, (kid, summary, status) in enumerate(kis)
             ]
 
@@ -1141,11 +1249,18 @@ def _make_query_side_effect_cross_project_fix(
                 return []  # Quine filters out cross-project Fix nodes
             # Without the filter in Cypher, Quine would return them (the old bug).
             return [
-                [{"id": i, "properties": {
-                    "fix_id": fid, "summary": summary, "kind": kind,
-                    "project_slug": "OTHER-PROJECT",
-                    "node_type": "Fix",
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "fix_id": fid,
+                            "summary": summary,
+                            "kind": kind,
+                            "project_slug": "OTHER-PROJECT",
+                            "node_type": "Fix",
+                        },
+                    }
+                ]
                 for i, (fid, summary, kind) in enumerate(fixes)
             ]
 
@@ -1170,10 +1285,17 @@ def _make_query_side_effect_cross_project_similarity(
 
         if "AFFECTS" in cypher and "Feature" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "feature_slug": slug, "project_slug": proj,
-                    "node_type": "Feature", "name": slug,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "feature_slug": slug,
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": slug,
+                        },
+                    }
+                ]
                 for i, slug in enumerate(affects_features)
             ]
 
@@ -1198,11 +1320,16 @@ def _make_query_side_effect_cross_project_similarity(
             # Without the filter in Cypher, Quine would return them (the old bug).
             return [
                 [
-                    {"id": i, "properties": {
-                        "issue_id": kid, "summary": f"Foreign {kid}", "status": "open",
-                        "project_slug": "OTHER-PROJECT",
-                        "node_type": "KnownIssue",
-                    }},
+                    {
+                        "id": i,
+                        "properties": {
+                            "issue_id": kid,
+                            "summary": f"Foreign {kid}",
+                            "status": "open",
+                            "project_slug": "OTHER-PROJECT",
+                            "node_type": "KnownIssue",
+                        },
+                    },
                     {"review_status": status},
                 ]
                 for i, (kid, status) in enumerate(similarity_ki_foreign)
@@ -1216,6 +1343,7 @@ def _make_query_side_effect_cross_project_similarity(
 # ---------------------------------------------------------------------------
 # HAS_TEST traversal — test files surface in relevant_files
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_test_files_included_in_relevant_files():
@@ -1232,11 +1360,13 @@ async def test_test_files_included_in_relevant_files():
             return []
         # Source file traversal: Feature->Module->DEFINED_IN->File
         if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
-            return [[
-                {"properties": {"feature_slug": "shtp-receiver"}},
-                {"properties": {"module_slug": "shtp"}},
-                {"properties": {"repo_path": "agent/src/shtp.c"}},
-            ]]
+            return [
+                [
+                    {"properties": {"feature_slug": "shtp-receiver"}},
+                    {"properties": {"module_slug": "shtp"}},
+                    {"properties": {"repo_path": "agent/src/shtp.c"}},
+                ]
+            ]
         # Test file traversal: Feature->HAS_TEST->File
         if "HAS_TEST" in cypher:
             return [[{"properties": {"repo_path": "agent/tests/test_shtp.c"}}]]
@@ -1265,6 +1395,7 @@ async def test_test_files_included_in_relevant_files():
 # ---------------------------------------------------------------------------
 # extract_module_elements — test files contribute identifiers
 # ---------------------------------------------------------------------------
+
 
 def test_extract_module_elements_includes_test_identifiers(tmp_path):
     """Test function names from test_files must appear in extracted elements."""
@@ -1330,33 +1461,39 @@ def test_extract_module_elements_deduplicates_across_source_and_test(tmp_path):
 # Anchor Token Matching
 # ---------------------------------------------------------------------------
 
+
 def test_tokenize_snake_case():
     # @spec DRE-TOKEN-001
     from modok.retrieval.engine import _tokenize
+
     assert _tokenize("reinit_requested") == {"reinit", "requested"}
 
 
 def test_tokenize_camel_case():
     # @spec DRE-TOKEN-001
     from modok.retrieval.engine import _tokenize
+
     assert _tokenize("DeviceCard") == {"device", "card"}
 
 
 def test_tokenize_kebab_case():
     # @spec DRE-TOKEN-001
     from modok.retrieval.engine import _tokenize
+
     assert _tokenize("device-card") == {"device", "card"}
 
 
 def test_tokenize_mixed_leading_underscore():
     # @spec DRE-TOKEN-001
     from modok.retrieval.engine import _tokenize
+
     assert _tokenize("_make_tracker_row") == {"make", "tracker", "row"}
 
 
 def test_tokenize_excludes_tokens_length_two_or_less():
     # @spec DRE-TOKEN-001
     from modok.retrieval.engine import _tokenize
+
     result = _tokenize("is_ok_now")
     assert "is" not in result
     assert "ok" not in result
@@ -1368,6 +1505,7 @@ def test_symptom_error_tokens_excludes_feature_slug_tokens():
     # Building with empty feature_slugs excludes those slug tokens.
     # The same tokens DO appear when feature_slugs are included.
     from modok.retrieval.engine import _build_anchor_tokens
+
     symptom_error_tokens = _build_anchor_tokens(
         feature_slugs=[],
         error_sigs=["shtp-version-mismatch"],
@@ -1387,6 +1525,7 @@ def test_symptom_error_tokens_excludes_feature_slug_tokens():
 def test_func_anchor_tokens_adds_matched_element_tokens():
     # @spec DRE-TOKEN-003
     from modok.retrieval.engine import _build_anchor_tokens, _tokenize
+
     symptom_error_tokens = _build_anchor_tokens([], ["connection-error"], ["reinit"])
     matched_elements = ["reinit_requested"]
     func_anchor_tokens = symptom_error_tokens.copy()
@@ -1401,6 +1540,7 @@ def test_func_anchor_tokens_does_not_include_feature_slug_tokens():
     # func_anchor_tokens derives from symptom_error_tokens (no feature_slugs) +
     # matched_elements. Feature slug tokens never enter this set.
     from modok.retrieval.engine import _build_anchor_tokens
+
     symptom_error_tokens = _build_anchor_tokens([], ["connection-error"], [])
     func_anchor_tokens = symptom_error_tokens.copy()
     # No matched elements, no feature slugs — "device" and "card" must not appear.
@@ -1411,6 +1551,7 @@ def test_func_anchor_tokens_does_not_include_feature_slug_tokens():
 # ---------------------------------------------------------------------------
 # Element / function anchor matching helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_module_error_query_side_effect(
     module_slug: str,
@@ -1432,17 +1573,33 @@ def _make_module_error_query_side_effect(
         slug = params.get("feature_slug", "")
         file_path = params.get("file_path", "")
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [[{"id": 0, "properties": {
-                "feature_slug": module_slug, "project_slug": proj,
-                "node_type": "Feature", "name": module_slug,
-            }}]]
+            return [
+                [
+                    {
+                        "id": 0,
+                        "properties": {
+                            "feature_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": module_slug,
+                        },
+                    }
+                ]
+            ]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "normalized_error": err, "project_slug": proj,
-                    "node_type": "ErrorSignature", "display_text": err,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "normalized_error": err,
+                            "project_slug": proj,
+                            "node_type": "ErrorSignature",
+                            "display_text": err,
+                        },
+                    }
+                ]
                 for i, err in enumerate(error_sigs)
             ]
 
@@ -1455,13 +1612,23 @@ def _make_module_error_query_side_effect(
         if "idFrom('module'" in cypher and "DEFINED_IN" in cypher and slug == module_slug:
             return [
                 [
-                    {"id": 1, "properties": {
-                        "module_slug": module_slug, "project_slug": proj,
-                        "node_type": "Module", "name": module_slug,
-                    }},
-                    {"id": i + 2, "properties": {
-                        "repo_path": path, "project_slug": proj, "node_type": "File",
-                    }},
+                    {
+                        "id": 1,
+                        "properties": {
+                            "module_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Module",
+                            "name": module_slug,
+                        },
+                    },
+                    {
+                        "id": i + 2,
+                        "properties": {
+                            "repo_path": path,
+                            "project_slug": proj,
+                            "node_type": "File",
+                        },
+                    },
                 ]
                 for i, path in enumerate(module_files)
             ]
@@ -1512,12 +1679,19 @@ def _make_module_slug_query_side_effect(
         file_path = params.get("file_path", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [[{"id": 0, "properties": {
-                "feature_slug": module_slug,
-                "project_slug": proj,
-                "node_type": "Feature",
-                "name": module_slug,
-            }}]]
+            return [
+                [
+                    {
+                        "id": 0,
+                        "properties": {
+                            "feature_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": module_slug,
+                        },
+                    }
+                ]
+            ]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return []
@@ -1531,13 +1705,23 @@ def _make_module_slug_query_side_effect(
         if "idFrom('module'" in cypher and slug == module_slug:
             return [
                 [
-                    {"id": 1, "properties": {
-                        "module_slug": module_slug, "project_slug": proj,
-                        "node_type": "Module", "name": module_slug,
-                    }},
-                    {"id": i + 2, "properties": {
-                        "repo_path": path, "project_slug": proj, "node_type": "File",
-                    }},
+                    {
+                        "id": 1,
+                        "properties": {
+                            "module_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Module",
+                            "name": module_slug,
+                        },
+                    },
+                    {
+                        "id": i + 2,
+                        "properties": {
+                            "repo_path": path,
+                            "project_slug": proj,
+                            "node_type": "File",
+                        },
+                    },
                 ]
                 for i, path in enumerate(module_files)
             ]
@@ -1569,6 +1753,7 @@ def _make_module_slug_query_side_effect(
 # ---------------------------------------------------------------------------
 # Element Anchor Matching
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_element_matches_symptom_tokens_not_feature_slug_tokens():
@@ -1604,7 +1789,8 @@ async def test_element_matches_symptom_tokens_not_feature_slug_tokens():
     # "reinit_requested" matches: tokens {"reinit", "requested"} ∩ {"reinit", "error"} ≠ ∅
     # "DeviceCard" does NOT match: tokens {"device", "card"} ∩ {"reinit", "error"} = ∅
     elem_evidence = [
-        ev for c in packet.scored_candidates
+        ev
+        for c in packet.scored_candidates
         for ev in c.evidence
         if ev.type == "element_anchor_match"
     ]
@@ -1688,6 +1874,7 @@ async def test_element_match_extends_func_anchor_tokens():
     from modok.retrieval.engine import retrieve
 
     import json
+
     sha = "abc1234" + "0" * 33
     commit = {
         "sha": sha,
@@ -1695,9 +1882,7 @@ async def test_element_match_extends_func_anchor_tokens():
         "author_name": "Test Author",
         "message": "fix reinit path",
         "files_touched": ["ui/device_card.py"],
-        "file_hunks": json.dumps({
-            "ui/device_card.py": [{"defs": ["reinit_requested"]}]
-        }),
+        "file_hunks": json.dumps({"ui/device_card.py": [{"defs": ["reinit_requested"]}]}),
     }
 
     issue = make_customer_issue(raw_text=None)
@@ -1723,16 +1908,20 @@ async def test_element_match_extends_func_anchor_tokens():
 
     candidate = next(c for c in packet.scored_candidates if c.path == "ui/device_card.py")
     fn_ev = [ev for ev in candidate.evidence if ev.type == "function_anchor_match"]
-    assert fn_ev, "function_anchor_match expected after element matching expanded func_anchor_tokens"
+    assert fn_ev, (
+        "function_anchor_match expected after element matching expanded func_anchor_tokens"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Function Anchor Matching
 # ---------------------------------------------------------------------------
 
+
 def test_matching_defs_returns_overlapping_def_names():
     # @spec DRE-FUNC-001
     from modok.retrieval.engine import _matching_defs
+
     hunk_data = [{"defs": ["reinit_requested", "set_color", "DeviceCard"]}]
     anchor_tokens = {"reinit", "requested"}
     result = _matching_defs(hunk_data, anchor_tokens)
@@ -1744,6 +1933,7 @@ def test_matching_defs_returns_overlapping_def_names():
 def test_matching_defs_empty_when_no_overlap():
     # @spec DRE-FUNC-001
     from modok.retrieval.engine import _matching_defs
+
     hunk_data = [{"defs": ["set_color", "update_layout"]}]
     anchor_tokens = {"reinit", "requested"}
     assert _matching_defs(hunk_data, anchor_tokens) == []
@@ -1752,6 +1942,7 @@ def test_matching_defs_empty_when_no_overlap():
 def test_matching_defs_empty_for_empty_hunk_data():
     # @spec DRE-FUNC-001
     from modok.retrieval.engine import _matching_defs
+
     assert _matching_defs([], {"reinit"}) == []
 
 
@@ -1762,6 +1953,7 @@ async def test_function_anchor_match_explanation_format():
     from modok.retrieval.engine import retrieve
 
     import json
+
     sha = "abc1234" + "0" * 33
     commit = {
         "sha": sha,
@@ -1769,9 +1961,7 @@ async def test_function_anchor_match_explanation_format():
         "author_name": "Dev",
         "message": "fix reinit",
         "files_touched": ["ui/device_card.py"],
-        "file_hunks": json.dumps({
-            "ui/device_card.py": [{"defs": ["reinit_requested"]}]
-        }),
+        "file_hunks": json.dumps({"ui/device_card.py": [{"defs": ["reinit_requested"]}]}),
     }
 
     issue = make_customer_issue(raw_text=None)
@@ -1788,12 +1978,14 @@ async def test_function_anchor_match_explanation_format():
         # but this test needs symptom tokens to match the def name.
         # We'll inject via error sig so symptom_error_tokens has "reinit".
         mock_client.query.side_effect = None
-        mock_client.query = AsyncMock(side_effect=_make_commit_query_side_effect(
-            module_slug="device-card",
-            module_files=["ui/device_card.py"],
-            error_sigs=["reinit-error"],
-            commits=[commit],
-        ))
+        mock_client.query = AsyncMock(
+            side_effect=_make_commit_query_side_effect(
+                module_slug="device-card",
+                module_files=["ui/device_card.py"],
+                error_sigs=["reinit-error"],
+                commits=[commit],
+            )
+        )
         mock_gw.summarise_packet = AsyncMock(return_value="summary")
 
         packet = await retrieve(
@@ -1819,6 +2011,7 @@ async def test_function_anchor_match_does_not_add_new_files():
     from modok.retrieval.engine import retrieve
 
     import json
+
     sha = "def5678" + "0" * 33
     commit = {
         "sha": sha,
@@ -1826,20 +2019,24 @@ async def test_function_anchor_match_does_not_add_new_files():
         "author_name": "Dev",
         "message": "refactor",
         "files_touched": ["ui/device_card.py", "ui/other_file.py"],
-        "file_hunks": json.dumps({
-            "ui/device_card.py": [{"defs": ["reinit_requested"]}],
-            "ui/other_file.py": [{"defs": ["reinit_helper"]}],
-        }),
+        "file_hunks": json.dumps(
+            {
+                "ui/device_card.py": [{"defs": ["reinit_requested"]}],
+                "ui/other_file.py": [{"defs": ["reinit_helper"]}],
+            }
+        ),
     }
 
     mock_client = AsyncMock()
     mock_client.get_node.return_value = make_customer_issue(raw_text=None)
-    mock_client.query = AsyncMock(side_effect=_make_commit_query_side_effect(
-        module_slug="device-card",
-        module_files=["ui/device_card.py"],  # only device_card.py is in evidence map
-        error_sigs=["reinit-error"],
-        commits=[commit],
-    ))
+    mock_client.query = AsyncMock(
+        side_effect=_make_commit_query_side_effect(
+            module_slug="device-card",
+            module_files=["ui/device_card.py"],  # only device_card.py is in evidence map
+            error_sigs=["reinit-error"],
+            commits=[commit],
+        )
+    )
 
     with patch("modok.retrieval.engine.gateway") as mock_gw:
         mock_gw.summarise_packet = AsyncMock(return_value="summary")
@@ -1853,9 +2050,11 @@ async def test_function_anchor_match_does_not_add_new_files():
 # Candidate Scoring
 # ---------------------------------------------------------------------------
 
+
 def test_score_single_evidence_item():
     # @spec DRE-CAND-001
     from modok.retrieval.engine import EvidenceItem, _score_candidate
+
     items = [EvidenceItem(type="feature_anchor", score=7.0, explanation="")]
     # 1 type: diversity bonus = 3.0 * min(0, 4) = 0. Total = 7.0.
     assert _score_candidate(items) == 7.0
@@ -1864,6 +2063,7 @@ def test_score_single_evidence_item():
 def test_score_geometric_decay_within_same_type():
     # @spec DRE-CAND-001
     from modok.retrieval.engine import EvidenceItem, _score_candidate
+
     items = [
         EvidenceItem(type="feature_anchor", score=7.0, explanation=""),
         EvidenceItem(type="feature_anchor", score=7.0, explanation=""),
@@ -1875,6 +2075,7 @@ def test_score_geometric_decay_within_same_type():
 def test_score_diversity_bonus_per_unique_type():
     # @spec DRE-CAND-001
     from modok.retrieval.engine import EvidenceItem, _score_candidate
+
     items = [
         EvidenceItem(type="feature_anchor", score=7.0, explanation=""),
         EvidenceItem(type="test_coverage", score=8.0, explanation=""),
@@ -1887,6 +2088,7 @@ def test_score_diversity_bonus_per_unique_type():
 def test_score_diversity_bonus_capped_at_four_types():
     # @spec DRE-CAND-001
     from modok.retrieval.engine import EvidenceItem, _score_candidate
+
     items = [
         EvidenceItem(type="feature_anchor", score=1.0, explanation=""),
         EvidenceItem(type="test_coverage", score=1.0, explanation=""),
@@ -1902,6 +2104,7 @@ def test_score_diversity_bonus_capped_at_four_types():
 def test_score_penalty_items_summed_directly():
     # @spec DRE-CAND-001
     from modok.retrieval.engine import EvidenceItem, _score_candidate
+
     items = [
         EvidenceItem(type="feature_anchor", score=8.0, explanation=""),
         EvidenceItem(type="doc_penalty", score=-6.0, explanation=""),
@@ -1913,10 +2116,17 @@ def test_score_penalty_items_summed_directly():
 def test_doc_penalty_applied_to_non_source_file():
     # @spec DRE-CAND-002
     from modok.retrieval.engine import EvidenceItem, _add_evidence, _build_scored_candidates
+
     evidence_map: dict = {}
-    _add_evidence(evidence_map, "docs/README.md", EvidenceItem(
-        type="feature_anchor", score=7.0, explanation="",
-    ))
+    _add_evidence(
+        evidence_map,
+        "docs/README.md",
+        EvidenceItem(
+            type="feature_anchor",
+            score=7.0,
+            explanation="",
+        ),
+    )
     candidates = _build_scored_candidates(evidence_map, "source", cap=20)
     assert candidates, "Expected at least one candidate"
     c = candidates[0]
@@ -1928,6 +2138,7 @@ def test_doc_penalty_applied_to_non_source_file():
 def test_confidence_label_high():
     # @spec DRE-CAND-003
     from modok.retrieval.engine import _confidence_label
+
     assert _confidence_label(20.0) == "high"
     assert _confidence_label(25.5) == "high"
 
@@ -1935,6 +2146,7 @@ def test_confidence_label_high():
 def test_confidence_label_medium():
     # @spec DRE-CAND-003
     from modok.retrieval.engine import _confidence_label
+
     assert _confidence_label(10.0) == "medium"
     assert _confidence_label(19.9) == "medium"
 
@@ -1942,6 +2154,7 @@ def test_confidence_label_medium():
 def test_confidence_label_low():
     # @spec DRE-CAND-003
     from modok.retrieval.engine import _confidence_label
+
     assert _confidence_label(0.0) == "low"
     assert _confidence_label(9.9) == "low"
 
@@ -1961,23 +2174,68 @@ async def test_source_and_test_candidates_built_and_merged_separately():
         slug = params.get("feature_slug", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [[{"id": 0, "properties": {
-                "feature_slug": "feat-a", "project_slug": proj,
-                "node_type": "Feature", "name": "feat-a",
-            }}]]
+            return [
+                [
+                    {
+                        "id": 0,
+                        "properties": {
+                            "feature_slug": "feat-a",
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": "feat-a",
+                        },
+                    }
+                ]
+            ]
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return []
         if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
             if slug == "feat-a":
-                return [[
-                    {"id": 0, "properties": {"feature_slug": "feat-a", "project_slug": proj, "node_type": "Feature", "name": "feat-a"}},
-                    {"id": 1, "properties": {"module_slug": "feat-a", "project_slug": proj, "node_type": "Module", "name": "feat-a"}},
-                    {"id": 2, "properties": {"repo_path": "src/feat_a.py", "project_slug": proj, "node_type": "File"}},
-                ]]
+                return [
+                    [
+                        {
+                            "id": 0,
+                            "properties": {
+                                "feature_slug": "feat-a",
+                                "project_slug": proj,
+                                "node_type": "Feature",
+                                "name": "feat-a",
+                            },
+                        },
+                        {
+                            "id": 1,
+                            "properties": {
+                                "module_slug": "feat-a",
+                                "project_slug": proj,
+                                "node_type": "Module",
+                                "name": "feat-a",
+                            },
+                        },
+                        {
+                            "id": 2,
+                            "properties": {
+                                "repo_path": "src/feat_a.py",
+                                "project_slug": proj,
+                                "node_type": "File",
+                            },
+                        },
+                    ]
+                ]
             return []
         if "HAS_TEST" in cypher and "idFrom('feature'" in cypher:
             if slug == "feat-a":
-                return [[{"id": 3, "properties": {"repo_path": "tests/test_feat_a.py", "project_slug": proj, "node_type": "TestFile"}}]]
+                return [
+                    [
+                        {
+                            "id": 3,
+                            "properties": {
+                                "repo_path": "tests/test_feat_a.py",
+                                "project_slug": proj,
+                                "node_type": "TestFile",
+                            },
+                        }
+                    ]
+                ]
             return []
         if "TOUCHES" in cypher:
             return []
@@ -2001,6 +2259,7 @@ async def test_source_and_test_candidates_built_and_merged_separately():
 # ---------------------------------------------------------------------------
 # LLM Summary
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_summarise_packet_called_with_matched_elements():
@@ -2057,6 +2316,7 @@ async def test_summarise_packet_exception_falls_back_to_issue_summary():
 # Streaming
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_on_progress_loading_emitted_with_only_issue_summary():
     # @spec DRE-STREAM-001
@@ -2079,7 +2339,9 @@ async def test_on_progress_loading_emitted_with_only_issue_summary():
         mock_gw.parse_ticket = AsyncMock(return_value=make_ticket_parse_result())
         mock_gw.summarise_packet = AsyncMock(return_value="summary")
         await retrieve(
-            issue_id=1, project_slug="stagehand", client=mock_client,
+            issue_id=1,
+            project_slug="stagehand",
+            client=mock_client,
             on_progress=on_progress,
         )
 
@@ -2116,7 +2378,9 @@ async def test_on_progress_partial_emitted_before_summary_with_evidence_populate
     with patch("modok.retrieval.engine.gateway") as mock_gw:
         mock_gw.summarise_packet = AsyncMock(return_value="LLM summary")
         await retrieve(
-            issue_id=1, project_slug="stagehand", client=mock_client,
+            issue_id=1,
+            project_slug="stagehand",
+            client=mock_client,
             on_progress=on_progress,
         )
 
@@ -2131,6 +2395,7 @@ async def test_on_progress_partial_emitted_before_summary_with_evidence_populate
 # ---------------------------------------------------------------------------
 # Anchor Pre-matching — DRE-ANCH-009
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_pre_matched_module_slugs_appear_first_in_merged_feature_slugs():
@@ -2193,15 +2458,17 @@ async def test_pre_matched_slug_not_duplicated_when_llm_also_returns_it():
 
     with patch("modok.retrieval.engine.gateway") as mock_gw:
         # LLM also returns the same slug
-        mock_gw.parse_ticket = AsyncMock(return_value=TicketParseResult(
-            feature_slugs=["shtp-receiver"],  # same as pre-matched
-            error_signatures=[],
-            environment={},
-            symptoms=[],
-            confidence=0.8,
-            raw_response="{}",
-            mentioned_files=[],
-        ))
+        mock_gw.parse_ticket = AsyncMock(
+            return_value=TicketParseResult(
+                feature_slugs=["shtp-receiver"],  # same as pre-matched
+                error_signatures=[],
+                environment={},
+                symptoms=[],
+                confidence=0.8,
+                raw_response="{}",
+                mentioned_files=[],
+            )
+        )
         mock_gw.summarise_packet = AsyncMock(return_value="summary")
 
         packet = await retrieve(
@@ -2265,10 +2532,14 @@ async def test_mechanical_validation_pass_removes_invalid_llm_slugs():
     )
 
     with patch("modok.retrieval.engine.gateway") as mock_gw:
-        with patch("modok.retrieval.engine._traverse_feature_to_files", side_effect=tracking_traverse):
-            mock_gw.parse_ticket = AsyncMock(return_value=make_ticket_parse_result(
-                feature_slugs=["real-module", "hallucinated-module"],
-            ))
+        with patch(
+            "modok.retrieval.engine._traverse_feature_to_files", side_effect=tracking_traverse
+        ):
+            mock_gw.parse_ticket = AsyncMock(
+                return_value=make_ticket_parse_result(
+                    feature_slugs=["real-module", "hallucinated-module"],
+                )
+            )
             mock_gw.summarise_packet = AsyncMock(return_value="summary")
             await retrieve(
                 issue_id=1,
@@ -2285,6 +2556,7 @@ async def test_mechanical_validation_pass_removes_invalid_llm_slugs():
 # Commit query side-effect helper (for function anchor matching tests)
 # ---------------------------------------------------------------------------
 
+
 def _make_commit_query_side_effect(
     module_slug: str,
     module_files: list[str],
@@ -2295,6 +2567,7 @@ def _make_commit_query_side_effect(
     Query side-effect combining module-slug graph anchor with error sig anchors
     and commit traversal, for testing function anchor matching.
     """
+
     def _side_effect(cypher: str, params: dict | None = None):
         params = params or {}
         proj = params.get("project_slug", "stagehand")
@@ -2302,17 +2575,33 @@ def _make_commit_query_side_effect(
         file_path = params.get("file_path", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [[{"id": 0, "properties": {
-                "feature_slug": module_slug, "project_slug": proj,
-                "node_type": "Feature", "name": module_slug,
-            }}]]
+            return [
+                [
+                    {
+                        "id": 0,
+                        "properties": {
+                            "feature_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Feature",
+                            "name": module_slug,
+                        },
+                    }
+                ]
+            ]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return [
-                [{"id": i, "properties": {
-                    "normalized_error": err, "project_slug": proj,
-                    "node_type": "ErrorSignature", "display_text": err,
-                }}]
+                [
+                    {
+                        "id": i,
+                        "properties": {
+                            "normalized_error": err,
+                            "project_slug": proj,
+                            "node_type": "ErrorSignature",
+                            "display_text": err,
+                        },
+                    }
+                ]
                 for i, err in enumerate(error_sigs)
             ]
 
@@ -2325,8 +2614,23 @@ def _make_commit_query_side_effect(
         if "idFrom('module'" in cypher and "DEFINED_IN" in cypher and slug == module_slug:
             return [
                 [
-                    {"id": 1, "properties": {"module_slug": module_slug, "project_slug": proj, "node_type": "Module", "name": module_slug}},
-                    {"id": i + 2, "properties": {"repo_path": path, "project_slug": proj, "node_type": "File"}},
+                    {
+                        "id": 1,
+                        "properties": {
+                            "module_slug": module_slug,
+                            "project_slug": proj,
+                            "node_type": "Module",
+                            "name": module_slug,
+                        },
+                    },
+                    {
+                        "id": i + 2,
+                        "properties": {
+                            "repo_path": path,
+                            "project_slug": proj,
+                            "node_type": "File",
+                        },
+                    },
                 ]
                 for i, path in enumerate(module_files)
             ]

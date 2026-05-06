@@ -7,6 +7,7 @@ Production MODOK addresses Quine nodes using Quine's built-in idFrom() Cypher
 function, embedded directly in Cypher query strings. Python never computes
 real Quine node addresses.
 """
+
 import hashlib
 
 

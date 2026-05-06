@@ -24,8 +24,15 @@ from modok.ingestion.report import IngestionReport
 from modok.llm.gateway import propose_metadata, _load_config as _load_llm_config
 from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
-    Doc, Feature, Module, File, TestFile, DocSection, ErrorSignature,
-    KnownIssue, Fix,
+    Doc,
+    Feature,
+    Module,
+    File,
+    TestFile,
+    DocSection,
+    ErrorSignature,
+    KnownIssue,
+    Fix,
 )
 
 NODE_WRITE_ORDER = [
@@ -193,7 +200,11 @@ async def _write_nodes_and_edges(
 ) -> None:
     """Build QuineNode models from frontmatter and write them with edges."""
     feature_slug: str = fm.get("feature", "")
-    doc_type: str = (fm.get("doc_type") or fm.get("modok", {}).get("doc_type", "")) if isinstance(fm, dict) else ""
+    doc_type: str = (
+        (fm.get("doc_type") or fm.get("modok", {}).get("doc_type", ""))
+        if isinstance(fm, dict)
+        else ""
+    )
     product_area_slug: str | None = fm.get("product_area") or None
     doc_path_str = str(path.relative_to(repo_root)) if path.is_relative_to(repo_root) else str(path)
 
@@ -459,14 +470,18 @@ async def ingest_doc(
         if kind == "known_issue":
             await _write_known_issue_block(block, project_slug, feature_slug, client, ctx)
         elif kind == "fix":
-            await _write_fix_block(block, project_slug, client, ctx, feature_slug=feature_slug or None)
+            await _write_fix_block(
+                block, project_slug, client, ctx, feature_slug=feature_slug or None
+            )
         # failure_mode, risk, diagnostic_note: deferred to later ingestion phases
 
     # SI-HEAD-001/002: extract headings → DocSection nodes + DESCRIBED_BY edges
     headings = parse_headings(content)
 
     # SI-WRITE-001: write nodes and edges in dependency order
-    await _write_nodes_and_edges(fm, path, project_slug, repo_root, headings, client, ctx, registry=registry)
+    await _write_nodes_and_edges(
+        fm, path, project_slug, repo_root, headings, client, ctx, registry=registry
+    )
 
     return True
 
@@ -554,7 +569,7 @@ def _patch_frontmatter(path: Path, updates: dict) -> None:
     modok_block.update(updates)
     fm_data["modok"] = modok_block
     new_fm = yaml.dump(fm_data, default_flow_style=False)
-    path.write_text(f"---\n{new_fm}---{text[end + 4:]}", encoding="utf-8")
+    path.write_text(f"---\n{new_fm}---{text[end + 4 :]}", encoding="utf-8")
 
 
 def apply_llm_proposals(
@@ -574,9 +589,6 @@ def user_approves(proposals: dict | list) -> bool:
         print(f"LLM proposals: {proposals}")
     answer = input("Accept proposals? [y/N] ").strip().lower()
     return answer == "y"
-
-
-
 
 
 def _is_interactive() -> bool:
@@ -617,8 +629,10 @@ async def run_llm_proposal_pass(
     if emit_counterexamples:
         fixture_dir_str = cfg.get("counterexample_fixture_dir", "")
         if not fixture_dir_str:
-            print("counterexample_fixture_dir is not configured in ~/.modok/config.toml [llm]",
-                  file=sys.stderr)
+            print(
+                "counterexample_fixture_dir is not configured in ~/.modok/config.toml [llm]",
+                file=sys.stderr,
+            )
             sys.exit(1)
         fixture_dir = Path(fixture_dir_str)
 
@@ -696,6 +710,7 @@ async def run_llm_proposal_pass(
 
         # SI-LLM-010: re-run stages 2-5 (parse, validate, check refs) — not discovery or sha
         import modok.ingestion.parser as _parser
+
         _parser.parse_frontmatter(doc_path)
 
     return out
@@ -709,6 +724,7 @@ async def run_ingestion(
 ) -> IngestionReport:
     """Top-level entry point. Discover, parse, ingest all docs under repo_root."""
     import time
+
     report = IngestionReport()
     ctx = IngestionContext(project_slug=project_slug, repo_root=repo_root)
 
@@ -716,6 +732,7 @@ async def run_ingestion(
 
     t0 = time.monotonic()
     from modok.ingestion.discovery import discover_docs
+
     registered, unregistered, ignored_count = discover_docs(repo_root, registry)
     report.files_ignored = ignored_count
 
@@ -738,7 +755,9 @@ async def run_ingestion(
 
     for record in unregistered:
         try:
-            await ingest_doc_unregistered(record.path, client=client, project_slug=project_slug, ctx=ctx)
+            await ingest_doc_unregistered(
+                record.path, client=client, project_slug=project_slug, ctx=ctx
+            )
             report.unregistered_count += 1
             report.unregistered_paths.append(str(record.path))
         except Exception as exc:

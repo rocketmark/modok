@@ -1,4 +1,5 @@
 """modok ingest-elements — extract code identifiers from source files into elements.yml."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,8 +52,10 @@ def ingest_elements_cmd(project: str) -> None:
     write_elements_yml(reg_dir / "elements.yml", elements)
 
     # Strip any elements keys previously written into modules.yml
-    modules = {slug: {k: v for k, v in entry.items() if k != "elements"}
-               for slug, entry in registry._modules.items()}
+    modules = {
+        slug: {k: v for k, v in entry.items() if k != "elements"}
+        for slug, entry in registry._modules.items()
+    }
     if any("elements" in entry for entry in registry._modules.values()):
         write_modules_yml(reg_dir / "modules.yml", modules)
         click.echo("ingest-elements: removed stale elements keys from modules.yml")

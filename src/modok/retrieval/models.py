@@ -17,9 +17,9 @@ class IssueSummary:
 
 @dataclass
 class AffectedArea:
-    type: str    # "feature" or "module"
-    id: str      # "feature:shtp-receiver"
-    name: str    # slug used as display name
+    type: str  # "feature" or "module"
+    id: str  # "feature:shtp-receiver"
+    name: str  # slug used as display name
 
 
 @dataclass

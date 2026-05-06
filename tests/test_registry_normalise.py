@@ -6,6 +6,7 @@ the EARS spec it verifies via @spec annotation.
 Imports of registry modules are placed inside test functions so pytest
 can collect tests before Phase 6 implementation exists.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -19,6 +20,7 @@ import yaml
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def write_file(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,9 +84,11 @@ def write_raw_files(registries_dir: Path, *, features=True, modules=True, errors
 # RN-CMD-001 — one or more but not all raw files absent → warn + continue
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CMD-001
 def test_normalise_warns_when_some_raw_files_absent(tmp_path, capsys):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries", features=True, modules=False, errors=False)
     cfg = make_cfg()
 
@@ -98,6 +102,7 @@ def test_normalise_warns_when_some_raw_files_absent(tmp_path, capsys):
 # @spec RN-CMD-001
 def test_normalise_skips_absent_fields_but_processes_present(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries", features=True, modules=False, errors=False)
     cfg = make_cfg()
 
@@ -116,9 +121,11 @@ def test_normalise_skips_absent_fields_but_processes_present(tmp_path):
 # RN-CMD-002 — no raw files at all → clear error
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CMD-002
 def test_normalise_errors_when_no_raw_files_exist(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     (tmp_path / "registries").mkdir()  # directory exists, no .raw.yml files
     cfg = make_cfg()
 
@@ -129,6 +136,7 @@ def test_normalise_errors_when_no_raw_files_exist(tmp_path):
 # @spec RN-CMD-002
 def test_normalise_error_mentions_init_assisted(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     (tmp_path / "registries").mkdir()
     cfg = make_cfg()
 
@@ -147,9 +155,11 @@ def test_normalise_error_mentions_init_assisted(tmp_path):
 # RN-NORM-001 — separate LLM call per field type; never combined
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-NORM-001
 def test_normalise_makes_separate_call_per_field(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg()
 
@@ -170,6 +180,7 @@ def test_normalise_makes_separate_call_per_field(tmp_path):
 # @spec RN-NORM-001
 def test_normalise_calls_gateway_at_most_once_per_field_plus_refinement(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(cegis_max_repairs=0)  # no repairs — 1 CEGIS call + 1 refinement per field
 
@@ -195,9 +206,11 @@ def test_normalise_calls_gateway_at_most_once_per_field_plus_refinement(tmp_path
 # RN-NORM-002 — each per-field call uses timeout_propose_registry
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-NORM-002
 def test_normalise_passes_timeout_to_each_field_call(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(timeout_propose_registry=90)
 
@@ -220,9 +233,11 @@ def test_normalise_passes_timeout_to_each_field_call(tmp_path):
 # (tested via _verify_field — catches entry-count violations)
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-NORM-003
 def test_verify_field_flags_when_output_has_more_entries_than_input():
     from modok.registry.normalise import _verify_field
+
     input_candidates = [
         {"name": "Feature A", "description": ""},
         {"name": "Feature B", "description": ""},
@@ -236,6 +251,7 @@ def test_verify_field_flags_when_output_has_more_entries_than_input():
 # @spec RN-NORM-003
 def test_verify_field_passes_when_output_count_equals_input():
     from modok.registry.normalise import _verify_field
+
     candidates = [{"name": "Feature A", "description": ""}]
     normalised = [{"name": "Feature A Canonical", "description": "renamed"}]
 
@@ -246,6 +262,7 @@ def test_verify_field_passes_when_output_count_equals_input():
 # @spec RN-NORM-003
 def test_verify_field_passes_when_output_count_less_than_input():
     from modok.registry.normalise import _verify_field
+
     candidates = [
         {"name": "Feature A", "description": ""},
         {"name": "Feature A duplicate", "description": ""},
@@ -260,9 +277,11 @@ def test_verify_field_passes_when_output_count_less_than_input():
 # RN-CEGIS-001 — passing verifier → accept and write
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CEGIS-001
 def test_normalise_accepts_field_when_verifier_passes(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg()
 
@@ -281,9 +300,11 @@ def test_normalise_accepts_field_when_verifier_passes(tmp_path):
 # RN-CEGIS-002 — failing verifier → repair call with counterexamples
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CEGIS-002
 def test_normalise_makes_repair_call_when_verifier_fails(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(cegis_max_repairs=1)
 
@@ -309,6 +330,7 @@ def test_normalise_makes_repair_call_when_verifier_fails(tmp_path):
 # @spec RN-CEGIS-002
 def test_normalise_repair_call_receives_counterexamples(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(cegis_max_repairs=1)
 
@@ -324,16 +346,20 @@ def test_normalise_repair_call_receives_counterexamples(tmp_path):
     with patch("modok.registry.normalise.normalise_candidates", side_effect=capture_repair):
         normalise_registries(tmp_path, cfg)
 
-    assert len(repair_counterexamples) > 0, "Repair call must receive violating entries as counterexamples"
+    assert len(repair_counterexamples) > 0, (
+        "Repair call must receive violating entries as counterexamples"
+    )
 
 
 # ---------------------------------------------------------------------------
 # RN-CEGIS-003 — CEGIS exhausted → fallback to raw + slug resolution + warning
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CEGIS-003
 def test_normalise_falls_back_to_raw_when_cegis_exhausted(tmp_path, capsys):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(cegis_max_repairs=1)
 
@@ -354,6 +380,7 @@ def test_normalise_falls_back_to_raw_when_cegis_exhausted(tmp_path, capsys):
 # @spec RN-CEGIS-003
 def test_normalise_errors_fallback_uses_normalized_error_as_slug_source(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg(cegis_max_repairs=0)
 
@@ -378,9 +405,11 @@ def test_normalise_errors_fallback_uses_normalized_error_as_slug_source(tmp_path
 # RN-CEGIS-004 — total LLM calls per field ≤ cegis_max_repairs + 1
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-CEGIS-004
 def test_normalise_total_calls_per_field_bounded(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     max_repairs = 2
     cfg = make_cfg(cegis_max_repairs=max_repairs)
@@ -404,6 +433,7 @@ def test_normalise_total_calls_per_field_bounded(tmp_path):
 # @spec RN-CEGIS-004
 def test_normalise_cegis_default_max_repairs_is_1(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = MagicMock()
     cfg.llm.timeout_propose_registry = 60
@@ -430,9 +460,11 @@ def test_normalise_cegis_default_max_repairs_is_1(tmp_path):
 # RN-WRITE-001 — write final .yml files, overwrite without warning; idempotent
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-WRITE-001
 def test_normalise_writes_all_three_final_yml_files(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg()
 
@@ -448,6 +480,7 @@ def test_normalise_writes_all_three_final_yml_files(tmp_path):
 # @spec RN-WRITE-001
 def test_normalise_overwrites_existing_final_yml(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     registries = tmp_path / "registries"
     write_raw_files(registries)
     (registries / "features.yml").write_text(
@@ -471,6 +504,7 @@ def test_normalise_overwrites_existing_final_yml(tmp_path):
 # @spec RN-WRITE-001
 def test_normalise_is_idempotent(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg()
 
@@ -491,9 +525,11 @@ def test_normalise_is_idempotent(tmp_path):
 # RN-WRITE-002 — leave .raw.yml files in place after normalise
 # ---------------------------------------------------------------------------
 
+
 # @spec RN-WRITE-002
 def test_normalise_does_not_delete_raw_files(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     write_raw_files(tmp_path / "registries")
     cfg = make_cfg()
 
@@ -509,6 +545,7 @@ def test_normalise_does_not_delete_raw_files(tmp_path):
 # @spec RN-WRITE-002
 def test_normalise_does_not_modify_raw_file_content(tmp_path):
     from modok.registry.normalise import normalise_registries
+
     registries = tmp_path / "registries"
     write_raw_files(registries)
     original = (registries / "features.raw.yml").read_text()

@@ -38,7 +38,9 @@ RETURN n
 @click.command("search")
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--section", default=None, help="Substring match against doc section headings.")
-@click.option("--text", "text_query", default=None, help="Substring match across all node properties.")
+@click.option(
+    "--text", "text_query", default=None, help="Substring match across all node properties."
+)
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
 @click.argument("query", required=False, default=None)
 def search_cmd(
@@ -65,11 +67,15 @@ def search_cmd(
     nodes = []
 
     if section:
-        rows = asyncio.run(client.query(_HEADING_CYPHER, {"project_slug": project, "query": section}))
+        rows = asyncio.run(
+            client.query(_HEADING_CYPHER, {"project_slug": project, "query": section})
+        )
         nodes.extend(collect_nodes(rows))
 
     if effective_text:
-        rows = asyncio.run(client.query(_TEXT_CYPHER, {"project_slug": project, "query": effective_text}))
+        rows = asyncio.run(
+            client.query(_TEXT_CYPHER, {"project_slug": project, "query": effective_text})
+        )
         nodes.extend(collect_nodes(rows))
 
     unique = dedup_nodes(nodes)

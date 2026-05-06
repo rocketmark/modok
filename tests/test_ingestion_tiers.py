@@ -29,6 +29,7 @@ from modok.ingestion.report import IngestionReport
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def write_file(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(content))
@@ -74,6 +75,7 @@ _TWO_FEATURES = {
 # SI-DISC-003 — unresolvable doc is ingested as unregistered, not skipped
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-DISC-003
 def test_unresololvable_doc_is_unregistered_not_skipped(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
@@ -102,16 +104,21 @@ def test_all_docs_discovered_none_silently_skipped(tmp_path):
 # SI-TIER1-001 — arrow index is the first discovery pass
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-TIER1-001
 def test_tier1_assigns_hld_from_arrow_doc(tmp_path):
-    make_setup(tmp_path, features=_ONE_FEATURE, arrows=[
-        {
-            "id": "pi-agent",
-            "arrow_doc": "docs/arrows/pi-agent.md",
-            "lld": "docs/llds/pi-agent.md",
-            "specs": "docs/specs/pi-agent-specs.md",
-        }
-    ])
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {
+                "id": "pi-agent",
+                "arrow_doc": "docs/arrows/pi-agent.md",
+                "lld": "docs/llds/pi-agent.md",
+                "specs": "docs/specs/pi-agent-specs.md",
+            }
+        ],
+    )
     write_file(tmp_path / "docs" / "arrows" / "pi-agent.md", "# Arrow\n")
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# LLD\n")
     write_file(tmp_path / "docs" / "specs" / "pi-agent-specs.md", "# Specs\n")
@@ -128,21 +135,29 @@ def test_tier1_assigns_hld_from_arrow_doc(tmp_path):
 
 # @spec SI-TIER1-001
 def test_tier1_assigns_lld_and_spec_doc_types(tmp_path):
-    make_setup(tmp_path, features=_ONE_FEATURE, arrows=[
-        {
-            "id": "pi-agent",
-            "arrow_doc": None,
-            "lld": "docs/llds/pi-agent.md",
-            "specs": "docs/specs/pi-agent-specs.md",
-        }
-    ])
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {
+                "id": "pi-agent",
+                "arrow_doc": None,
+                "lld": "docs/llds/pi-agent.md",
+                "specs": "docs/specs/pi-agent-specs.md",
+            }
+        ],
+    )
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# LLD\n")
     write_file(tmp_path / "docs" / "specs" / "pi-agent-specs.md", "# Specs\n")
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
 
-    lld = next((r for r in registered if r.path.name == "pi-agent.md" and r.doc_type == "lld"), None)
-    spec = next((r for r in registered if r.path.name == "pi-agent-specs.md" and r.doc_type == "spec"), None)
+    lld = next(
+        (r for r in registered if r.path.name == "pi-agent.md" and r.doc_type == "lld"), None
+    )
+    spec = next(
+        (r for r in registered if r.path.name == "pi-agent-specs.md" and r.doc_type == "spec"), None
+    )
 
     assert lld is not None and lld.tier == 1
     assert spec is not None and spec.tier == 1
@@ -150,9 +165,13 @@ def test_tier1_assigns_lld_and_spec_doc_types(tmp_path):
 
 # @spec SI-TIER1-001
 def test_tier1_feature_set_to_arrow_id(tmp_path):
-    make_setup(tmp_path, features=_ONE_FEATURE, arrows=[
-        {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
-    ])
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
+        ],
+    )
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# LLD\n")
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
@@ -164,6 +183,7 @@ def test_tier1_feature_set_to_arrow_id(tmp_path):
 # SI-TIER1-002 — Tier 1 metadata from registries, not frontmatter
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-TIER1-002
 def test_tier1_derives_source_files_from_registry_not_frontmatter(tmp_path):
     features = {
@@ -174,9 +194,13 @@ def test_tier1_derives_source_files_from_registry_not_frontmatter(tmp_path):
             "test_files": ["agent/tests/test_main.c"],
         }
     }
-    make_setup(tmp_path, features=features, arrows=[
-        {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
-    ])
+    make_setup(
+        tmp_path,
+        features=features,
+        arrows=[
+            {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
+        ],
+    )
     # Doc has no frontmatter at all
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# LLD\n\nNo frontmatter.\n")
 
@@ -189,9 +213,13 @@ def test_tier1_derives_source_files_from_registry_not_frontmatter(tmp_path):
 
 # @spec SI-TIER1-002
 def test_tier1_doc_without_frontmatter_still_registered(tmp_path):
-    make_setup(tmp_path, features=_ONE_FEATURE, arrows=[
-        {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
-    ])
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
+        ],
+    )
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# Just a heading\n\nBody text.\n")
 
     registered, unregistered, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
@@ -203,13 +231,17 @@ def test_tier1_doc_without_frontmatter_still_registered(tmp_path):
 # SI-TIER2-001 — directory-based doc_type inference
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-TIER2-001
-@pytest.mark.parametrize("subdir,fname,expected_type", [
-    ("docs/llds", "pi-agent.md", "lld"),
-    ("docs/arrows", "pi-agent.md", "hld"),
-    ("docs/specs", "pi-agent-specs.md", "spec"),
-    ("docs", "pi-agent.md", "hld"),
-])
+@pytest.mark.parametrize(
+    "subdir,fname,expected_type",
+    [
+        ("docs/llds", "pi-agent.md", "lld"),
+        ("docs/arrows", "pi-agent.md", "hld"),
+        ("docs/specs", "pi-agent-specs.md", "spec"),
+        ("docs", "pi-agent.md", "hld"),
+    ],
+)
 def test_tier2_infers_doc_type_from_directory(tmp_path, subdir, fname, expected_type):
     make_setup(tmp_path, features=_ONE_FEATURE)  # empty arrow index
     write_file(tmp_path / subdir / fname, "# Content\n")
@@ -222,9 +254,13 @@ def test_tier2_infers_doc_type_from_directory(tmp_path, subdir, fname, expected_
 
 # @spec SI-TIER2-001
 def test_tier2_not_applied_to_tier1_docs(tmp_path):
-    make_setup(tmp_path, features=_ONE_FEATURE, arrows=[
-        {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
-    ])
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {"id": "pi-agent", "arrow_doc": None, "lld": "docs/llds/pi-agent.md", "specs": None}
+        ],
+    )
     write_file(tmp_path / "docs" / "llds" / "pi-agent.md", "# LLD\n")
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
@@ -235,6 +271,7 @@ def test_tier2_not_applied_to_tier1_docs(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-TIER2-002 — feature inferred from filename stem; -specs suffix stripped
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-TIER2-002
 def test_tier2_strips_specs_suffix_for_spec_files(tmp_path):
@@ -262,6 +299,7 @@ def test_tier2_feature_from_plain_stem(tmp_path):
 # SI-TIER2-003 — inferred slug not in registry → Tier 3 (unregistered)
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-TIER2-003
 def test_tier2_unknown_slug_proceeds_to_unregistered(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
@@ -286,6 +324,7 @@ def test_tier2_known_slug_produces_registered_doc(tmp_path):
 # SI-UNREG-001 — unregistered docs → bare Doc node; no Feature/Module/File edges
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-UNREG-001
 @pytest.mark.asyncio
 async def test_unregistered_doc_written_as_bare_doc_node(tmp_path):
@@ -294,6 +333,7 @@ async def test_unregistered_doc_written_as_bare_doc_node(tmp_path):
 
     client = AsyncMock()
     from modok.ingestion.pipeline import ingest_doc_unregistered
+
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
         await ingest_doc_unregistered(
             tmp_path / "docs" / "random-notes.md",
@@ -313,16 +353,20 @@ async def test_unregistered_doc_written_as_bare_doc_node(tmp_path):
 @pytest.mark.asyncio
 async def test_unregistered_doc_docsection_nodes_written_without_feature_edge(tmp_path):
     make_setup(tmp_path, features={})
-    write_file(tmp_path / "docs" / "orphan.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "orphan.md",
+        textwrap.dedent("""\
         # Orphan
 
         ## Section One
 
         Content.
-        """))
+        """),
+    )
 
     client = AsyncMock()
     from modok.ingestion.pipeline import ingest_doc_unregistered
+
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
         await ingest_doc_unregistered(
             tmp_path / "docs" / "orphan.md",
@@ -340,6 +384,7 @@ async def test_unregistered_doc_docsection_nodes_written_without_feature_edge(tm
 # ---------------------------------------------------------------------------
 # SI-UNREG-002 — unregistered count in report, listed with paths
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-UNREG-002
 def test_report_includes_unregistered_count():
@@ -360,7 +405,7 @@ def test_report_str_lists_unregistered_separately():
         unregistered_paths=["docs/orphan.md"],
     )
     text = str(report)
-    assert "nregistered" in text   # "Unregistered" or "unregistered"
+    assert "nregistered" in text  # "Unregistered" or "unregistered"
     assert "orphan.md" in text
 
 
@@ -381,17 +426,21 @@ def test_report_unregistered_separate_from_warnings_and_errors():
 # SI-FMTR-001 — frontmatter overrides inferred value; no frontmatter = fully inferred
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-FMTR-001
 def test_frontmatter_feature_overrides_path_inference(tmp_path):
     make_setup(tmp_path, features=_TWO_FEATURES)
     # stem would infer "pi-agent"; frontmatter declares "shtp-receiver"
-    write_file(tmp_path / "docs" / "llds" / "pi-agent.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "llds" / "pi-agent.md",
+        textwrap.dedent("""\
         ---
         modok:
           feature: shtp-receiver
         ---
         # Doc
-        """))
+        """),
+    )
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
     lld = next((r for r in registered if r.path.name == "pi-agent.md"), None)
@@ -404,13 +453,16 @@ def test_frontmatter_doc_type_overrides_directory_inference(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
     # In docs/llds/ → default inference would give "lld"
     # frontmatter overrides to "hld"
-    write_file(tmp_path / "docs" / "llds" / "pi-agent.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "llds" / "pi-agent.md",
+        textwrap.dedent("""\
         ---
         modok:
           doc_type: hld
         ---
         # Doc
-        """))
+        """),
+    )
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
     rec = next((r for r in registered if r.path.name == "pi-agent.md"), None)
@@ -434,18 +486,21 @@ def test_no_frontmatter_fully_inference_driven(tmp_path):
 def test_partial_frontmatter_falls_through_to_inference(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
     # Only feature is in frontmatter; doc_type should still come from directory
-    write_file(tmp_path / "docs" / "llds" / "pi-agent.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "llds" / "pi-agent.md",
+        textwrap.dedent("""\
         ---
         modok:
           feature: pi-agent
         ---
         # Doc
-        """))
+        """),
+    )
 
     registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
     rec = next((r for r in registered if r.path.name == "pi-agent.md"), None)
     assert rec is not None
-    assert rec.doc_type == "lld"   # inferred from directory
+    assert rec.doc_type == "lld"  # inferred from directory
 
 
 # ---------------------------------------------------------------------------
@@ -453,16 +508,20 @@ def test_partial_frontmatter_falls_through_to_inference(tmp_path):
 #               inferred bad slug → unregistered (not error)
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-FMTR-002
 def test_explicit_frontmatter_bad_slug_raises_ref_error(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
-    write_file(tmp_path / "docs" / "llds" / "pi-agent.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "llds" / "pi-agent.md",
+        textwrap.dedent("""\
         ---
         modok:
           feature: totally-wrong-slug
         ---
         # Doc
-        """))
+        """),
+    )
 
     with pytest.raises(InvalidSlugReferenceError, match="feature"):
         discover_docs(tmp_path, Registry(repo_root=tmp_path))
@@ -483,30 +542,36 @@ def test_inferred_bad_slug_becomes_unregistered_not_error(tmp_path):
 def test_frontmatter_unregistered_explicit_declaration_no_warning(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
     # Explicitly declares unregistered — no warning, no error
-    write_file(tmp_path / "docs" / "brainstorm.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "brainstorm.md",
+        textwrap.dedent("""\
         ---
         modok:
           doc_type: unregistered
         ---
         # Brainstorm
-        """))
+        """),
+    )
 
     registered, unregistered, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))
     rec = next((r for r in unregistered if r.path.name == "brainstorm.md"), None)
     assert rec is not None
     assert rec.is_unregistered is True
-    assert rec.warned is False   # no warning emitted for explicit declaration
+    assert rec.warned is False  # no warning emitted for explicit declaration
 
 
 # ---------------------------------------------------------------------------
 # SI-HEAD-002 — DESCRIBED_BY edge only for registered docs (not unregistered)
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-HEAD-002
 @pytest.mark.asyncio
 async def test_no_described_by_for_unregistered_docs(tmp_path):
     make_setup(tmp_path, features={})
-    write_file(tmp_path / "docs" / "orphan.md", textwrap.dedent("""\
+    write_file(
+        tmp_path / "docs" / "orphan.md",
+        textwrap.dedent("""\
         # Orphan
 
         ## Section One
@@ -516,10 +581,12 @@ async def test_no_described_by_for_unregistered_docs(tmp_path):
         ## Section Two
 
         More.
-        """))
+        """),
+    )
 
     client = AsyncMock()
     from modok.ingestion.pipeline import ingest_doc_unregistered
+
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
         await ingest_doc_unregistered(
             tmp_path / "docs" / "orphan.md",
@@ -537,6 +604,7 @@ async def test_no_described_by_for_unregistered_docs(tmp_path):
 async def test_described_by_present_for_registered_doc(tmp_path):
     make_setup(tmp_path, features=_ONE_FEATURE)
     from modok.ingestion.registry import Registry as Reg
+
     registry = Reg(repo_root=tmp_path)
 
     content = textwrap.dedent("""\
@@ -553,7 +621,7 @@ async def test_described_by_present_for_registered_doc(tmp_path):
 
         Content.
         """)
-    path = (tmp_path / "docs" / "llds" / "pi-agent.md")
+    path = tmp_path / "docs" / "llds" / "pi-agent.md"
     write_file(path, content)
 
     client = AsyncMock()
@@ -562,9 +630,11 @@ async def test_described_by_present_for_registered_doc(tmp_path):
     registry.has_error = lambda s: True
 
     from modok.ingestion.pipeline import ingest_doc
+
     with patch("modok.ingestion.parser.get_commit_sha", return_value="abc123"):
-        await ingest_doc(path, registry=registry, client=client,
-                         project_slug="stagehand", repo_root=tmp_path)
+        await ingest_doc(
+            path, registry=registry, client=client, project_slug="stagehand", repo_root=tmp_path
+        )
 
     edge_calls = [str(c) for c in client.write_edge_by_parts.call_args_list]
     described_by = [c for c in edge_calls if "DESCRIBED_BY" in c]
@@ -574,6 +644,7 @@ async def test_described_by_present_for_registered_doc(tmp_path):
 # ---------------------------------------------------------------------------
 # SI-WRITE-001 — Commit appears in write order after File, before ErrorSignature
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-WRITE-001
 def test_node_write_order_includes_commit():
@@ -593,6 +664,7 @@ def test_commit_before_error_signature_in_write_order():
 # ---------------------------------------------------------------------------
 # SI-RPT-001 — report has unregistered_count (not files_skipped)
 # ---------------------------------------------------------------------------
+
 
 # @spec SI-RPT-001
 def test_report_has_unregistered_count_field():
@@ -625,6 +697,7 @@ def test_report_str_includes_unregistered_count():
 # SI-HOOK-002 — hook always invokes modok ingest-git; early-exit only for ingest-docs
 # ---------------------------------------------------------------------------
 
+
 # @spec SI-HOOK-002
 def test_hook_contains_ingest_git_call():
     content = hook_content("stagehand", ["docs/", "registries/"])
@@ -638,8 +711,7 @@ def test_hook_ingest_git_outside_path_guard(tmp_path):
 
     # Find the line that exits early (path guard for ingest-docs)
     exit_idx = next(
-        (i for i, ln in enumerate(lines)
-         if "exit 0" in ln or "exit 1" in ln),
+        (i for i, ln in enumerate(lines) if "exit 0" in ln or "exit 1" in ln),
         None,
     )
     git_idx = next(

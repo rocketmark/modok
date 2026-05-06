@@ -4,6 +4,7 @@ ReferenceModok — independent in-memory reference implementation.
 No LLM, no Quine HTTP. Ingests nodes and edges directly, then traverses
 them with the same logic as the DRE to produce a DebugPacket.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -55,15 +56,23 @@ class ReferenceModok:
         feature_slugs: list[str] = []
         error_sigs: list[str] = []
 
-        for (f, et, t) in self._edges:
+        for f, et, t in self._edges:
             if f != issue_id:
                 continue
             target = self._nodes.get(t)
             if target is None:
                 continue
-            if et == "AFFECTS" and target.node_type == "Feature" and target.project_slug == project_slug:
+            if (
+                et == "AFFECTS"
+                and target.node_type == "Feature"
+                and target.project_slug == project_slug
+            ):
                 feature_slugs.append(target.feature_slug)
-            elif et == "HAS_ERROR" and target.node_type == "ErrorSignature" and target.project_slug == project_slug:
+            elif (
+                et == "HAS_ERROR"
+                and target.node_type == "ErrorSignature"
+                and target.project_slug == project_slug
+            ):
                 error_sigs.append(target.normalized_error)
 
         # Accumulators
@@ -78,21 +87,27 @@ class ReferenceModok:
         for slug in feature_slugs:
             feat_id = None
             for node_id, n in self._nodes.items():
-                if n.node_type == "Feature" and n.feature_slug == slug and n.project_slug == project_slug:
+                if (
+                    n.node_type == "Feature"
+                    and n.feature_slug == slug
+                    and n.project_slug == project_slug
+                ):
                     feat_id = node_id
                     break
             if feat_id is None:
                 continue
             paths: list[str] = []
-            for (f1, et1, mod_id) in self._edges:
+            for f1, et1, mod_id in self._edges:
                 if f1 != feat_id or et1 != "IMPLEMENTED_BY":
                     continue
-                for (f2, et2, file_id) in self._edges:
+                for f2, et2, file_id in self._edges:
                     if f2 != mod_id or et2 != "DEFINED_IN":
                         continue
                     file_node = self._nodes.get(file_id)
                     if file_node is not None and file_node.node_type == "File":
-                        file_counts[file_node.repo_path] = file_counts.get(file_node.repo_path, 0) + 1
+                        file_counts[file_node.repo_path] = (
+                            file_counts.get(file_node.repo_path, 0) + 1
+                        )
                         paths.append(file_node.repo_path)
             if paths:
                 matched_feature_slugs.append(slug)
@@ -101,12 +116,16 @@ class ReferenceModok:
         for err in error_sigs:
             err_id = None
             for node_id, n in self._nodes.items():
-                if n.node_type == "ErrorSignature" and n.normalized_error == err and n.project_slug == project_slug:
+                if (
+                    n.node_type == "ErrorSignature"
+                    and n.normalized_error == err
+                    and n.project_slug == project_slug
+                ):
                     err_id = node_id
                     break
             if err_id is None:
                 continue
-            for (f, et, t) in self._edges:
+            for f, et, t in self._edges:
                 if t != err_id or et != "HAS_ERROR":
                     continue
                 ki_node = self._nodes.get(f)
@@ -118,11 +137,15 @@ class ReferenceModok:
 
                 # KnownIssue → Fix
                 ki_node_id = f
-                for (f2, et2, fix_id) in self._edges:
+                for f2, et2, fix_id in self._edges:
                     if f2 != ki_node_id or et2 != "RESOLVED_BY":
                         continue
                     fix_node = self._nodes.get(fix_id)
-                    if fix_node is not None and fix_node.node_type == "Fix" and fix_node.project_slug == project_slug:
+                    if (
+                        fix_node is not None
+                        and fix_node.node_type == "Fix"
+                        and fix_node.project_slug == project_slug
+                    ):
                         fix_counts[fix_node.fix_id] = fix_counts.get(fix_node.fix_id, 0) + 1
                         fix_meta[fix_node.fix_id] = fix_node.model_dump()
 

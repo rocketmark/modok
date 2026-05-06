@@ -1,5 +1,6 @@
 # @spec IA-CMD-001, IA-CMD-002, IA-CMD-003, IA-CMD-004, IA-CMD-005, IA-CMD-006, IA-CMD-007, IA-CMD-008, IA-OUT-006
 """modok import-arrow command."""
+
 from __future__ import annotations
 
 import sys
@@ -26,11 +27,14 @@ _REQUIRED_FIELDS = ("id", "description", "arrow_doc", "specs")
 @click.command("import-arrow")
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--repo", default=None, help="Repo root path (overrides config).")
-@click.option("--dry-run", is_flag=True, default=False, help="Print proposed output; write nothing.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print proposed output; write nothing."
+)
 @click.option("--no-llm", is_flag=True, default=False, help="Skip both LLM passes.")
 def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool) -> None:
     if repo is None:
         from modok.cli.config import ModokConfig
+
         config = ModokConfig.load()
         proj = config.project(project)
         repo_root = Path(proj.repo)
@@ -70,7 +74,9 @@ def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool
     features = extract_features(arrow_entries, repo_root=repo_root)
     for slug, feat in features.items():
         validate_source_files(
-            slug, feat["source_files"], code_map,
+            slug,
+            feat["source_files"],
+            code_map,
             warn=lambda m: print(m, file=sys.stderr),
         )
 
@@ -99,11 +105,17 @@ def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool
         # LLM Pass 1 — name/description generation
         candidates = _llm.filter_modules_for_llm_pass(modules)
         if candidates:
+
             def _stub_name(batch):
                 return [
-                    {"slug": m["slug"], "name": m["slug"].replace("-", " ").title(), "description": ""}
+                    {
+                        "slug": m["slug"],
+                        "name": m["slug"].replace("-", " ").title(),
+                        "description": "",
+                    }
                     for m in batch
                 ]
+
             results = _llm.run_name_description_pass(candidates, llm_call=_stub_name)
             for slug, updates in results.items():
                 if slug in modules:
@@ -113,6 +125,7 @@ def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool
         # LLM Pass 2 — dedup resolution
         pairs = _dedup.find_duplicate_pairs(modules)
         if pairs:
+
             def _stub_dedup(payload):
                 return {"same_concept": True, "keep": payload["slug_a"], "description": ""}
 

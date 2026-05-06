@@ -1,5 +1,6 @@
 # @spec IA-FEAT-001, IA-FEAT-002, IA-FEAT-003, IA-FEAT-004, IA-FEAT-005, IA-FEAT-006, IA-FEAT-007, IA-FEAT-008, IA-FEAT-009, IA-UNCLAIMED-001
 """Feature extraction from arrow index and arrow docs."""
+
 from __future__ import annotations
 
 import re
@@ -26,8 +27,8 @@ def extract_source_files_from_doc(doc_content: str) -> list[str] | None:
         if not line.startswith("- "):
             continue
         # Split on em-dash variants; take only left side.
-        left = re.split(r'\s*[—–]|\s+-\s+', line, maxsplit=1)[0]
-        for item in re.findall(r'`([^`]+)`', left):
+        left = re.split(r"\s*[—–]|\s+-\s+", line, maxsplit=1)[0]
+        for item in re.findall(r"`([^`]+)`", left):
             if ("/" in item or "." in item) and "(" not in item:
                 paths.append(item)
     return paths
@@ -36,6 +37,7 @@ def extract_source_files_from_doc(doc_content: str) -> list[str] | None:
 def parse_key_components_from_doc(doc_content: str) -> list[dict]:
     """Extract Key Components entries from an arrow doc."""
     from modok.import_arrow.modules import parse_key_components
+
     section = _extract_section(doc_content, "Key Components")
     if section is None:
         return []
@@ -106,7 +108,7 @@ def report_unclaimed_files(features: dict, code_map: dict) -> None:
 def _extract_section(doc_content: str, section_name: str) -> str | None:
     # Match either H3 header (### Key Components) or bold label (**Key Components:**)
     escaped = re.escape(section_name)
-    pattern = rf'(?:###\s+{escaped}|[*][*]{escaped}[:\s]*[*][*])[^\n]*\n(.*?)(?=\n##|\Z)'
+    pattern = rf"(?:###\s+{escaped}|[*][*]{escaped}[:\s]*[*][*])[^\n]*\n(.*?)(?=\n##|\Z)"
     m = re.search(pattern, doc_content, re.DOTALL)
     return m.group(1) if m else None
 

@@ -2,6 +2,7 @@
 Scenario runner — executes a Scenario against both real MODOK (via DummyQuine)
 and the ReferenceModok, returning both DebugPackets.
 """
+
 from __future__ import annotations
 
 from modok.retrieval.engine import retrieve

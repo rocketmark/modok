@@ -6,6 +6,7 @@ the EARS spec it verifies via @spec annotation.
 Imports of registry modules are placed inside test functions so pytest
 can collect tests before Phase 6 implementation exists.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -18,6 +19,7 @@ import yaml
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def write_file(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,6 +37,7 @@ def make_cfg(timeout_propose_registry=60, timeout_seconds=30, backend="local"):
 
 def make_empty_enrich_result():
     from modok.registry.proposal import EnrichSectionResult
+
     return EnrichSectionResult()
 
 
@@ -85,9 +88,11 @@ LINK_ONLY_DOC = """\
 # RP-DISC-001 — discover .md and .mdx recursively; exclude registries/
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-DISC-001
 def test_discover_docs_finds_md_and_mdx_recursively(tmp_path):
     from modok.registry.discovery import discover_docs
+
     write_file(tmp_path / "readme.md", "content")
     write_file(tmp_path / "guide.mdx", "content")
     write_file(tmp_path / "sub" / "nested.md", "content")
@@ -102,6 +107,7 @@ def test_discover_docs_finds_md_and_mdx_recursively(tmp_path):
 # @spec RP-DISC-001
 def test_discover_docs_excludes_registries_directory(tmp_path):
     from modok.registry.discovery import discover_docs
+
     write_file(tmp_path / "readme.md", "content")
     write_file(tmp_path / "registries" / "features.yml", "features: {}")
 
@@ -114,9 +120,11 @@ def test_discover_docs_excludes_registries_directory(tmp_path):
 # RP-DISC-002 — skip files matching ignore patterns
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-DISC-002
 def test_discover_docs_skips_ignore_patterns(tmp_path):
     from modok.registry.discovery import discover_docs
+
     for ignored_dir in [".git", "node_modules", "build", "dist", "bin"]:
         write_file(tmp_path / ignored_dir / "doc.md", "content")
     write_file(tmp_path / "real.md", "content")
@@ -132,9 +140,11 @@ def test_discover_docs_skips_ignore_patterns(tmp_path):
 # RP-DISC-003 — .yaml/.yml are not eligible
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-DISC-003
 def test_discover_docs_excludes_yaml_files(tmp_path):
     from modok.registry.discovery import discover_docs
+
     write_file(tmp_path / "doc.md", "content")
     write_file(tmp_path / "schema.yml", "key: value")
     write_file(tmp_path / "data.yaml", "key: value")
@@ -148,9 +158,11 @@ def test_discover_docs_excludes_yaml_files(tmp_path):
 # RP-PARSE-001 — strip YAML frontmatter
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-PARSE-001
 def test_parse_sections_strips_frontmatter(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", FRONTMATTER_DOC)
     sections = parse_sections(doc)
     for s in sections:
@@ -163,9 +175,11 @@ def test_parse_sections_strips_frontmatter(tmp_path):
 # RP-PARSE-002 — H1 headings are not section boundaries
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-PARSE-002
 def test_parse_sections_skips_h1(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", SIMPLE_DOC)
     sections = parse_sections(doc)
     assert all(s.heading != "My Document" for s in sections)
@@ -176,9 +190,11 @@ def test_parse_sections_skips_h1(tmp_path):
 # RP-PARSE-003 — split on H2; Section carries heading, body, doc_path
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-PARSE-003
 def test_parse_sections_splits_on_h2_headings(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", SIMPLE_DOC)
     sections = parse_sections(doc)
     assert len(sections) == 2
@@ -191,6 +207,7 @@ def test_parse_sections_splits_on_h2_headings(tmp_path):
 # @spec RP-PARSE-003
 def test_section_body_contains_content_not_h2_line(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", SIMPLE_DOC)
     sections = parse_sections(doc)
     overview = next(s for s in sections if s.heading == "Overview")
@@ -202,9 +219,11 @@ def test_section_body_contains_content_not_h2_line(tmp_path):
 # RP-PARSE-004 — skip empty sections; keep link-only sections
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-PARSE-004
 def test_parse_sections_skips_empty_body_sections(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", EMPTY_SECTIONS_DOC)
     sections = parse_sections(doc)
     assert len(sections) == 0
@@ -213,6 +232,7 @@ def test_parse_sections_skips_empty_body_sections(tmp_path):
 # @spec RP-PARSE-004
 def test_parse_sections_keeps_link_only_sections(tmp_path):
     from modok.registry.parser import parse_sections
+
     doc = write_file(tmp_path / "doc.md", LINK_ONLY_DOC)
     sections = parse_sections(doc)
     assert len(sections) == 1
@@ -223,9 +243,11 @@ def test_parse_sections_keeps_link_only_sections(tmp_path):
 # RP-PARSE-005 — processed vs skipped file counts
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-PARSE-005
 def test_propose_registries_counts_processed_vs_skipped_docs(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "good.md", SIMPLE_DOC)
     write_file(tmp_path / "empty.md", "# No H2 Headings\n\nJust prose.\n")
     cfg = make_cfg()
@@ -241,14 +263,17 @@ def test_propose_registries_counts_processed_vs_skipped_docs(tmp_path):
 # RP-ENRICH-001 — enrich_section called for each non-empty section
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-001
 def test_propose_registries_calls_enrich_for_each_section(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # 2 H2 sections
     cfg = make_cfg()
 
-    with patch("modok.registry.proposal.enrich_section",
-               return_value=EnrichSectionResult()) as mock_enrich:
+    with patch(
+        "modok.registry.proposal.enrich_section", return_value=EnrichSectionResult()
+    ) as mock_enrich:
         propose_registries(tmp_path, cfg)
 
     assert mock_enrich.call_count == 2
@@ -257,6 +282,7 @@ def test_propose_registries_calls_enrich_for_each_section(tmp_path):
 # @spec RP-ENRICH-001
 def test_enrich_section_receives_section_with_correct_fields(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -280,9 +306,11 @@ def test_enrich_section_receives_section_with_correct_fields(tmp_path):
 # RP-ENRICH-002 — sections processed sequentially
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-002
 def test_propose_registries_processes_sections_sequentially(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -302,9 +330,11 @@ def test_propose_registries_processes_sections_sequentially(tmp_path):
 # RP-ENRICH-003 — print "Found N sections across M docs" to stderr before processing
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-003
 def test_propose_registries_prints_section_count_to_stderr_before_processing(tmp_path, capsys):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # 2 sections, 1 doc
     cfg = make_cfg(timeout_propose_registry=60)
 
@@ -322,10 +352,12 @@ def test_propose_registries_prints_section_count_to_stderr_before_processing(tmp
 # RP-ENRICH-004 — LLM errors → warn, record as failed, continue
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-004
 def test_propose_registries_on_llm_unavailable_records_failed_and_continues(tmp_path, capsys):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
     from modok.llm.errors import LLMUnavailableError
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # Overview, Details
     cfg = make_cfg()
 
@@ -351,6 +383,7 @@ def test_propose_registries_on_llm_unavailable_records_failed_and_continues(tmp_
 def test_propose_registries_on_llm_response_error_records_failed_and_continues(tmp_path):
     from modok.registry.proposal import propose_registries
     from modok.llm.errors import LLMResponseError
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -368,6 +401,7 @@ def test_propose_registries_on_llm_response_error_records_failed_and_continues(t
 # RP-ENRICH-005 — use timeout_propose_registry; fall back to timeout_seconds
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-005
 def test_enrich_section_uses_timeout_propose_registry(tmp_path):
     from modok.registry.parser import parse_sections
@@ -382,17 +416,21 @@ def test_enrich_section_uses_timeout_propose_registry(tmp_path):
 
     with patch("modok.llm.gateway._ollama_enrich_call") as mock_call:
         mock_call.return_value = {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
         enrich_section(section, cfg_llm)
 
     call_kwargs = mock_call.call_args
     all_args = list(call_kwargs.args) + list(call_kwargs.kwargs.values())
-    assert 90 in all_args or any(
-        v == 90 for v in (call_kwargs.kwargs or {}).values()
-    ), "timeout_propose_registry (90) should be passed to the HTTP call"
+    assert 90 in all_args or any(v == 90 for v in (call_kwargs.kwargs or {}).values()), (
+        "timeout_propose_registry (90) should be passed to the HTTP call"
+    )
 
 
 # @spec RP-ENRICH-005
@@ -409,8 +447,12 @@ def test_enrich_section_falls_back_to_timeout_seconds_when_key_absent(tmp_path):
 
     with patch("modok.llm.gateway._ollama_enrich_call") as mock_call:
         mock_call.return_value = {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
         try:
@@ -428,6 +470,7 @@ def test_enrich_section_falls_back_to_timeout_seconds_when_key_absent(tmp_path):
 # ---------------------------------------------------------------------------
 # RP-ENRICH-006 — enrich_section uses frozen ENRICH_SECTION_SYSTEM prompt
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-ENRICH-006
 def test_enrich_section_uses_frozen_system_prompt(tmp_path):
@@ -449,15 +492,21 @@ def test_enrich_section_uses_frozen_system_prompt(tmp_path):
                 captured_messages.extend(a)
         captured_messages.extend(kwargs.get("messages", []))
         return {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
 
     with patch("modok.llm.gateway._ollama_enrich_call", side_effect=capture_call):
         enrich_section(section, cfg_llm)
 
-    system_msgs = [m for m in captured_messages if isinstance(m, dict) and m.get("role") == "system"]
+    system_msgs = [
+        m for m in captured_messages if isinstance(m, dict) and m.get("role") == "system"
+    ]
     assert system_msgs, "A system message must be sent"
     assert system_msgs[0]["content"] == ENRICH_SECTION_SYSTEM
 
@@ -465,6 +514,7 @@ def test_enrich_section_uses_frozen_system_prompt(tmp_path):
 # ---------------------------------------------------------------------------
 # RP-ENRICH-007 — local backend → native Ollama /api/chat; remote → /v1/chat
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-ENRICH-007
 def test_enrich_section_local_backend_uses_native_ollama_api(tmp_path):
@@ -479,8 +529,12 @@ def test_enrich_section_local_backend_uses_native_ollama_api(tmp_path):
 
     with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
         mock_local.return_value = {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
         with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
@@ -503,8 +557,12 @@ def test_enrich_section_remote_backend_uses_openai_compatible_api(tmp_path):
 
     with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
         mock_remote.return_value = {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
         with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
@@ -527,8 +585,12 @@ def test_enrich_section_defaults_to_local_backend(tmp_path):
 
     with patch("modok.llm.gateway._ollama_enrich_call") as mock_local:
         mock_local.return_value = {
-            "features": [], "modules": [], "error_signatures": [],
-            "known_issues": [], "failure_modes": [], "decisions": [],
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
             "observation_events": [],
         }
         with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
@@ -547,6 +609,7 @@ def test_enrich_section_defaults_to_local_backend(tmp_path):
 # RP-ENRICH-008 — enrich_section never calls Quine client methods
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-008
 def test_enrich_section_never_calls_quine(tmp_path):
     from modok.registry.parser import parse_sections
@@ -558,11 +621,18 @@ def test_enrich_section_never_calls_quine(tmp_path):
     cfg_llm.timeout_propose_registry = 60
     cfg_llm.backend = "local"
 
-    with patch("modok.llm.gateway._ollama_enrich_call", return_value={
-        "features": [], "modules": [], "error_signatures": [],
-        "known_issues": [], "failure_modes": [], "decisions": [],
-        "observation_events": [],
-    }):
+    with patch(
+        "modok.llm.gateway._ollama_enrich_call",
+        return_value={
+            "features": [],
+            "modules": [],
+            "error_signatures": [],
+            "known_issues": [],
+            "failure_modes": [],
+            "decisions": [],
+            "observation_events": [],
+        },
+    ):
         with patch("modok.quine.client.QuineClient") as mock_quine_cls:
             enrich_section(section, cfg_llm)
             mock_quine_cls.assert_not_called()
@@ -572,9 +642,11 @@ def test_enrich_section_never_calls_quine(tmp_path):
 # RP-ENRICH-009 — all-empty result counts as processed, not failed
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-009
 def test_propose_registries_all_empty_result_counts_as_processed(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -589,9 +661,11 @@ def test_propose_registries_all_empty_result_counts_as_processed(tmp_path):
 # RP-SLUG-001 — slugify known examples and rules
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-SLUG-001
 def test_slugify_known_examples():
     from modok.registry.slugify import slugify
+
     assert slugify("⚠ N restart(s)") == "n-restarts"
     assert slugify("⏸ Held") == "held"
     assert slugify("GSS_FAILURE") == "gss-failure"
@@ -602,6 +676,7 @@ def test_slugify_known_examples():
 # @spec RP-SLUG-001
 def test_slugify_strips_leading_unicode_symbols():
     from modok.registry.slugify import slugify
+
     assert slugify("⚡ Power Warning") == "power-warning"
     assert slugify("⚠ No pose") == "no-pose"
 
@@ -609,6 +684,7 @@ def test_slugify_strips_leading_unicode_symbols():
 # @spec RP-SLUG-001
 def test_slugify_replaces_parens_s_with_s():
     from modok.registry.slugify import slugify
+
     assert "s" in slugify("restart(s)")
     assert "restarts" in slugify("restart(s)")
 
@@ -616,6 +692,7 @@ def test_slugify_replaces_parens_s_with_s():
 # @spec RP-SLUG-001
 def test_slugify_truncates_to_40_chars_at_word_boundary():
     from modok.registry.slugify import slugify
+
     long_name = "This Is A Very Long Feature Name That Easily Exceeds Forty Characters In Length"
     result = slugify(long_name)
     assert len(result) <= 40
@@ -625,6 +702,7 @@ def test_slugify_truncates_to_40_chars_at_word_boundary():
 # @spec RP-SLUG-001
 def test_slugify_no_leading_or_trailing_dashes():
     from modok.registry.slugify import slugify
+
     result = slugify("  -- leading and trailing --  ")
     assert not result.startswith("-")
     assert not result.endswith("-")
@@ -633,6 +711,7 @@ def test_slugify_no_leading_or_trailing_dashes():
 # ---------------------------------------------------------------------------
 # RP-SLUG-004 — different names → keep both, second gets -2 suffix
 # ---------------------------------------------------------------------------
+
 
 # @spec RP-SLUG-004
 def test_slug_collision_different_names_uses_dash_2_suffix(capsys):
@@ -661,9 +740,11 @@ def test_slug_collision_different_names_uses_dash_2_suffix(capsys):
 # RP-WRITE-001 — create registries/ if missing
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-001
 def test_write_creates_registries_dir_if_missing(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -679,9 +760,11 @@ def test_write_creates_registries_dir_if_missing(tmp_path):
 # RP-WRITE-008 — overwrite existing .raw.yml checkpoint files on re-run
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-008
 def test_raw_yml_files_overwritten_on_rerun(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     registries = tmp_path / "registries"
     registries.mkdir()
     (registries / "features.raw.yml").write_text(
@@ -701,9 +784,11 @@ def test_raw_yml_files_overwritten_on_rerun(tmp_path):
 # RP-WRITE-003 — features.yml structure
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-003
 def test_features_yml_has_correct_structure(tmp_path):
     from modok.registry.writer import write_features_yml
+
     path = tmp_path / "features.yml"
     features = {"my-feature": {"name": "My Feature", "description": "Does something."}}
     write_features_yml(path, features)
@@ -721,9 +806,11 @@ def test_features_yml_has_correct_structure(tmp_path):
 # RP-WRITE-004 — modules.yml structure
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-004
 def test_modules_yml_has_correct_structure(tmp_path):
     from modok.registry.writer import write_modules_yml
+
     path = tmp_path / "modules.yml"
     modules = {"my-module": {"name": "My Module", "description": "A component."}}
     write_modules_yml(path, modules)
@@ -740,9 +827,11 @@ def test_modules_yml_has_correct_structure(tmp_path):
 # RP-WRITE-005 — errors.yml structure
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-005
 def test_errors_yml_has_correct_structure(tmp_path):
     from modok.registry.writer import write_errors_yml
+
     path = tmp_path / "errors.yml"
     errors = {"gss-failure": {"normalized_error": "GSS_FAILURE", "description": "Solver failed."}}
     write_errors_yml(path, errors)
@@ -759,9 +848,11 @@ def test_errors_yml_has_correct_structure(tmp_path):
 # RP-WRITE-007 — no Quine interaction during proposal pass
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-007
 def test_proposal_never_calls_quine(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -775,14 +866,18 @@ def test_proposal_never_calls_quine(tmp_path):
 # RP-RPT-001 — propose_registries returns ProposalSummary
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-RPT-001
 def test_propose_registries_returns_proposal_summary(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult, ProposalSummary
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
-    with patch("modok.registry.proposal.enrich_section",
-               return_value=EnrichSectionResult(features=["Tracking"])):
+    with patch(
+        "modok.registry.proposal.enrich_section",
+        return_value=EnrichSectionResult(features=["Tracking"]),
+    ):
         summary = propose_registries(tmp_path, cfg)
 
     assert isinstance(summary, ProposalSummary)
@@ -800,11 +895,14 @@ def test_propose_registries_returns_proposal_summary(tmp_path):
 # @spec RP-RPT-001
 def test_proposal_summary_entries_written_reflects_actual_counts(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
-    with patch("modok.registry.proposal.enrich_section",
-               return_value=EnrichSectionResult(features=["Feature One", "Feature Two"])):
+    with patch(
+        "modok.registry.proposal.enrich_section",
+        return_value=EnrichSectionResult(features=["Feature One", "Feature Two"]),
+    ):
         summary = propose_registries(tmp_path, cfg)
 
     assert summary.entries_written["features.raw.yml"] == 2
@@ -816,10 +914,12 @@ def test_proposal_summary_entries_written_reflects_actual_counts(tmp_path):
 # RP-RPT-002 — failed_sections contains heading and doc path
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-RPT-002
 def test_proposal_summary_includes_failed_sections(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
     from modok.llm.errors import LLMResponseError
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -842,9 +942,11 @@ def test_proposal_summary_includes_failed_sections(tmp_path):
 # RP-ENRICH-010 — N/total progress line per section on stderr
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-ENRICH-010
 def test_propose_registries_prints_progress_line_per_section(tmp_path, capsys):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # 2 H2 sections
     cfg = make_cfg()
 
@@ -860,6 +962,7 @@ def test_propose_registries_prints_progress_line_per_section(tmp_path, capsys):
 def test_propose_registries_prints_failed_progress_line_inline(tmp_path, capsys):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
     from modok.llm.errors import LLMUnavailableError
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)  # Overview, Details
     cfg = make_cfg()
 
@@ -882,9 +985,11 @@ def test_propose_registries_prints_failed_progress_line_inline(tmp_path, capsys)
 # RP-WRITE-008 — write .raw.yml files after enrichment
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-008
 def test_propose_registries_writes_raw_yml_files(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -900,6 +1005,7 @@ def test_propose_registries_writes_raw_yml_files(tmp_path):
 # @spec RP-WRITE-008
 def test_raw_yml_has_same_structure_as_final_yml(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -918,9 +1024,11 @@ def test_raw_yml_has_same_structure_as_final_yml(tmp_path):
 # RP-WRITE-009 — modok init --assisted does NOT write final .yml files
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-WRITE-009
 def test_propose_registries_does_not_write_final_yml(tmp_path):
     from modok.registry.proposal import propose_registries, EnrichSectionResult
+
     write_file(tmp_path / "doc.md", SIMPLE_DOC)
     cfg = make_cfg()
 
@@ -936,9 +1044,11 @@ def test_propose_registries_does_not_write_final_yml(tmp_path):
 # RP-SLUG-005 — slug collision warnings go to stderr, not stdout
 # ---------------------------------------------------------------------------
 
+
 # @spec RP-SLUG-005
 def test_slug_collision_warnings_go_to_stderr_not_stdout(capsys):
     from modok.registry.slugify import resolve_slug_collisions
+
     entries = [
         {"name": "Real-Time Tracking", "description": ""},
         {"name": "Real Time Tracking", "description": ""},

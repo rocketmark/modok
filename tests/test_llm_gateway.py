@@ -32,6 +32,7 @@ from modok.llm.models import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_config(
     local_endpoint="http://localhost:11434/v1",
     local_model="llama3.2",
@@ -99,13 +100,16 @@ VALID_SIMILARITY_RESPONSE = """\
 # LLM-BACK-001 — local backend uses local_endpoint and local_model
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-BACK-001
 @pytest.mark.asyncio
 async def test_local_backend_uses_local_endpoint():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("ticket text", "stagehand", backend="local")
 
@@ -125,7 +129,9 @@ async def test_local_backend_ignores_remote_when_configured():
         remote_api_key="sk-test",
     )
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("ticket text", "stagehand", backend="local")
 
@@ -137,6 +143,7 @@ async def test_local_backend_ignores_remote_when_configured():
 # ---------------------------------------------------------------------------
 # LLM-BACK-002 — remote backend raises LLMConfigError when not configured
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-BACK-002
 @pytest.mark.asyncio
@@ -164,6 +171,7 @@ async def test_remote_backend_makes_no_network_call_before_config_check():
 # LLM-BACK-003 — auto: escalates on validation failure
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-BACK-003
 @pytest.mark.asyncio
 async def test_auto_escalates_to_remote_on_local_validation_failure():
@@ -177,7 +185,9 @@ async def test_auto_escalates_to_remote_on_local_validation_failure():
     bad_response = '{"not_a_valid_ticket": true}'
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_local:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_local:
             mock_local.return_value = bad_response  # local returns bad JSON
             with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_remote:
                 mock_remote.return_value = VALID_TICKET_RESPONSE  # remote returns good JSON
@@ -231,6 +241,7 @@ def test_auto_escalates_at_most_once(max_retries):
 # LLM-BACK-004 — auto: escalates on low confidence
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-BACK-004
 @pytest.mark.asyncio
 async def test_auto_does_not_escalate_on_low_confidence():
@@ -253,7 +264,9 @@ async def test_auto_does_not_escalate_on_low_confidence():
 """
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = low_conf_response
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
@@ -266,13 +279,16 @@ async def test_auto_does_not_escalate_on_low_confidence():
 # LLM-BACK-005 — auto without remote configured behaves as local
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-BACK-005
 @pytest.mark.asyncio
 async def test_auto_without_remote_behaves_as_local():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
 
@@ -295,7 +311,9 @@ async def test_auto_without_remote_does_not_raise_on_low_confidence():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = low_conf
             # should not raise — no remote to escalate to
             result = await parse_ticket("ticket text", "stagehand", backend="auto")
@@ -307,6 +325,7 @@ async def test_auto_without_remote_does_not_raise_on_low_confidence():
 # ---------------------------------------------------------------------------
 # LLM-BACK-006 — API key: config first, env var fallback, error if neither
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-BACK-006
 @pytest.mark.asyncio
@@ -367,6 +386,7 @@ async def test_api_key_raises_config_error_when_missing(monkeypatch):
 # LLM-RETRY-001 — retry on timeout/5xx, same backend only
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-RETRY-001
 @pytest.mark.asyncio
 async def test_retries_on_timeout_up_to_max():
@@ -375,7 +395,9 @@ async def test_retries_on_timeout_up_to_max():
     cfg = make_config(max_retries=2)
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.side_effect = [
                 asyncio.TimeoutError(),
                 asyncio.TimeoutError(),
@@ -400,7 +422,9 @@ async def test_retry_stays_on_same_backend():
         remote_api_key="sk-test",
     )
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.side_effect = [asyncio.TimeoutError(), VALID_TICKET_RESPONSE]
             with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -414,13 +438,16 @@ async def test_retry_stays_on_same_backend():
 # LLM-RETRY-002 — 4xx raises immediately, no retry
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-RETRY-002
 @pytest.mark.asyncio
 async def test_4xx_raises_immediately_without_retry():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=2)):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.side_effect = LLMGatewayError("401 Unauthorized")
             with pytest.raises(LLMGatewayError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -432,6 +459,7 @@ async def test_4xx_raises_immediately_without_retry():
 # LLM-RETRY-003 — LLMUnavailableError after retries exhausted
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-RETRY-003
 @pytest.mark.asyncio
 async def test_raises_unavailable_after_all_retries():
@@ -439,7 +467,9 @@ async def test_raises_unavailable_after_all_retries():
 
     cfg = make_config(max_retries=2)
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.side_effect = asyncio.TimeoutError()
             with patch("modok.llm.gateway.asyncio.sleep", new_callable=AsyncMock):
                 with pytest.raises(LLMUnavailableError):
@@ -451,6 +481,7 @@ async def test_raises_unavailable_after_all_retries():
 # ---------------------------------------------------------------------------
 # LLM-RETRY-004 — per-call-type timeouts
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-RETRY-004
 @given(
@@ -511,7 +542,9 @@ async def test_propose_metadata_uses_metadata_timeout():
 
     cfg = make_config(timeout_seconds=30, timeout_propose_metadata=15)
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"], backend="local")
 
@@ -521,6 +554,7 @@ async def test_propose_metadata_uses_metadata_timeout():
 # ---------------------------------------------------------------------------
 # LLM-RETRY-005 — total attempts never exceeds max_retries + 1
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-RETRY-005
 @given(max_retries=st.integers(min_value=0, max_value=5))
@@ -556,6 +590,7 @@ def test_total_attempts_never_exceeds_max_retries_plus_one(max_retries):
 # LLM-VAL-001 — json_object response_format on all calls
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VAL-001
 @pytest.mark.asyncio
 async def test_chat_completion_sets_json_object_format():
@@ -580,13 +615,16 @@ async def test_chat_completion_sets_json_object_format():
 # LLM-VAL-002 — valid JSON returns typed result
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VAL-002
 @pytest.mark.asyncio
 async def test_valid_json_returns_typed_ticket_parse_result():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -598,6 +636,7 @@ async def test_valid_json_returns_typed_ticket_parse_result():
 # ---------------------------------------------------------------------------
 # LLM-VAL-003 — JSON extraction fallback from raw text
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VAL-003
 @given(
@@ -632,9 +671,11 @@ async def test_successful_extraction_does_not_trigger_retry():
     from modok.llm.gateway import parse_ticket
 
     # Model returns text with embedded JSON — not strict json_object
-    wrapped = 'Sure! Here you go:\n' + VALID_TICKET_RESPONSE + '\nHope that helps.'
+    wrapped = "Sure! Here you go:\n" + VALID_TICKET_RESPONSE + "\nHope that helps."
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = wrapped
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -646,13 +687,16 @@ async def test_successful_extraction_does_not_trigger_retry():
 # LLM-VAL-004 / LLM-VAL-005 — raises LLMResponseError on unrecoverable bad response
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VAL-004
 @pytest.mark.asyncio
 async def test_raises_response_error_when_no_json_extractable():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = "Sorry, I cannot help with that."
             with pytest.raises(LLMResponseError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -665,7 +709,9 @@ async def test_raises_response_error_when_json_fails_schema_validation():
 
     bad_schema = '{"wrong_field": "value"}'
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = bad_schema
             with pytest.raises(LLMResponseError):
                 await parse_ticket("text", "stagehand", backend="local")
@@ -675,13 +721,16 @@ async def test_raises_response_error_when_json_fails_schema_validation():
 # LLM-TICKET-001 — parse_ticket returns TicketParseResult
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-TICKET-001
 @pytest.mark.asyncio
 async def test_parse_ticket_returns_all_required_fields():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("customer reported pose dropout", "stagehand")
 
@@ -694,6 +743,7 @@ async def test_parse_ticket_returns_all_required_fields():
 # ---------------------------------------------------------------------------
 # LLM-TICKET-002 — missing confidence defaults to 0.0
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-TICKET-002
 @pytest.mark.asyncio
@@ -709,7 +759,9 @@ async def test_missing_confidence_defaults_to_zero():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = no_conf
             result = await parse_ticket("text", "stagehand")
 
@@ -720,6 +772,7 @@ async def test_missing_confidence_defaults_to_zero():
 # LLM-TICKET-003 — uses frozen prompt template
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-TICKET-003
 @pytest.mark.asyncio
 async def test_parse_ticket_uses_prompt_from_prompts_module():
@@ -727,24 +780,22 @@ async def test_parse_ticket_uses_prompt_from_prompts_module():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             await parse_ticket("text", "stagehand")
 
     messages = mock_chat.call_args.kwargs.get("messages", [])
-    system_content = next(
-        (m["content"] for m in messages if m.get("role") == "system"), ""
-    )
+    system_content = next((m["content"] for m in messages if m.get("role") == "system"), "")
     # Must derive from the frozen template, not an arbitrary string
-    assert any(
-        word in system_content
-        for word in prompts.PARSE_TICKET_SYSTEM.split()[:5]
-    )
+    assert any(word in system_content for word in prompts.PARSE_TICKET_SYSTEM.split()[:5])
 
 
 # ---------------------------------------------------------------------------
 # LLM-TICKET-004 — parse_ticket never writes
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-TICKET-004
 def test_parse_ticket_does_not_write_to_quine_or_disk():
@@ -762,13 +813,16 @@ def test_parse_ticket_does_not_write_to_quine_or_disk():
 # LLM-META-001 — propose_metadata returns MetadataProposal
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-META-001
 @pytest.mark.asyncio
 async def test_propose_metadata_returns_all_required_fields():
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             result = await propose_metadata(
                 Path("docs/lld/shtp.md"),
@@ -787,6 +841,7 @@ async def test_propose_metadata_returns_all_required_fields():
 # LLM-META-002 — uses frozen prompt template
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-META-002
 @pytest.mark.asyncio
 async def test_propose_metadata_uses_prompt_from_prompts_module():
@@ -794,23 +849,21 @@ async def test_propose_metadata_uses_prompt_from_prompts_module():
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"])
 
     messages = mock_chat.call_args.kwargs.get("messages", [])
-    system_content = next(
-        (m["content"] for m in messages if m.get("role") == "system"), ""
-    )
-    assert any(
-        word in system_content
-        for word in prompts.PROPOSE_METADATA_SYSTEM.split()[:5]
-    )
+    system_content = next((m["content"] for m in messages if m.get("role") == "system"), "")
+    assert any(word in system_content for word in prompts.PROPOSE_METADATA_SYSTEM.split()[:5])
 
 
 # ---------------------------------------------------------------------------
 # LLM-META-004 — ingestion pipeline catches LLMResponseError and warns
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-META-004
 def test_ingestion_pipeline_catches_llm_response_error_and_warns(tmp_path):
@@ -832,6 +885,7 @@ def test_ingestion_pipeline_catches_llm_response_error_and_warns(tmp_path):
 # LLM-SIM-001 — propose_similarity accepts candidates list, no Quine calls
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-SIM-001
 @pytest.mark.asyncio
 async def test_propose_similarity_returns_proposals():
@@ -847,12 +901,15 @@ async def test_propose_similarity_returns_proposals():
         status="open",
     )
     candidates = [
-        KnownIssueSummary("ki-001", "SHTP version mismatch causes dropout",
-                          ["shtp-version-mismatch"]),
+        KnownIssueSummary(
+            "ki-001", "SHTP version mismatch causes dropout", ["shtp-version-mismatch"]
+        ),
     ]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             result = await propose_similarity(issue, candidates)
 
@@ -865,6 +922,7 @@ async def test_propose_similarity_returns_proposals():
 # ---------------------------------------------------------------------------
 # LLM-SIM-002 — SimilarityProposal carries all required fields
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-SIM-002
 @pytest.mark.asyncio
@@ -883,7 +941,9 @@ async def test_similarity_proposal_has_all_required_fields():
     candidates = [KnownIssueSummary("ki-001", "summary", [])]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             result = await propose_similarity(issue, candidates)
 
@@ -898,6 +958,7 @@ async def test_similarity_proposal_has_all_required_fields():
 # ---------------------------------------------------------------------------
 # LLM-SIM-003 — empty candidates → empty result, no LLM call
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-SIM-003
 @pytest.mark.asyncio
@@ -926,6 +987,7 @@ async def test_empty_candidates_returns_empty_without_llm_call():
 # LLM-SIM-004 — uses frozen prompt template
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-SIM-004
 @pytest.mark.asyncio
 async def test_propose_similarity_uses_prompt_from_prompts_module():
@@ -944,23 +1006,21 @@ async def test_propose_similarity_uses_prompt_from_prompts_module():
     candidates = [KnownIssueSummary("ki-001", "summary", [])]
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SIMILARITY_RESPONSE
             await propose_similarity(issue, candidates)
 
     messages = mock_chat.call_args.kwargs.get("messages", [])
-    system_content = next(
-        (m["content"] for m in messages if m.get("role") == "system"), ""
-    )
-    assert any(
-        word in system_content
-        for word in prompts.PROPOSE_SIMILARITY_SYSTEM.split()[:5]
-    )
+    system_content = next((m["content"] for m in messages if m.get("role") == "system"), "")
+    assert any(word in system_content for word in prompts.PROPOSE_SIMILARITY_SYSTEM.split()[:5])
 
 
 # ---------------------------------------------------------------------------
 # LLM-SIM-005 — propose_similarity never writes
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-SIM-005
 def test_propose_similarity_not_in_write_path():
@@ -976,6 +1036,7 @@ def test_propose_similarity_not_in_write_path():
 # ---------------------------------------------------------------------------
 # LLM-WRITE-001/002/003 — gateway write boundary
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-WRITE-001
 def test_gateway_module_does_not_import_quine_client():
@@ -1007,7 +1068,9 @@ async def test_raw_response_is_in_memory_not_persisted():
     from modok.llm.gateway import parse_ticket
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_TICKET_RESPONSE
             result = await parse_ticket("text", "stagehand")
 
@@ -1017,6 +1080,7 @@ async def test_raw_response_is_in_memory_not_persisted():
     # The gateway source must not persist raw_response anywhere
     import inspect
     import modok.llm.gateway as gw_mod
+
     src = inspect.getsource(gw_mod)
     assert "raw_response" not in src.split("def _load_config")[0].replace(
         "raw_response=", ""
@@ -1026,6 +1090,7 @@ async def test_raw_response_is_in_memory_not_persisted():
 # ---------------------------------------------------------------------------
 # LLM-PROMPT-001/002 — prompt discipline
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-PROMPT-001
 def test_all_prompts_are_module_level_constants():
@@ -1053,19 +1118,22 @@ def test_each_call_type_uses_distinct_prompt():
 # LLM-META-005/006/007 — repair_context in propose_metadata
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-META-005
 @pytest.mark.asyncio
 async def test_propose_metadata_includes_counterexamples_in_repair_prompt():
     from modok.llm.gateway import propose_metadata
 
-    repair_context = [
-        {"field": "feature_slug", "reason": "not in registry", "bad_value": "docs"}
-    ]
+    repair_context = [{"field": "feature_slug", "reason": "not in registry", "bad_value": "docs"}]
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(
-                Path("doc.md"), {}, ["feature_slug"],
+                Path("doc.md"),
+                {},
+                ["feature_slug"],
                 repair_context=repair_context,
             )
 
@@ -1080,7 +1148,9 @@ async def test_propose_metadata_no_counterexample_content_without_repair_context
     from modok.llm.gateway import propose_metadata
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_METADATA_RESPONSE
             await propose_metadata(Path("doc.md"), {}, ["modules"], repair_context=None)
 
@@ -1102,6 +1172,7 @@ def test_repair_and_initial_prompts_are_distinct_constants():
 # ---------------------------------------------------------------------------
 # LLM-VER-001 — reject fields not in missing_fields
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-001
 def test_verifier_rejects_field_not_in_missing_fields():
@@ -1128,6 +1199,7 @@ def test_verifier_rejects_field_not_in_missing_fields():
 # LLM-VER-002 — reject fields that overwrite existing frontmatter
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VER-002
 def test_verifier_rejects_field_that_overwrites_existing_frontmatter():
     from modok.ingestion.verifier import verify_proposal
@@ -1153,6 +1225,7 @@ def test_verifier_rejects_field_that_overwrites_existing_frontmatter():
 # LLM-VER-003 — reject wrong type
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VER-003
 def test_verifier_rejects_wrong_value_type():
     from modok.ingestion.verifier import verify_proposal
@@ -1176,6 +1249,7 @@ def test_verifier_rejects_wrong_value_type():
 # ---------------------------------------------------------------------------
 # LLM-VER-004 — reject unknown slug
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-004
 def test_verifier_rejects_feature_slug_not_in_registry():
@@ -1203,6 +1277,7 @@ def test_verifier_rejects_feature_slug_not_in_registry():
 # LLM-VER-005 — reject unknown enum value
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VER-005
 def test_verifier_rejects_unknown_enum_value():
     from modok.ingestion.verifier import verify_proposal
@@ -1228,6 +1303,7 @@ def test_verifier_rejects_unknown_enum_value():
 # ---------------------------------------------------------------------------
 # LLM-VER-006 — reject duplicates in list fields
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-006
 @given(
@@ -1260,6 +1336,7 @@ def test_verifier_rejects_list_field_with_duplicates(items):
 # LLM-VER-007 — reject empty values
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VER-007
 @given(
     field=st.sampled_from(["feature_slug", "modules", "tags"]),
@@ -1290,6 +1367,7 @@ def test_verifier_rejects_empty_values(field, empty_val):
 # LLM-VER-008 — reject insufficient evidence (two-tier)
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-VER-008
 def test_verifier_rejects_evidence_shorter_than_15_chars():
     from modok.ingestion.verifier import verify_proposal
@@ -1298,7 +1376,7 @@ def test_verifier_rejects_evidence_shorter_than_15_chars():
     proposal = MetadataProposal(
         proposed_fields={"feature_slug": "ingestion"},
         confidence=0.8,
-        evidence="See doc.",      # 8 chars — too short
+        evidence="See doc.",  # 8 chars — too short
         raw_response="{}",
     )
     registry = MagicMock()
@@ -1311,12 +1389,15 @@ def test_verifier_rejects_evidence_shorter_than_15_chars():
 
 
 # @spec LLM-VER-008
-@pytest.mark.parametrize("filler", [
-    "The document is about validation.",
-    "This document describes the feature.",
-    "Based on the document content.",
-    "The file mentions the module.",
-])
+@pytest.mark.parametrize(
+    "filler",
+    [
+        "The document is about validation.",
+        "This document describes the feature.",
+        "Based on the document content.",
+        "The file mentions the module.",
+    ],
+)
 def test_verifier_rejects_known_filler_patterns(filler):
     from modok.ingestion.verifier import verify_proposal
     from modok.llm.models import MetadataProposal
@@ -1345,7 +1426,7 @@ def test_verifier_accepts_short_but_specific_evidence_fails_hard_check():
     proposal = MetadataProposal(
         proposed_fields={"feature_slug": "ingestion"},
         confidence=0.8,
-        evidence="shtp.c line 42",   # 14 chars, specific but too short
+        evidence="shtp.c line 42",  # 14 chars, specific but too short
         raw_response="{}",
     )
     registry = MagicMock()
@@ -1359,6 +1440,7 @@ def test_verifier_accepts_short_but_specific_evidence_fails_hard_check():
 # ---------------------------------------------------------------------------
 # LLM-VER-009 — verify_proposal is a pure function
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-009
 @given(
@@ -1396,6 +1478,7 @@ def test_verify_proposal_does_not_mutate_inputs(field, value):
 # ---------------------------------------------------------------------------
 # LLM-VER-010/011 — is_valid flag and valid_fields / rejected_fields
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-VER-010
 def test_verify_proposal_is_valid_true_when_all_fields_pass():
@@ -1443,6 +1526,7 @@ def test_verify_proposal_is_valid_false_with_mixed_fields():
 # LLM-CEGIS-001 — repair attempt called when initial verification fails
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-CEGIS-001
 @pytest.mark.asyncio
 async def test_cegis_repair_called_on_initial_verification_failure():
@@ -1473,8 +1557,9 @@ async def test_cegis_repair_called_on_initial_verification_failure():
         return bad_proposal if repair_context is None else good_proposal
 
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-        with patch("modok.ingestion.pipeline._load_llm_config",
-                   return_value={"cegis_fix_enabled": True}):
+        with patch(
+            "modok.ingestion.pipeline._load_llm_config", return_value={"cegis_fix_enabled": True}
+        ):
             await run_llm_proposal_pass(
                 doc_path=Path("doc.md"),
                 frontmatter={"doc_type": "lld"},
@@ -1485,13 +1570,14 @@ async def test_cegis_repair_called_on_initial_verification_failure():
             )
 
     assert len(propose_calls) == 2
-    assert propose_calls[0] is None          # initial call
-    assert propose_calls[1] is not None      # repair call has counterexamples
+    assert propose_calls[0] is None  # initial call
+    assert propose_calls[1] is not None  # repair call has counterexamples
 
 
 # ---------------------------------------------------------------------------
 # LLM-CEGIS-002 — repair only re-proposes rejected fields; accumulates valid_fields
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-CEGIS-002
 @pytest.mark.asyncio
@@ -1525,8 +1611,9 @@ async def test_cegis_repair_only_proposes_rejected_fields():
         return initial if repair_context is None else repair
 
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-        with patch("modok.ingestion.pipeline._load_llm_config",
-                   return_value={"cegis_fix_enabled": True}):
+        with patch(
+            "modok.ingestion.pipeline._load_llm_config", return_value={"cegis_fix_enabled": True}
+        ):
             result = await run_llm_proposal_pass(
                 doc_path=Path("doc.md"),
                 frontmatter={},
@@ -1547,6 +1634,7 @@ async def test_cegis_repair_only_proposes_rejected_fields():
 # ---------------------------------------------------------------------------
 # LLM-CEGIS-003 — at most one repair attempt
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-CEGIS-003
 @pytest.mark.asyncio
@@ -1572,8 +1660,9 @@ async def test_cegis_makes_at_most_one_repair_attempt():
         return bad
 
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-        with patch("modok.ingestion.pipeline._load_llm_config",
-                   return_value={"cegis_fix_enabled": True}):
+        with patch(
+            "modok.ingestion.pipeline._load_llm_config", return_value={"cegis_fix_enabled": True}
+        ):
             await run_llm_proposal_pass(
                 doc_path=Path("doc.md"),
                 frontmatter={},
@@ -1589,6 +1678,7 @@ async def test_cegis_makes_at_most_one_repair_attempt():
 # ---------------------------------------------------------------------------
 # LLM-CEGIS-004 — no repair when cegis_fix_enabled = false
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-CEGIS-004
 @pytest.mark.asyncio
@@ -1614,8 +1704,9 @@ async def test_cegis_disabled_makes_no_repair_attempt():
         return bad
 
     with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-        with patch("modok.ingestion.pipeline._load_llm_config",
-                   return_value={"cegis_fix_enabled": False}):
+        with patch(
+            "modok.ingestion.pipeline._load_llm_config", return_value={"cegis_fix_enabled": False}
+        ):
             await run_llm_proposal_pass(
                 doc_path=Path("doc.md"),
                 frontmatter={},
@@ -1631,6 +1722,7 @@ async def test_cegis_disabled_makes_no_repair_attempt():
 # ---------------------------------------------------------------------------
 # LLM-CEGIS-005 — total propose_metadata calls never exceed 2
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-CEGIS-005
 @given(cegis_enabled=st.booleans())
@@ -1659,8 +1751,10 @@ def test_total_propose_metadata_calls_never_exceed_two(cegis_enabled):
 
     async def run():
         with patch("modok.ingestion.pipeline.propose_metadata", new=fake_propose):
-            with patch("modok.ingestion.pipeline._load_llm_config",
-                       return_value={"cegis_fix_enabled": cegis_enabled}):
+            with patch(
+                "modok.ingestion.pipeline._load_llm_config",
+                return_value={"cegis_fix_enabled": cegis_enabled},
+            ):
                 await run_llm_proposal_pass(
                     doc_path=Path("doc.md"),
                     frontmatter={},
@@ -1678,7 +1772,9 @@ def test_total_propose_metadata_calls_never_exceed_two(cegis_enabled):
 # LLM-SUMM-001 — summarise_packet sends all required fields including matched_elements
 # ---------------------------------------------------------------------------
 
-VALID_SUMMARY_RESPONSE = '{"summary": "The reinit_requested signal in device_card.py fails on USB reconnect."}'
+VALID_SUMMARY_RESPONSE = (
+    '{"summary": "The reinit_requested signal in device_card.py fails on USB reconnect."}'
+)
 
 
 # @spec LLM-SUMM-001
@@ -1687,7 +1783,9 @@ async def test_summarise_packet_sends_all_required_fields():
     from modok.llm.gateway import summarise_packet
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             await summarise_packet(
                 issue_text="Tracker drops after USB reset",
@@ -1697,7 +1795,13 @@ async def test_summarise_packet_sends_all_required_fields():
                 relevant_files=["ui/device_card.py"],
                 relevant_tests=["tests/test_device_card.py"],
                 matched_elements=["reinit_requested"],
-                recent_commits=[{"timestamp": "2024-01-15T10:00:00Z", "author_name": "Dev", "message": "fix reinit"}],
+                recent_commits=[
+                    {
+                        "timestamp": "2024-01-15T10:00:00Z",
+                        "author_name": "Dev",
+                        "message": "fix reinit",
+                    }
+                ],
                 known_issues=["USB reset causes pose dropout"],
                 backend="local",
             )
@@ -1719,7 +1823,9 @@ async def test_summarise_packet_includes_matched_elements_in_user_content():
     from modok.llm.gateway import summarise_packet
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             await summarise_packet(
                 issue_text="issue",
@@ -1744,6 +1850,7 @@ async def test_summarise_packet_includes_matched_elements_in_user_content():
 # LLM-SUMM-002 — system prompt includes element priority ordering
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-SUMM-002
 def test_summarise_packet_system_prompt_names_element_priority():
     from modok.llm import prompts
@@ -1762,12 +1869,20 @@ async def test_summarise_packet_sends_system_prompt_with_priority_instruction():
     from modok.llm import prompts
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             await summarise_packet(
-                issue_text="issue", module_slugs=[], error_signatures=[],
-                symptoms=[], relevant_files=[], relevant_tests=[],
-                matched_elements=[], recent_commits=[], known_issues=[],
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=[],
+                recent_commits=[],
+                known_issues=[],
             )
 
     messages = mock_chat.call_args.kwargs.get("messages", [])
@@ -1779,6 +1894,7 @@ async def test_summarise_packet_sends_system_prompt_with_priority_instruction():
 # LLM-SUMM-003 — uses SUMMARISE_PACKET_SYSTEM; validates {"summary": "..."} before returning string
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-SUMM-003
 @pytest.mark.asyncio
 async def test_summarise_packet_uses_summarise_packet_system_prompt():
@@ -1786,12 +1902,20 @@ async def test_summarise_packet_uses_summarise_packet_system_prompt():
     from modok.llm import prompts
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             await summarise_packet(
-                issue_text="issue", module_slugs=[], error_signatures=[],
-                symptoms=[], relevant_files=[], relevant_tests=[],
-                matched_elements=[], recent_commits=[], known_issues=[],
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=[],
+                recent_commits=[],
+                known_issues=[],
             )
 
     messages = mock_chat.call_args.kwargs.get("messages", [])
@@ -1805,12 +1929,20 @@ async def test_summarise_packet_returns_plain_string_extracted_from_json():
     from modok.llm.gateway import summarise_packet
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = '{"summary": "The reinit_requested signal fails."}'
             result = await summarise_packet(
-                issue_text="issue", module_slugs=[], error_signatures=[],
-                symptoms=[], relevant_files=[], relevant_tests=[],
-                matched_elements=[], recent_commits=[], known_issues=[],
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=[],
+                recent_commits=[],
+                known_issues=[],
             )
 
     assert isinstance(result, str)
@@ -1823,19 +1955,28 @@ async def test_summarise_packet_raises_response_error_when_summary_key_absent():
     from modok.llm.gateway import summarise_packet
 
     with patch("modok.llm.gateway._load_config", return_value=make_config(max_retries=0)):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = '{"not_summary": "wrong"}'
             with pytest.raises(LLMResponseError):
                 await summarise_packet(
-                    issue_text="issue", module_slugs=[], error_signatures=[],
-                    symptoms=[], relevant_files=[], relevant_tests=[],
-                    matched_elements=[], recent_commits=[], known_issues=[],
+                    issue_text="issue",
+                    module_slugs=[],
+                    error_signatures=[],
+                    symptoms=[],
+                    relevant_files=[],
+                    relevant_tests=[],
+                    matched_elements=[],
+                    recent_commits=[],
+                    known_issues=[],
                 )
 
 
 # ---------------------------------------------------------------------------
 # LLM-SUMM-004 — summarise_packet never writes; returns plain string only
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-SUMM-004
 def test_summarise_packet_not_in_write_path():
@@ -1856,12 +1997,20 @@ async def test_summarise_packet_return_type_is_str():
     from modok.llm.gateway import summarise_packet
 
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             result = await summarise_packet(
-                issue_text="issue", module_slugs=[], error_signatures=[],
-                symptoms=[], relevant_files=[], relevant_tests=[],
-                matched_elements=[], recent_commits=[], known_issues=[],
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=[],
+                recent_commits=[],
+                known_issues=[],
             )
 
     assert isinstance(result, str)
@@ -1872,6 +2021,7 @@ async def test_summarise_packet_return_type_is_str():
 # LLM-SUMM-004 — summarise_packet uses timeout_summarise_packet
 # ---------------------------------------------------------------------------
 
+
 # @spec LLM-RETRY-004, LLM-SUMM-001
 @pytest.mark.asyncio
 async def test_summarise_packet_uses_summarise_timeout():
@@ -1881,12 +2031,20 @@ async def test_summarise_packet_uses_summarise_timeout():
     cfg["timeout_summarise_packet"] = 45
 
     with patch("modok.llm.gateway._load_config", return_value=cfg):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = VALID_SUMMARY_RESPONSE
             await summarise_packet(
-                issue_text="issue", module_slugs=[], error_signatures=[],
-                symptoms=[], relevant_files=[], relevant_tests=[],
-                matched_elements=[], recent_commits=[], known_issues=[],
+                issue_text="issue",
+                module_slugs=[],
+                error_signatures=[],
+                symptoms=[],
+                relevant_files=[],
+                relevant_tests=[],
+                matched_elements=[],
+                recent_commits=[],
+                known_issues=[],
             )
 
     assert mock_chat.call_args.kwargs.get("timeout") == 45
@@ -1895,6 +2053,7 @@ async def test_summarise_packet_uses_summarise_timeout():
 # ---------------------------------------------------------------------------
 # LLM-TICKET-005 — legacy feature_slug (singular) normalized to feature_slugs list
 # ---------------------------------------------------------------------------
+
 
 # @spec LLM-TICKET-005
 @pytest.mark.asyncio
@@ -1911,7 +2070,9 @@ async def test_legacy_feature_slug_string_normalized_to_list():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = legacy_response
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -1935,7 +2096,9 @@ async def test_legacy_feature_slug_does_not_duplicate_when_also_in_feature_slugs
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = both_response
             result = await parse_ticket("text", "stagehand", backend="local")
 
@@ -1957,7 +2120,9 @@ async def test_legacy_feature_slug_null_produces_empty_list():
 }
 """
     with patch("modok.llm.gateway._load_config", return_value=make_config()):
-        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_chat:
+        with patch(
+            "modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock
+        ) as mock_chat:
             mock_chat.return_value = null_slug_response
             result = await parse_ticket("text", "stagehand", backend="local")
 

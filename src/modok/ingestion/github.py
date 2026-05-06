@@ -261,6 +261,7 @@ class GithubIngester:
 
 def click_exit2(msg: str) -> SystemExit:
     import click
+
     click.echo(msg, err=True)
     return SystemExit(2)
 

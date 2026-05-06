@@ -1,6 +1,7 @@
 """
 Scenario loader — parses YAML scenario files into Scenario dataclasses.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -77,6 +78,7 @@ def _build_node(raw: dict[str, Any]) -> tuple[int, QuineNode]:
     model_cls = _NODE_TYPE_MAP[node_type]
     node = model_cls(**fields)
     from tests.hifi.dummy_quine.client import _node_id_from_model_hifi
+
     node_id = _node_id_from_model_hifi(node)
     return node_id, node
 

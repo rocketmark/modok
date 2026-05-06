@@ -2,6 +2,7 @@
 Metamorphic tests — Layer 3.
 All tests written before implementation (Phase 5).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -24,22 +25,32 @@ from tests.hifi.harness.runner import run_scenario_from_parts
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 def _base_nodes_and_edges(project: str = "stagehand"):
     """
     Minimal graph: CI --HAS_ERROR--> Err <--HAS_ERROR-- KI
     Returns (nodes, edges, ci_id).
     """
     ci = CustomerIssue(
-        node_type="CustomerIssue", project_slug=project,
-        source_system="zendesk", ticket_id="MT001", summary="x", status="open",
+        node_type="CustomerIssue",
+        project_slug=project,
+        source_system="zendesk",
+        ticket_id="MT001",
+        summary="x",
+        status="open",
     )
     err = ErrorSignature(
-        node_type="ErrorSignature", project_slug=project,
-        normalized_error="mt_err", display_text="mt_err",
+        node_type="ErrorSignature",
+        project_slug=project,
+        normalized_error="mt_err",
+        display_text="mt_err",
     )
     ki = KnownIssue(
-        node_type="KnownIssue", project_slug=project,
-        issue_id="KI-MT", summary="mt known issue", status="open",
+        node_type="KnownIssue",
+        project_slug=project,
+        issue_id="KI-MT",
+        summary="mt known issue",
+        status="open",
     )
     ci_id = idFrom("customer-issue", project, "zendesk", "MT001")
     err_id = idFrom("error", project, "mt_err")
@@ -57,6 +68,7 @@ def _base_nodes_and_edges(project: str = "stagehand"):
 # Metamorphic Tests
 # ---------------------------------------------------------------------------
 
+
 # @spec MT-001
 @pytest.mark.asyncio
 async def test_shuffled_input_order_same_packet():
@@ -68,12 +80,14 @@ async def test_shuffled_input_order_same_packet():
 
     shuffled_nodes = list(reversed(nodes))
     shuffled_edges = list(reversed(edges))
-    _, actual_shuf, _ = await run_scenario_from_parts(shuffled_nodes, shuffled_edges, ci_id, project)
+    _, actual_shuf, _ = await run_scenario_from_parts(
+        shuffled_nodes, shuffled_edges, ci_id, project
+    )
 
-    assert set(k.id for k in actual_orig.known_issues) == \
-           set(k.id for k in actual_shuf.known_issues)
-    assert set(f.id for f in actual_orig.prior_fixes) == \
-           set(f.id for f in actual_shuf.prior_fixes)
+    assert set(k.id for k in actual_orig.known_issues) == set(
+        k.id for k in actual_shuf.known_issues
+    )
+    assert set(f.id for f in actual_orig.prior_fixes) == set(f.id for f in actual_shuf.prior_fixes)
     assert set(actual_orig.relevant_files) == set(actual_shuf.relevant_files)
 
 
@@ -90,10 +104,8 @@ async def test_duplicate_node_edge_same_packet():
     dup_edges = edges + [edges[0]]
     _, actual_dup, _ = await run_scenario_from_parts(dup_nodes, dup_edges, ci_id, project)
 
-    assert set(k.id for k in actual_orig.known_issues) == \
-           set(k.id for k in actual_dup.known_issues)
-    assert set(f.id for f in actual_orig.prior_fixes) == \
-           set(f.id for f in actual_dup.prior_fixes)
+    assert set(k.id for k in actual_orig.known_issues) == set(k.id for k in actual_dup.known_issues)
+    assert set(f.id for f in actual_orig.prior_fixes) == set(f.id for f in actual_dup.prior_fixes)
     assert set(actual_orig.relevant_files) == set(actual_dup.relevant_files)
 
 
@@ -109,16 +121,25 @@ async def test_unrelated_project_node_does_not_change_packet():
 
     # Add an unrelated project's CI, error, and KI with their own edges
     other_ci = CustomerIssue(
-        node_type="CustomerIssue", project_slug=other,
-        source_system="zendesk", ticket_id="MT003", summary="other", status="open",
+        node_type="CustomerIssue",
+        project_slug=other,
+        source_system="zendesk",
+        ticket_id="MT003",
+        summary="other",
+        status="open",
     )
     other_err = ErrorSignature(
-        node_type="ErrorSignature", project_slug=other,
-        normalized_error="other_err", display_text="other_err",
+        node_type="ErrorSignature",
+        project_slug=other,
+        normalized_error="other_err",
+        display_text="other_err",
     )
     other_ki = KnownIssue(
-        node_type="KnownIssue", project_slug=other,
-        issue_id="KI-OTHER", summary="other ki", status="open",
+        node_type="KnownIssue",
+        project_slug=other,
+        issue_id="KI-OTHER",
+        summary="other ki",
+        status="open",
     )
     other_ci_id = idFrom("customer-issue", other, "zendesk", "MT003")
     other_err_id = idFrom("error", other, "other_err")
@@ -132,10 +153,8 @@ async def test_unrelated_project_node_does_not_change_packet():
 
     _, actual_ext, _ = await run_scenario_from_parts(extended_nodes, extended_edges, ci_id, project)
 
-    assert set(k.id for k in actual_orig.known_issues) == \
-           set(k.id for k in actual_ext.known_issues)
-    assert set(f.id for f in actual_orig.prior_fixes) == \
-           set(f.id for f in actual_ext.prior_fixes)
+    assert set(k.id for k in actual_orig.known_issues) == set(k.id for k in actual_ext.known_issues)
+    assert set(f.id for f in actual_orig.prior_fixes) == set(f.id for f in actual_ext.prior_fixes)
     assert set(actual_orig.relevant_files) == set(actual_ext.relevant_files)
 
 
@@ -150,8 +169,11 @@ async def test_adding_fix_appears_in_prior_fixes():
     assert "FIX-MT" not in [f.id for f in actual_orig.prior_fixes]
 
     fix = Fix(
-        node_type="Fix", project_slug=project,
-        fix_id="FIX-MT", summary="mt fix", kind="patch",
+        node_type="Fix",
+        project_slug=project,
+        fix_id="FIX-MT",
+        summary="mt fix",
+        kind="patch",
     )
     ki_id = idFrom("known-issue", project, "KI-MT")
     fix_id = idFrom("fix", project, "FIX-MT")
@@ -174,15 +196,20 @@ async def test_adding_affects_edge_brings_in_files():
     assert "agent/src/mt_feature.c" not in actual_orig.relevant_files
 
     new_feat = Feature(
-        node_type="Feature", project_slug=project,
-        feature_slug="mt-feature", name="MT Feature",
+        node_type="Feature",
+        project_slug=project,
+        feature_slug="mt-feature",
+        name="MT Feature",
     )
     new_mod = Module(
-        node_type="Module", project_slug=project,
-        module_slug="mt-mod", name="MT Module",
+        node_type="Module",
+        project_slug=project,
+        module_slug="mt-mod",
+        name="MT Module",
     )
     new_file = File(
-        node_type="File", project_slug=project,
+        node_type="File",
+        project_slug=project,
         repo_path="agent/src/mt_feature.c",
     )
     feat_id = idFrom("feature", project, "mt-feature")

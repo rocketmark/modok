@@ -2,6 +2,7 @@
 Tests for modok.code_map — deterministic repo code map extractor.
 All tests written before implementation (Phase 5). Tests cite specs via @spec annotation.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +20,7 @@ import hypothesis.strategies as st
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def write(path: Path, content: str = "") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,9 +42,11 @@ def make_repo(tmp_path: Path) -> Path:
 # CM-CMD-001 — command interface
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-CMD-001
 def test_extract_code_map_command_exists():
     from modok.cli.main import cli
+
     assert "extract-code-map" in [cmd.name for cmd in cli.commands.values()]
 
 
@@ -52,7 +56,9 @@ def test_extract_code_map_bad_repo_exits_nonzero(tmp_path):
     from modok.cli.main import cli
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["extract-code-map", "--project", "x", "--repo", str(tmp_path / "nonexistent")])
+    result = runner.invoke(
+        cli, ["extract-code-map", "--project", "x", "--repo", str(tmp_path / "nonexistent")]
+    )
     assert result.exit_code != 0
     assert "not a directory" in result.output.lower()
 
@@ -66,11 +72,18 @@ def test_extract_code_map_prints_summary_on_success(tmp_path):
     out_path = tmp_path / ".modok" / "code-map.yml"
 
     runner = CliRunner()
-    result = runner.invoke(cli, [
-        "extract-code-map", "--project", "x",
-        "--repo", str(tmp_path),
-        "--output", str(out_path),
-    ])
+    result = runner.invoke(
+        cli,
+        [
+            "extract-code-map",
+            "--project",
+            "x",
+            "--repo",
+            str(tmp_path),
+            "--output",
+            str(out_path),
+        ],
+    )
     assert result.exit_code == 0
     assert "Extracted code map:" in result.output
     assert str(out_path) in result.output
@@ -79,6 +92,7 @@ def test_extract_code_map_prints_summary_on_success(tmp_path):
 # ---------------------------------------------------------------------------
 # CM-SCAN-001, CM-SCAN-002 — scanning and ignore rules
 # ---------------------------------------------------------------------------
+
 
 # @spec CM-SCAN-001
 def test_scanner_finds_regular_files(tmp_path):
@@ -119,9 +133,15 @@ def test_scanner_skips_node_modules(tmp_path):
 
 
 # @spec CM-SCAN-002
-@pytest.mark.parametrize("ignored_name", [
-    "secret.key", "cert.pem", "cert.pfx", ".env",
-])
+@pytest.mark.parametrize(
+    "ignored_name",
+    [
+        "secret.key",
+        "cert.pem",
+        "cert.pfx",
+        ".env",
+    ],
+)
 def test_scanner_skips_sensitive_files(tmp_path, ignored_name):
     from modok.code_map.scanner import scan_repo
 
@@ -177,35 +197,41 @@ def test_scanner_is_deterministic(tmp_path):
 # CM-LANG-001, CM-LANG-002, CM-LANG-003 — language detection
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-LANG-001, CM-LANG-003
-@pytest.mark.parametrize("filename,expected_lang", [
-    ("main.py", "python"),
-    ("engine.cs", "csharp"),
-    ("app.ts", "typescript"),
-    ("component.tsx", "typescript"),
-    ("index.js", "javascript"),
-    ("main.go", "go"),
-    ("lib.rs", "rust"),
-    ("engine.cpp", "cpp"),
-    ("header.h", "cpp"),
-    ("notes.md", "markdown"),
-    ("config.yaml", "yaml"),
-    ("config.yml", "yaml"),
-    ("settings.toml", "toml"),
-    ("data.json", "json"),
-    ("deploy.sh", "shell"),
-    ("Asset.uasset", "unreal_asset"),
-    ("Level.umap", "unreal_asset"),
-    ("Plugin.uplugin", "unreal_project"),
-])
+@pytest.mark.parametrize(
+    "filename,expected_lang",
+    [
+        ("main.py", "python"),
+        ("engine.cs", "csharp"),
+        ("app.ts", "typescript"),
+        ("component.tsx", "typescript"),
+        ("index.js", "javascript"),
+        ("main.go", "go"),
+        ("lib.rs", "rust"),
+        ("engine.cpp", "cpp"),
+        ("header.h", "cpp"),
+        ("notes.md", "markdown"),
+        ("config.yaml", "yaml"),
+        ("config.yml", "yaml"),
+        ("settings.toml", "toml"),
+        ("data.json", "json"),
+        ("deploy.sh", "shell"),
+        ("Asset.uasset", "unreal_asset"),
+        ("Level.umap", "unreal_asset"),
+        ("Plugin.uplugin", "unreal_project"),
+    ],
+)
 def test_language_detection(filename, expected_lang):
     from modok.code_map.languages import detect_language
+
     assert detect_language(Path(filename)) == expected_lang
 
 
 # @spec CM-LANG-002
 def test_language_detection_unknown_extension():
     from modok.code_map.languages import detect_language
+
     assert detect_language(Path("file.xyz123")) == "unknown"
 
 
@@ -213,52 +239,66 @@ def test_language_detection_unknown_extension():
 # CM-ROLE-001 through CM-ROLE-006 — role classification
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-ROLE-002
-@pytest.mark.parametrize("path", [
-    "src/Generated/Foo.cs",
-    "src/Intermediate/Bar.cs",
-    "Engine.g.cs",
-    "Form.designer.cs",
-    "Api.generated.h",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/Generated/Foo.cs",
+        "src/Intermediate/Bar.cs",
+        "Engine.g.cs",
+        "Form.designer.cs",
+        "Api.generated.h",
+    ],
+)
 def test_role_generated(path):
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path(path)) == "generated"
 
 
 # @spec CM-ROLE-003
-@pytest.mark.parametrize("path", [
-    "tests/test_engine.py",
-    "test_utils.py",
-    "engine_test.py",
-    "Tests/TestEngine.cs",
-    "EngineTests.cs",
-    "test/helpers.py",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/test_engine.py",
+        "test_utils.py",
+        "engine_test.py",
+        "Tests/TestEngine.cs",
+        "EngineTests.cs",
+        "test/helpers.py",
+    ],
+)
 def test_role_test(path):
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path(path)) == "test"
 
 
 # @spec CM-ROLE-004
-@pytest.mark.parametrize("path", [
-    "config.toml",
-    "settings.yaml",
-    "package.json",
-    "Project.csproj",
-    "Solution.sln",
-    "Plugin.uplugin",
-    "Game.uproject",
-    ".env.production",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "config.toml",
+        "settings.yaml",
+        "package.json",
+        "Project.csproj",
+        "Solution.sln",
+        "Plugin.uplugin",
+        "Game.uproject",
+        ".env.production",
+    ],
+)
 def test_role_config(path):
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path(path)) == "config"
 
 
 # @spec CM-ROLE-005
 def test_role_docs():
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path("docs/design.md")) == "docs"
     assert classify_role(Path("README.mdx")) == "docs"
 
@@ -266,6 +306,7 @@ def test_role_docs():
 # @spec CM-ROLE-006
 def test_role_source_fallback():
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path("src/engine.cs")) == "source"
     assert classify_role(Path("src/main.py")) == "source"
 
@@ -274,12 +315,14 @@ def test_role_source_fallback():
 def test_role_priority_generated_beats_test(tmp_path):
     # A file named test_foo.g.cs should be generated, not test
     from modok.code_map.roles import classify_role
+
     assert classify_role(Path("test_foo.g.cs")) == "generated"
 
 
 # ---------------------------------------------------------------------------
 # CM-FILE-001 through CM-FILE-004 — file facts
 # ---------------------------------------------------------------------------
+
 
 # @spec CM-FILE-001
 def test_file_entry_contains_required_fields(tmp_path):
@@ -357,16 +400,14 @@ def test_sha256_is_stable(tmp_path):
 # CM-SYM-001 through CM-SYM-006 — Python symbol extraction
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-SYM-001
 def test_symbol_extraction_finds_functions_and_classes(tmp_path):
     from modok.code_map.python_ast import extract_symbols
 
     src = tmp_path / "engine.py"
     src.write_text(
-        "class Engine:\n"
-        "    def start(self): pass\n"
-        "\n"
-        "def helper(): pass\n",
+        "class Engine:\n    def start(self): pass\n\ndef helper(): pass\n",
         encoding="utf-8",
     )
 
@@ -395,8 +436,7 @@ def test_symbol_extraction_finds_imports(tmp_path):
 
     src = tmp_path / "main.py"
     src.write_text(
-        "import os\n"
-        "from pathlib import Path, PurePath\n",
+        "import os\nfrom pathlib import Path, PurePath\n",
         encoding="utf-8",
     )
 
@@ -476,6 +516,7 @@ def test_symbol_extraction_is_deterministic(tmp_path):
 # CM-TEST-001 through CM-TEST-005 — test coverage detection
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-TEST-001
 def test_coverage_mirrored_path(tmp_path):
     from modok.code_map.scanner import scan_repo
@@ -532,6 +573,7 @@ def test_coverage_empty_when_no_match(tmp_path):
 # CM-OUT-001 through CM-OUT-006 — output artifact
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-OUT-001
 def test_output_is_valid_yaml(tmp_path):
     from modok.code_map.writer import write_code_map
@@ -540,6 +582,7 @@ def test_output_is_valid_yaml(tmp_path):
     out = tmp_path / ".modok" / "code-map.yml"
 
     from modok.code_map.scanner import scan_repo
+
     entries = scan_repo(tmp_path)
     write_code_map(out, project="x", repo_root=tmp_path, entries=entries, git_commit=None)
 
@@ -556,7 +599,9 @@ def test_output_contains_required_top_level_fields(tmp_path):
     make_repo(tmp_path)
     out = tmp_path / ".modok" / "code-map.yml"
     entries = scan_repo(tmp_path)
-    write_code_map(out, project="testproj", repo_root=tmp_path, entries=entries, git_commit="abc123")
+    write_code_map(
+        out, project="testproj", repo_root=tmp_path, entries=entries, git_commit="abc123"
+    )
 
     parsed = yaml.safe_load(out.read_text())
     assert parsed["project"] == "testproj"
@@ -641,11 +686,14 @@ def test_output_empty_files_list_when_no_files(tmp_path):
 # Property tests (hypothesis) — specs marked [P]
 # ---------------------------------------------------------------------------
 
+
 # @spec CM-SCAN-006 [P]
 @given(
     names=st.lists(
         st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=1, max_size=15),
-        min_size=1, max_size=8, unique=True,
+        min_size=1,
+        max_size=8,
+        unique=True,
     )
 )
 @settings(max_examples=15)
@@ -694,7 +742,9 @@ def test_property_sha256_stable_for_any_content(content):
 @given(
     paths=st.lists(
         st.text(alphabet="abcdefghijklmnopqrstuvwxyz_/.", min_size=1, max_size=25),
-        min_size=0, max_size=12, unique=True,
+        min_size=0,
+        max_size=12,
+        unique=True,
     )
 )
 @settings(max_examples=25)

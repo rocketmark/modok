@@ -29,12 +29,14 @@ def _verify_field(field_type: str, input_candidates: list, normalised: list) -> 
 
     # Empty output when input is non-empty is always a failure (context overflow / hallucinated empty)
     if not normalised and input_candidates:
-        violations.append({"_empty_output": True, "reason": "LLM returned empty list for non-empty input"})
+        violations.append(
+            {"_empty_output": True, "reason": "LLM returned empty list for non-empty input"}
+        )
         return violations
 
     # RN-NORM-003 / RN-CEGIS-001: no new concepts — output count must not exceed input count
     if len(normalised) > len(input_candidates):
-        excess = normalised[len(input_candidates):]
+        excess = normalised[len(input_candidates) :]
         violations.extend(excess)
 
     name_key = "normalized_error" if field_type == "errors" else "name"
@@ -67,7 +69,10 @@ def _load_raw_candidates(raw_path: Path, field_type: str) -> list:
     entries = data.get(field_type, {})
     if field_type == "errors":
         return [
-            {"normalized_error": v.get("normalized_error", ""), "description": v.get("description", "")}
+            {
+                "normalized_error": v.get("normalized_error", ""),
+                "description": v.get("description", ""),
+            }
             for v in entries.values()
         ]
     return [
@@ -86,13 +91,17 @@ def _normalise_in_batches(
     """Call normalise_candidates in chunks, concatenate results."""
     if not input_candidates:
         return []
-    batches = [input_candidates[i:i + batch_size] for i in range(0, len(input_candidates), batch_size)]
+    batches = [
+        input_candidates[i : i + batch_size] for i in range(0, len(input_candidates), batch_size)
+    ]
     n_batches = len(batches)
     results = []
     for bi, batch in enumerate(batches, 1):
         if n_batches > 1:
             print(f"  batch {bi}/{n_batches} ({len(batch)} candidates)...", file=sys.stderr)
-        batch_result = normalise_candidates(batch, field_type, cfg_llm, counterexamples=counterexamples)
+        batch_result = normalise_candidates(
+            batch, field_type, cfg_llm, counterexamples=counterexamples
+        )
         results.extend(batch_result)
     return results
 
@@ -164,8 +173,11 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
                     )
                 try:
                     normalised = _normalise_in_batches(
-                        input_candidates, field_type, cfg.llm,
-                        batch_size=batch_size, counterexamples=counterexamples,
+                        input_candidates,
+                        field_type,
+                        cfg.llm,
+                        batch_size=batch_size,
+                        counterexamples=counterexamples,
                     )
                 except (LLMUnavailableError, LLMResponseError) as exc:
                     print(f"  Failed: {exc} — falling back to raw candidates", file=sys.stderr)
@@ -193,7 +205,12 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
 
         # Refinement passes: cross-batch dedup, stops early when count stabilises (skip for errors)
         refinement_passes = getattr(cfg.llm, "normalise_refinement_passes", 2)
-        if accepted is not None and len(accepted) > 1 and refinement_passes > 0 and field_type != "errors":
+        if (
+            accepted is not None
+            and len(accepted) > 1
+            and refinement_passes > 0
+            and field_type != "errors"
+        ):
             for pass_num in range(1, refinement_passes + 1):
                 prev_count = len(accepted)
                 print(
@@ -202,7 +219,10 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
                 )
                 try:
                     refined = _normalise_in_batches(
-                        accepted, field_type, cfg.llm, batch_size=batch_size,
+                        accepted,
+                        field_type,
+                        cfg.llm,
+                        batch_size=batch_size,
                     )
                 except (LLMUnavailableError, LLMResponseError) as exc:
                     print(f"    failed: {exc} — stopping refinement", file=sys.stderr)
@@ -226,7 +246,8 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
             if field_type == "errors":
                 name_entries = [
                     {"name": c.get("normalized_error", ""), "description": c.get("description", "")}
-                    for c in input_candidates if c.get("normalized_error")
+                    for c in input_candidates
+                    if c.get("normalized_error")
                 ]
                 resolved = resolve_slug_collisions(name_entries, registry_file=out_file)
                 final_entries = {
@@ -239,7 +260,8 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
             if field_type == "errors":
                 name_entries = [
                     {"name": e.get("normalized_error", ""), "description": e.get("description", "")}
-                    for e in accepted if e.get("normalized_error")
+                    for e in accepted
+                    if e.get("normalized_error")
                 ]
                 resolved = resolve_slug_collisions(name_entries, registry_file=out_file)
                 final_entries = {
@@ -249,7 +271,8 @@ def normalise_registries(repo_root: Path, cfg) -> NormaliseSummary:
             else:
                 name_entries = [
                     {"name": e.get("name", ""), "description": e.get("description", "")}
-                    for e in accepted if e.get("name")
+                    for e in accepted
+                    if e.get("name")
                 ]
                 final_entries = resolve_slug_collisions(name_entries, registry_file=out_file)
 

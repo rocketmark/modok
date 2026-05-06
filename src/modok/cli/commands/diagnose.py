@@ -14,7 +14,13 @@ import click
 from modok.cli.config import ModokConfig
 from modok.cli.commands._output import require_quine
 from modok.quine.client import QuineClient
-from modok.retrieval.engine import _KI_CAP, _FIX_CAP, _FILE_CAP, _accumulate_match_count, _sort_and_cap
+from modok.retrieval.engine import (
+    _KI_CAP,
+    _FIX_CAP,
+    _FILE_CAP,
+    _accumulate_match_count,
+    _sort_and_cap,
+)
 from modok.retrieval.models import (
     AffectedArea,
     DebugPacket,
@@ -95,7 +101,9 @@ async def _run_diagnose(
                 _accumulate_match_count(file_counts, item["properties"]["repo_path"], 1)
 
     # Test files via feature → HAS_TEST → file
-    rows = await client.query(_TEST_FILES_CYPHER, {"project_slug": project, "feature_slug": feature})
+    rows = await client.query(
+        _TEST_FILES_CYPHER, {"project_slug": project, "feature_slug": feature}
+    )
     for row in rows:
         for item in row:
             if isinstance(item, dict) and item.get("properties", {}).get("repo_path"):
@@ -119,7 +127,9 @@ async def _run_diagnose(
 
     # Additional KnownIssues via error signature
     if error:
-        rows = await client.query(_ERROR_KI_CYPHER, {"project_slug": project, "normalized_error": error})
+        rows = await client.query(
+            _ERROR_KI_CYPHER, {"project_slug": project, "normalized_error": error}
+        )
         for row in rows:
             for item in row:
                 if not isinstance(item, dict):
@@ -148,9 +158,15 @@ async def _run_diagnose(
                     fix_meta.setdefault(fix_id, props)
 
     ki_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP)
-    fix_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP)
-    file_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP)
-    test_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP)
+    fix_items = _sort_and_cap(
+        [{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP
+    )
+    file_items = _sort_and_cap(
+        [{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP
+    )
+    test_items = _sort_and_cap(
+        [{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP
+    )
 
     # Fetch commit SHAs for fixes (best-effort)
     prior_fixes: list[PriorFix] = []
@@ -167,11 +183,13 @@ async def _run_diagnose(
                         break
         except Exception:
             pass
-        prior_fixes.append(PriorFix(
-            id=fid,
-            commit=commit_sha,
-            summary=fix_meta[fid].get("summary", ""),
-        ))
+        prior_fixes.append(
+            PriorFix(
+                id=fid,
+                commit=commit_sha,
+                summary=fix_meta[fid].get("summary", ""),
+            )
+        )
 
     return DebugPacket(
         issue=IssueSummary(
@@ -199,7 +217,9 @@ async def _run_diagnose(
 @click.command("diagnose")
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--feature", required=True, help="Feature slug to anchor the traversal.")
-@click.option("--error", default=None, help="Error signature slug (normalized_error) to narrow results.")
+@click.option(
+    "--error", default=None, help="Error signature slug (normalized_error) to narrow results."
+)
 @click.option("--symptom", default=None, help="Substring match against KnownIssue summaries.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
 def diagnose_cmd(
@@ -224,14 +244,21 @@ def diagnose_cmd(
 
 
 def _print_packet(packet: DebugPacket) -> None:
-    click.echo(f"Feature: {packet.issue.anchors.features[0] if packet.issue.anchors.features else '(unknown)'}")
+    click.echo(
+        f"Feature: {packet.issue.anchors.features[0] if packet.issue.anchors.features else '(unknown)'}"
+    )
     if packet.issue.anchors.errors:
         click.echo(f"Error:   {packet.issue.anchors.errors[0]}")
     if packet.issue.anchors.symptoms:
         click.echo(f"Symptom: {packet.issue.anchors.symptoms[0]}")
     click.echo("")
 
-    if not packet.known_issues and not packet.prior_fixes and not packet.relevant_files and not packet.relevant_tests:
+    if (
+        not packet.known_issues
+        and not packet.prior_fixes
+        and not packet.relevant_files
+        and not packet.relevant_tests
+    ):
         click.echo("  (no results)")
         return
 

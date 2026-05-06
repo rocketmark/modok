@@ -32,9 +32,7 @@ _KI_CAP = 10
 _FIX_CAP = 10
 _FILE_CAP = 20
 
-_FILE_PATH_RE = re.compile(
-    r'\b([\w.-]+/[\w./-]+\.(?:c|h|cpp|hpp|py|js|ts|md|sh|yaml|yml))\b'
-)
+_FILE_PATH_RE = re.compile(r"\b([\w.-]+/[\w./-]+\.(?:c|h|cpp|hpp|py|js|ts|md|sh|yaml|yml))\b")
 
 
 def _is_test_path(path: str) -> bool:
@@ -44,7 +42,22 @@ def _is_test_path(path: str) -> bool:
     return filename.startswith("test_") or "tests" in parts
 
 
-_SOURCE_EXTS = {'.py', '.c', '.h', '.cpp', '.hpp', '.js', '.ts', '.jsx', '.tsx', '.rs', '.go', '.java', '.rb', '.swift'}
+_SOURCE_EXTS = {
+    ".py",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".rs",
+    ".go",
+    ".java",
+    ".rb",
+    ".swift",
+}
 
 
 def _is_source_path(path: str) -> bool:
@@ -80,7 +93,7 @@ def _pre_match_modules(
     # Element-token matching: tokenize words from ticket text, check element subsets
     if module_elements:
         text_tokens: set[str] = set()
-        for word in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b', text):
+        for word in re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b", text):
             text_tokens.update(_tokenize(word))
         for slug, elements in module_elements.items():
             if slug in seen:
@@ -99,13 +112,13 @@ def _pre_match_modules(
 # Function-anchor matching helpers
 # ---------------------------------------------------------------------------
 
-_CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
+_CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 # @spec DRE-TOKEN-001
 def _tokenize(name: str) -> set[str]:
     """Split a camelCase/snake_case/kebab-case identifier into lowercase tokens (length > 2)."""
-    parts = re.split(r'[_\-\s]+', name)
+    parts = re.split(r"[_\-\s]+", name)
     tokens: set[str] = set()
     for part in parts:
         for sub in _CAMEL_SPLIT_RE.split(part):
@@ -140,6 +153,7 @@ def _matching_defs(hunk_data: list[dict], anchor_tokens: set[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 # Pure helpers (tested as properties)
 # ---------------------------------------------------------------------------
+
 
 def _sort_and_cap(items: list[dict[str, Any]], cap: int) -> list[dict[str, Any]]:
     return sorted(items, key=lambda x: x["match_count"], reverse=True)[:cap]
@@ -177,7 +191,7 @@ def _score_candidate(items: list[EvidenceItem]) -> float:
     total = 0.0
     for scores in by_type.values():
         scores.sort(reverse=True)
-        total += sum(s * (0.5 ** i) for i, s in enumerate(scores))
+        total += sum(s * (0.5**i) for i, s in enumerate(scores))
     total += 3.0 * min(len(by_type) - 1, 4)
     total += penalties
     return round(total, 1)
@@ -205,19 +219,23 @@ def _build_scored_candidates(
         if multiplier < 1.0:
             raw = _score_candidate(items)
             penalty_score = round(raw * (multiplier - 1.0), 1)
-            all_items.append(EvidenceItem(
-                type="doc_penalty",
-                score=penalty_score,
-                explanation=f"Non-source file (×{multiplier} actionability penalty)",
-            ))
+            all_items.append(
+                EvidenceItem(
+                    type="doc_penalty",
+                    score=penalty_score,
+                    explanation=f"Non-source file (×{multiplier} actionability penalty)",
+                )
+            )
         s = _score_candidate(all_items)
-        candidates.append(ScoredCandidate(
-            path=path,
-            kind=kind,
-            score=s,
-            confidence=_confidence_label(s),
-            evidence=all_items,
-        ))
+        candidates.append(
+            ScoredCandidate(
+                path=path,
+                kind=kind,
+                score=s,
+                confidence=_confidence_label(s),
+                evidence=all_items,
+            )
+        )
     candidates.sort(key=lambda c: c.score, reverse=True)
     return candidates[:cap]
 
@@ -225,6 +243,7 @@ def _build_scored_candidates(
 # ---------------------------------------------------------------------------
 # Anchor extraction
 # ---------------------------------------------------------------------------
+
 
 async def _graph_anchors(
     issue_id: str,
@@ -260,6 +279,7 @@ async def _graph_anchors(
 # ---------------------------------------------------------------------------
 # Graph traversals
 # ---------------------------------------------------------------------------
+
 
 async def _traverse_files_to_recent_commits(
     file_paths: list[str],
@@ -325,7 +345,9 @@ async def _traverse_feature_to_files(
     source_paths = [
         row[2]["properties"]["repo_path"]
         for row in rows
-        if len(row) > 2 and row[2] and isinstance(row[2], dict)
+        if len(row) > 2
+        and row[2]
+        and isinstance(row[2], dict)
         and row[2].get("properties", {}).get("repo_path")
     ]
 
@@ -339,7 +361,9 @@ async def _traverse_feature_to_files(
     test_paths = [
         row[0]["properties"]["repo_path"]
         for row in test_rows
-        if row and row[0] and isinstance(row[0], dict)
+        if row
+        and row[0]
+        and isinstance(row[0], dict)
         and row[0].get("properties", {}).get("repo_path")
     ]
 
@@ -356,7 +380,9 @@ async def _traverse_feature_to_files(
     module_paths = [
         row[1]["properties"]["repo_path"]
         for row in rows
-        if len(row) > 1 and row[1] and isinstance(row[1], dict)
+        if len(row) > 1
+        and row[1]
+        and isinstance(row[1], dict)
         and row[1].get("properties", {}).get("repo_path")
     ]
 
@@ -372,7 +398,9 @@ async def _traverse_feature_to_files(
     module_test_paths = [
         row[0]["properties"]["repo_path"]
         for row in test_rows
-        if row and row[0] and isinstance(row[0], dict)
+        if row
+        and row[0]
+        and isinstance(row[0], dict)
         and row[0].get("properties", {}).get("repo_path")
     ]
 
@@ -411,9 +439,7 @@ async def _traverse_ki_to_fixes(
         {"project_slug": project_slug, "ki_node_id": ki_node_id},
     )
     return [
-        row[0]["properties"]
-        for row in rows
-        if row and row[0].get("properties", {}).get("fix_id")
+        row[0]["properties"] for row in rows if row and row[0].get("properties", {}).get("fix_id")
     ]
 
 
@@ -456,7 +482,9 @@ async def _traverse_similarity(
         if not row or len(row) < 2:
             continue
         ki_props = row[0].get("properties", {})
-        review_status = row[1].get("review_status", "candidate") if isinstance(row[1], dict) else str(row[1])
+        review_status = (
+            row[1].get("review_status", "candidate") if isinstance(row[1], dict) else str(row[1])
+        )
         if ki_props.get("issue_id"):
             results.append((ki_props, review_status))
     return results
@@ -465,6 +493,7 @@ async def _traverse_similarity(
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 # @spec DRE-IFACE-001, DRE-IFACE-002, DRE-IFACE-003
 async def retrieve(
@@ -501,27 +530,32 @@ async def retrieve(
 
     # @spec DRE-STREAM-001
     if on_progress is not None:
-        on_progress("loading", DebugPacket(
-            issue=IssueSummary(
-                summary=issue.summary,
-                anchors=IssueAnchors(features=[], errors=[], symptoms=[]),
+        on_progress(
+            "loading",
+            DebugPacket(
+                issue=IssueSummary(
+                    summary=issue.summary,
+                    anchors=IssueAnchors(features=[], errors=[], symptoms=[]),
+                ),
+                affected_areas=[],
+                relevant_files=[],
+                relevant_tests=[],
+                known_issues=[],
+                prior_fixes=[],
+                recent_commits=[],
+                scored_candidates=[],
+                summary="",
             ),
-            affected_areas=[],
-            relevant_files=[],
-            relevant_tests=[],
-            known_issues=[],
-            prior_fixes=[],
-            recent_commits=[],
-            scored_candidates=[],
-            summary="",
-        ))
+        )
 
     # Anchor extraction — graph-first
     # @spec DRE-ANCH-001, DRE-ANCH-002, DRE-ANCH-003
     try:
         feature_slugs, error_sigs = await _graph_anchors(issue_id, project_slug, client)
     except Exception as exc:
-        raise DREGraphUnavailableError(f"Quine unreachable during anchor extraction: {exc}") from exc
+        raise DREGraphUnavailableError(
+            f"Quine unreachable during anchor extraction: {exc}"
+        ) from exc
 
     symptoms: list[str] = []
     mentioned_files: list[str] = []
@@ -538,10 +572,16 @@ async def retrieve(
 
         try:
             parse_result = await gateway.parse_ticket(
-                issue.raw_text, project_slug, backend=backend,
-                valid_slugs=valid_slugs, feature_slugs=feature_slugs, module_slugs=module_slugs,
-                feature_descriptions=feature_descriptions, module_descriptions=module_descriptions,
-                module_elements=module_elements, module_source_files=module_source_files,
+                issue.raw_text,
+                project_slug,
+                backend=backend,
+                valid_slugs=valid_slugs,
+                feature_slugs=feature_slugs,
+                module_slugs=module_slugs,
+                feature_descriptions=feature_descriptions,
+                module_descriptions=module_descriptions,
+                module_elements=module_elements,
+                module_source_files=module_source_files,
             )
             # @spec DRE-ANCH-004 — LLM is the authority when it succeeds; pre_matched is fallback only
             feature_slugs = list(parse_result.feature_slugs)
@@ -563,7 +603,7 @@ async def retrieve(
     ki_meta: dict[str, dict[str, str]] = {}
     fix_counts: dict[str, int] = {}
     fix_meta: dict[str, dict[str, str]] = {}
-    file_evidence: dict[str, list[EvidenceItem]] = {}       # source files
+    file_evidence: dict[str, list[EvidenceItem]] = {}  # source files
     test_file_evidence: dict[str, list[EvidenceItem]] = {}  # test files
     matched_anchors = 0
     resolved_module_slugs: list[str] = []
@@ -581,17 +621,25 @@ async def retrieve(
         if src_paths or tst_paths:
             matched_anchors += 1
             for path in src_paths:
-                _add_evidence(file_evidence, path, EvidenceItem(
-                    type="feature_anchor",
-                    score=7.0,
-                    explanation=slug,
-                ))
+                _add_evidence(
+                    file_evidence,
+                    path,
+                    EvidenceItem(
+                        type="feature_anchor",
+                        score=7.0,
+                        explanation=slug,
+                    ),
+                )
             for path in tst_paths:
-                _add_evidence(test_file_evidence, path, EvidenceItem(
-                    type="test_coverage",
-                    score=8.0,
-                    explanation=slug,
-                ))
+                _add_evidence(
+                    test_file_evidence,
+                    path,
+                    EvidenceItem(
+                        type="test_coverage",
+                        score=8.0,
+                        explanation=slug,
+                    ),
+                )
             if resolved_as == "module":
                 resolved_module_slugs.append(slug)
             else:
@@ -614,7 +662,9 @@ async def retrieve(
             try:
                 fix_props_list = await _traverse_ki_to_fixes(ki_node_id, project_slug, client)
             except Exception as exc:
-                raise DREGraphUnavailableError(f"Quine unreachable during traversal: {exc}") from exc
+                raise DREGraphUnavailableError(
+                    f"Quine unreachable during traversal: {exc}"
+                ) from exc
             for fix_props in fix_props_list:
                 fid = fix_props["fix_id"]
                 _accumulate_match_count(fix_counts, fid, 1)
@@ -624,7 +674,9 @@ async def retrieve(
     try:
         sim_results = await _traverse_similarity(issue_id, project_slug, client)
     except Exception as exc:
-        raise DREGraphUnavailableError(f"Quine unreachable during similarity traversal: {exc}") from exc
+        raise DREGraphUnavailableError(
+            f"Quine unreachable during similarity traversal: {exc}"
+        ) from exc
     for props, review_status in sim_results:
         ki_id = props["issue_id"]
         weight = 2 if review_status == "confirmed" else 1
@@ -645,9 +697,7 @@ async def retrieve(
 
     # Sort and cap ki/fix (unchanged)
     # @spec DRE-SCORE-003, DRE-SCORE-004
-    ki_items = _sort_and_cap(
-        [{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP
-    )
+    ki_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP)
     fix_items = _sort_and_cap(
         [{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP
     )
@@ -672,11 +722,13 @@ async def retrieve(
             commit_sha = await _fetch_fix_commit_sha(fid, project_slug, client)
         except Exception:
             commit_sha = ""
-        prior_fixes.append(PriorFix(
-            id=fid,
-            commit=commit_sha,
-            summary=fix_meta[fid].get("summary", ""),
-        ))
+        prior_fixes.append(
+            PriorFix(
+                id=fid,
+                commit=commit_sha,
+                summary=fix_meta[fid].get("summary", ""),
+            )
+        )
 
     affected_areas: list[AffectedArea] = []
     for slug in resolved_feature_slugs:
@@ -702,15 +754,21 @@ async def retrieve(
                 matched_elements.extend(slug_matches)
                 elem_names = ", ".join(slug_matches[:3])
                 for fpath in files:
-                    ev_map = test_file_evidence if fpath in test_file_evidence else (
-                        file_evidence if fpath in file_evidence else None
+                    ev_map = (
+                        test_file_evidence
+                        if fpath in test_file_evidence
+                        else (file_evidence if fpath in file_evidence else None)
                     )
                     if ev_map is not None:
-                        _add_evidence(ev_map, fpath, EvidenceItem(
-                            type="element_anchor_match",
-                            score=6.0,
-                            explanation=elem_names,
-                        ))
+                        _add_evidence(
+                            ev_map,
+                            fpath,
+                            EvidenceItem(
+                                type="element_anchor_match",
+                                score=6.0,
+                                explanation=elem_names,
+                            ),
+                        )
                 for elem in slug_matches:
                     anchor_tokens.update(_tokenize(elem))
 
@@ -723,26 +781,36 @@ async def retrieve(
     for c in raw_commits:
         sha_short = c.get("sha", "")[:7]
         for fpath in c.get("files_touched", []):
-            evidence_map = test_file_evidence if fpath in test_file_evidence else (
-                file_evidence if fpath in file_evidence and _is_source_path(fpath) else None
+            evidence_map = (
+                test_file_evidence
+                if fpath in test_file_evidence
+                else (file_evidence if fpath in file_evidence and _is_source_path(fpath) else None)
             )
             if evidence_map is None:
                 continue
-            _add_evidence(evidence_map, fpath, EvidenceItem(
-                type="recent_commit",
-                score=4.0,
-                explanation=f"Touched in recent commit {sha_short}",
-            ))
+            _add_evidence(
+                evidence_map,
+                fpath,
+                EvidenceItem(
+                    type="recent_commit",
+                    score=4.0,
+                    explanation=f"Touched in recent commit {sha_short}",
+                ),
+            )
             if func_anchor_tokens:
                 hunk_data = c.get("file_hunk_data", {}).get(fpath, [])
                 matched = _matching_defs(hunk_data, func_anchor_tokens)
                 if matched:
                     names = ", ".join(matched[:3])
-                    _add_evidence(evidence_map, fpath, EvidenceItem(
-                        type="function_anchor_match",
-                        score=6.0,
-                        explanation=f"{names} · {sha_short}",
-                    ))
+                    _add_evidence(
+                        evidence_map,
+                        fpath,
+                        EvidenceItem(
+                            type="function_anchor_match",
+                            score=6.0,
+                            explanation=f"{names} · {sha_short}",
+                        ),
+                    )
 
     # Build scored candidates and derive ordered file lists
     source_candidates = _build_scored_candidates(file_evidence, "source", _FILE_CAP)
@@ -775,17 +843,20 @@ async def retrieve(
 
     # @spec DRE-STREAM-002
     if on_progress is not None:
-        on_progress("partial", DebugPacket(
-            issue=issue_obj,
-            affected_areas=affected_areas,
-            relevant_files=relevant_files,
-            relevant_tests=relevant_tests,
-            known_issues=known_issues,
-            prior_fixes=prior_fixes,
-            recent_commits=recent_commits_list,
-            scored_candidates=scored_candidates,
-            summary="",
-        ))
+        on_progress(
+            "partial",
+            DebugPacket(
+                issue=issue_obj,
+                affected_areas=affected_areas,
+                relevant_files=relevant_files,
+                relevant_tests=relevant_tests,
+                known_issues=known_issues,
+                prior_fixes=prior_fixes,
+                recent_commits=recent_commits_list,
+                scored_candidates=scored_candidates,
+                summary="",
+            ),
+        )
 
     # @spec DRE-SUMM-001, DRE-SUMM-002
     raw_text = issue.raw_text or issue.summary
@@ -802,7 +873,11 @@ async def retrieve(
                 relevant_tests=relevant_tests,
                 matched_elements=matched_elements,
                 recent_commits=[
-                    {"timestamp": c.get("timestamp", ""), "author_name": c.get("author_name", ""), "message": c.get("message", "")}
+                    {
+                        "timestamp": c.get("timestamp", ""),
+                        "author_name": c.get("author_name", ""),
+                        "message": c.get("message", ""),
+                    }
                     for c in raw_commits
                 ],
                 known_issues=[ki.summary for ki in known_issues],

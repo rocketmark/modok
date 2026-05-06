@@ -26,7 +26,13 @@ from modok.retrieval.errors import (
 @click.option("--project", required=True, help="Project slug.")
 @click.option("--ticket", default=None, help="Ticket ID.")
 @click.option("--node-id", "node_id", default=None, type=int, help="Quine node ID (power-user).")
-@click.option("--stream", "stream_mode", is_flag=True, default=False, help="Emit NDJSON progress lines before the final result.")
+@click.option(
+    "--stream",
+    "stream_mode",
+    is_flag=True,
+    default=False,
+    help="Emit NDJSON progress lines before the final result.",
+)
 def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_mode: bool) -> None:
     has_ticket = ticket is not None
     has_node_id = node_id is not None
@@ -41,6 +47,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
     proj = config.project(project)  # validates slug; raises ClickException if unknown
 
     from pathlib import Path
+
     repo_root = Path(proj.repo)
     try:
         registry = Registry(repo_root)
@@ -69,10 +76,12 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         # NOTE: This assumes ticket IDs are unique within a project. If multi-source
         # disambiguation is needed in future (e.g. Zendesk + Jira sharing IDs),
         # add a --source flag and switch back to idFrom('customer-issue', p, source, t).
-        rows = asyncio.run(client.query(
-            "MATCH (n) WHERE n.project_slug = $p AND n.ticket_id = $t RETURN id(n) LIMIT 1",
-            {"p": project, "t": ticket},
-        ))
+        rows = asyncio.run(
+            client.query(
+                "MATCH (n) WHERE n.project_slug = $p AND n.ticket_id = $t RETURN id(n) LIMIT 1",
+                {"p": project, "t": ticket},
+            )
+        )
         if not rows or not rows[0]:
             raise click.ClickException(f"issue not found in project `{project}`")
         resolved_id = rows[0][0]
@@ -82,18 +91,22 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         sys.stdout.flush()
 
     try:
-        packet = asyncio.run(retrieve(
-            resolved_id, project, client,
-            valid_slugs=valid_slugs,
-            feature_slugs=feature_slugs,
-            module_slugs=module_slugs,
-            feature_descriptions=feature_descriptions,
-            module_descriptions=module_descriptions,
-            module_elements=module_elements,
-            module_source_files=module_source_files,
-            on_progress=_on_progress if stream_mode else None,
-            skip_summary=config.llm.skip_summary,
-        ))
+        packet = asyncio.run(
+            retrieve(
+                resolved_id,
+                project,
+                client,
+                valid_slugs=valid_slugs,
+                feature_slugs=feature_slugs,
+                module_slugs=module_slugs,
+                feature_descriptions=feature_descriptions,
+                module_descriptions=module_descriptions,
+                module_elements=module_elements,
+                module_source_files=module_source_files,
+                on_progress=_on_progress if stream_mode else None,
+                skip_summary=config.llm.skip_summary,
+            )
+        )
     except DRENotFoundError:
         raise click.ClickException(f"issue not found in project `{project}`")
     except DREAnchorError as exc:
@@ -102,7 +115,9 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         raise SystemExit(2)
 
     if stream_mode:
-        sys.stdout.write(json.dumps({"step": "complete", "data": dataclasses.asdict(packet)}) + "\n")
+        sys.stdout.write(
+            json.dumps({"step": "complete", "data": dataclasses.asdict(packet)}) + "\n"
+        )
         sys.stdout.flush()
     else:
         click.echo(json.dumps(dataclasses.asdict(packet)))

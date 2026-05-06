@@ -26,6 +26,7 @@ from modok.quine.models import CustomerIssue, Fix
 # Fixtures — GitHub API response shapes
 # ---------------------------------------------------------------------------
 
+
 def make_issue(
     number: int = 1,
     title: str = "Test issue",
@@ -81,6 +82,7 @@ def make_pr(
 # GHING-MODEL-001 — Fix model has pr_url field
 # ---------------------------------------------------------------------------
 
+
 # @spec GHING-MODEL-001
 def test_fix_model_has_pr_url():
     fix = Fix(
@@ -109,6 +111,7 @@ def test_fix_model_pr_url_defaults_to_none():
 # ---------------------------------------------------------------------------
 # Closing reference parser (pure function — tested in isolation)
 # ---------------------------------------------------------------------------
+
 
 def _parse_closing_refs(body: str) -> list[int]:
     """Mirror of what the ingester will implement."""
@@ -150,6 +153,7 @@ def test_closing_refs_empty_body():
 # PR incremental stop condition (pure)
 # ---------------------------------------------------------------------------
 
+
 def _should_stop_pr_page(page: list[dict], since: str) -> bool:
     """Stop fetching PR pages when all items on a page are older than `since`."""
     return all(pr["updated_at"] <= since for pr in page)
@@ -177,6 +181,7 @@ def test_pr_stop_condition_mixed():
 # GithubIngester tests (mocked HTTP + mocked Quine)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_client():
     client = MagicMock()
@@ -189,6 +194,7 @@ def mock_client():
 @pytest.fixture()
 def ingester(mock_client):
     from modok.ingestion.github import GithubIngester
+
     return GithubIngester(
         project_slug="stagehand",
         github_repo="owner/repo",
@@ -243,7 +249,9 @@ async def test_ingest_issue_skips_prs(ingester, mock_client):
 # @spec GHING-PR-001
 @pytest.mark.asyncio
 async def test_ingest_merged_pr(ingester, mock_client):
-    pr = make_pr(number=42, title="Fix the widget", html_url="https://github.com/owner/repo/pull/42")
+    pr = make_pr(
+        number=42, title="Fix the widget", html_url="https://github.com/owner/repo/pull/42"
+    )
     await ingester.ingest_pr(pr)
 
     mock_client.upsert_node.assert_awaited_once()
@@ -345,6 +353,7 @@ async def test_resolved_by_edge_skipped_when_issue_absent(ingester, mock_client)
     async def node_exists_side_effect(node_id):
         # Commit nodes exist, CustomerIssue nodes don't
         return False
+
     mock_client.node_exists = AsyncMock(side_effect=node_exists_side_effect)
     pr = make_pr(number=42, body="closes #7", merge_commit_sha=None)
     await ingester.ingest_pr(pr)
@@ -355,6 +364,7 @@ async def test_resolved_by_edge_skipped_when_issue_absent(ingester, mock_client)
 # ---------------------------------------------------------------------------
 # Config / auth validation tests (CLI layer)
 # ---------------------------------------------------------------------------
+
 
 # @spec GHING-CONF-001
 def test_missing_github_repo_exits_1(tmp_path):

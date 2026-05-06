@@ -1,4 +1,5 @@
 """Extract key code identifiers from source files for LLM anchor extraction."""
+
 from __future__ import annotations
 
 import ast
@@ -7,8 +8,22 @@ from pathlib import Path
 
 _MAX_ELEMENTS = 25
 _MAX_TEST_ELEMENTS = 10
-_C_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "typedef",
-               "struct", "enum", "union", "static", "extern", "const", "void"}
+_C_KEYWORDS = {
+    "if",
+    "for",
+    "while",
+    "switch",
+    "return",
+    "sizeof",
+    "typedef",
+    "struct",
+    "enum",
+    "union",
+    "static",
+    "extern",
+    "const",
+    "void",
+}
 
 
 def extract_module_elements(
@@ -21,6 +36,7 @@ def extract_module_elements(
     Source files are capped at _MAX_ELEMENTS identifiers; test files add up to
     _MAX_TEST_ELEMENTS more. Deduplicates across both sets to keep prompt size sane.
     """
+
     def _collect(paths: list[str], cap: int, seen: set[str]) -> list[str]:
         names: list[str] = []
         for rel_path in paths:
@@ -69,9 +85,26 @@ def _extract_python(path: Path) -> list[str]:
     return names
 
 
-_C_TYPE_KEYWORDS = {"int", "bool", "char", "float", "double", "long", "short",
-                    "unsigned", "signed", "size_t", "uint8_t", "uint16_t", "uint32_t",
-                    "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t"}
+_C_TYPE_KEYWORDS = {
+    "int",
+    "bool",
+    "char",
+    "float",
+    "double",
+    "long",
+    "short",
+    "unsigned",
+    "signed",
+    "size_t",
+    "uint8_t",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+    "int8_t",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+}
 
 
 def _extract_c(path: Path) -> list[str]:
@@ -83,16 +116,21 @@ def _extract_c(path: Path) -> list[str]:
     names: list[str] = []
 
     def _add(name: str) -> None:
-        if name not in _C_KEYWORDS and name not in _C_TYPE_KEYWORDS and not name.startswith("_") and name not in seen:
+        if (
+            name not in _C_KEYWORDS
+            and name not in _C_TYPE_KEYWORDS
+            and not name.startswith("_")
+            and name not in seen
+        ):
             seen.add(name)
             names.append(name)
 
     # Function calls and definitions: identifier followed by (
-    for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', text):
+    for m in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", text):
         _add(m.group(1))
 
     # Static variable declarations: static [type] identifier;  or  static [type] identifier =
-    for m in re.finditer(r'\bstatic\s+\w+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=;]', text):
+    for m in re.finditer(r"\bstatic\s+\w+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=;]", text):
         _add(m.group(1))
 
     return names
