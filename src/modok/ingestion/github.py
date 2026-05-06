@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from modok.ingestion.git_history import _update_project_config_field
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix
 
@@ -266,50 +267,4 @@ def click_exit2(msg: str) -> SystemExit:
 
 def save_last_github_sync(config_path: Path, project_slug: str, timestamp: str) -> None:
     """Write last_github_sync for a project to the TOML config file in-place."""
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return
-
-    lines = text.splitlines(keepends=True)
-    result: list[str] = []
-    i = 0
-    n = len(lines)
-    found = False
-
-    while i < n:
-        line = lines[i]
-        result.append(line)
-        if line.strip() == "[[projects]]":
-            i += 1
-            block: list[str] = []
-            while i < n and not lines[i].strip().startswith("[["):
-                block.append(lines[i])
-                i += 1
-            slug_line = f'slug = "{project_slug}"'
-            if any(slug_line in bl for bl in block):
-                found = True
-                ts_line = f'last_github_sync = "{timestamp}"\n'
-                new_block: list[str] = []
-                replaced = False
-                for bl in block:
-                    if bl.strip().startswith("last_github_sync"):
-                        new_block.append(ts_line)
-                        replaced = True
-                    else:
-                        new_block.append(bl)
-                if not replaced:
-                    insert_at = len(new_block)
-                    while insert_at > 0 and new_block[insert_at - 1].strip() == "":
-                        insert_at -= 1
-                    new_block.insert(insert_at, ts_line)
-                result.extend(new_block)
-            else:
-                result.extend(block)
-        else:
-            i += 1
-
-    if not found:
-        result.append(f'\n[[projects]]\nslug = "{project_slug}"\nlast_github_sync = "{timestamp}"\n')
-
-    config_path.write_text("".join(result), encoding="utf-8")
+    _update_project_config_field(config_path, project_slug, "last_github_sync", timestamp)

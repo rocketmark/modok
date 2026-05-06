@@ -442,9 +442,7 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
             with patch("modok.cli.commands.ingest.run_ingestion", side_effect=capture_ingest):
                 with patch("modok.cli.commands.ingest.Registry") as mock_reg_cls:
                     mock_reg_cls.return_value = MagicMock()
-                    runner.invoke(
-                        cli, ["ingest", "--project", "stagehand"]
-                    )
+                    runner.invoke(cli, ["ingest", "--project", "stagehand"])
 
     assert captured_args, "run_ingestion was not called"
     assert Path(str(captured_args[0])) == repo

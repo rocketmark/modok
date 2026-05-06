@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from modok.registry.slugify import slugify as _slugify
+
 
 @dataclass
 class ParsedDoc:
@@ -75,10 +77,6 @@ def parse_modok_blocks(content: str) -> list[dict]:
 
 
 _HEADING_RE = re.compile(r"^(#{2,3})\s+(.+)$", re.MULTILINE)
-
-
-def _slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
 def parse_headings(content: str) -> list[tuple[str, str, int, int | None]]:

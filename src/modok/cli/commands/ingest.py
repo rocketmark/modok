@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from modok.cli.config import ModokConfig
+from modok.cli.commands._output import require_quine
 from modok.ingestion.pipeline import run_ingestion
 from modok.ingestion.registry import Registry
 from modok.quine.client import QuineClient
@@ -23,14 +24,7 @@ def ingest_cmd(project: str, ticket_file: str | None) -> None:
     config = ModokConfig.load()
     proj = config.project(project)
 
-    client = QuineClient(base_url=config.quine.url)
-    if not _sync_ping(client):
-        url = config.quine.url
-        click.echo(
-            f"Quine is not reachable at {url} — run `modok quine start` or check your config",
-            err=True,
-        )
-        raise SystemExit(2)
+    client = require_quine(config)
 
     if ticket_file is not None:
         _ingest_customer_ticket(Path(ticket_file), project, client)
@@ -81,5 +75,3 @@ def _ingest_customer_ticket(path: Path, project_slug: str, client: QuineClient) 
     click.echo(f"Ingested customer ticket {ticket_id} (source: {source_system})")
 
 
-def _sync_ping(client: QuineClient) -> bool:
-    return asyncio.run(client.ping())

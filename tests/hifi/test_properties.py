@@ -88,7 +88,6 @@ async def test_double_write_is_idempotent(features, edges):
 @pytest.mark.asyncio
 async def test_packet_ki_ids_exist_in_dummy_quine():
     """Every known_issue id in the packet must resolve to a node in DummyQuine."""
-
     project = "stagehand"
     ci = CustomerIssue(
         node_type="CustomerIssue", project_slug=project,
@@ -124,7 +123,6 @@ async def test_packet_ki_ids_exist_in_dummy_quine():
 @pytest.mark.asyncio
 async def test_packet_contains_only_queried_project_nodes():
     """No cross-project node should appear in a packet queried for project-a."""
-
     proj_a = "project-a"
     proj_b = "project-b"
 

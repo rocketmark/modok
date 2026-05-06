@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_IGNORE_DIR_NAMES = frozenset(
-    [".git", "node_modules", "bin", "obj", "dist", "build", "coverage", ".vs", "registries", "archived"]
-)
-_IGNORE_SUFFIXES = frozenset([".key", ".pem", ".pfx"])
-_IGNORE_NAMES = frozenset([".env"])
+from modok.ingestion.discovery import IGNORE_DIR_NAMES, IGNORE_SUFFIXES, IGNORE_NAMES
+
+_IGNORE_DIR_NAMES = IGNORE_DIR_NAMES | frozenset(["registries", "archived"])
+_IGNORE_SUFFIXES = IGNORE_SUFFIXES
+_IGNORE_NAMES = IGNORE_NAMES
 _ELIGIBLE_SUFFIXES = frozenset([".md", ".mdx"])
 
 

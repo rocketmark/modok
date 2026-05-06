@@ -873,7 +873,7 @@ def test_propose_registries_prints_failed_progress_line_inline(tmp_path, capsys)
 
     captured = capsys.readouterr()
     # Failure appears on the progress line itself, not as a separate warning line
-    failed_line = next((line for line in captured.err.splitlines() if "FAILED" in line), None)
+    failed_line = next((ln for ln in captured.err.splitlines() if "FAILED" in ln), None)
     assert failed_line is not None, "FAILED must appear on a progress line"
     assert "Overview" in failed_line
 

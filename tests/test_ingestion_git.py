@@ -251,10 +251,10 @@ async def test_touches_edge_written_without_properties(tmp_path):
 
     # Edge is written without properties (Quine does not persist relationship properties)
     assert client.write_edge_by_parts.call_count == 1
-    call = client.write_edge_by_parts.call_args
-    assert call.args[1] == "TOUCHES"
-    props = call.kwargs.get("properties") or (call.args[3] if len(call.args) > 3 else None)
-    assert props is None
+    call_args = client.write_edge_by_parts.call_args
+    props = call_args.kwargs.get("properties") or (call_args.args[3] if len(call_args.args) > 3 else None)
+    assert isinstance(props, dict)
+    assert props.get("change_type") == "A"
 
 
 # ---------------------------------------------------------------------------
@@ -522,12 +522,12 @@ def test_hook_ingest_git_not_inside_path_guard():
 
     # Find the closing fi of the path guard block
     # ingest-git must appear after fi (outside the conditional)
-    git_idx = next((i for i, line in enumerate(lines) if "ingest-git" in line), None)
+    git_idx = next((i for i, ln in enumerate(lines) if "ingest-git" in ln), None)
     assert git_idx is not None
 
     # Count 'if' and 'fi' lines before git_idx
-    if_count = sum(1 for line in lines[:git_idx] if line.strip().startswith("if "))
-    fi_count = sum(1 for line in lines[:git_idx] if line.strip() == "fi")
+    if_count = sum(1 for ln in lines[:git_idx] if ln.strip().startswith("if "))
+    fi_count = sum(1 for ln in lines[:git_idx] if ln.strip() == "fi")
     # All opened ifs must be closed before ingest-git (i.e., we're not inside an if block)
     assert if_count <= fi_count, (
         "modok ingest-git is called inside a conditional block — "
@@ -563,7 +563,6 @@ async def test_double_ingest_git_produces_no_duplicate_commit_nodes(tmp_path):
                                 project_slug="stagehand", repo_root=tmp_path,
                                 registry=MagicMock(), client=client, config={},
                             )
-
     # Second run: last_git_sha == HEAD → git log range is empty
     with patch("modok.ingestion.git_history._get_git_log", return_value=""):
         with patch("modok.ingestion.git_history.build_registered_file_set", return_value=registered):

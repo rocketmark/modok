@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import os
-import re
 import sys
 import uuid
 import yaml
@@ -22,7 +21,7 @@ from modok.ingestion.parser import (
 )
 from modok.ingestion.registry import Registry
 from modok.ingestion.report import IngestionReport
-from modok.llm.gateway import propose_metadata
+from modok.llm.gateway import propose_metadata, _load_config as _load_llm_config
 from modok.ingestion.verifier import verify_proposal, RejectedField
 from modok.quine.models import (
     Doc, Feature, Module, File, TestFile, DocSection, ErrorSignature,
@@ -77,13 +76,6 @@ class IngestionContext:
 
 _VERIFIED_THRESHOLD = 0.90
 _STRONG_THRESHOLD = 0.75
-
-
-def _slugify(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text)
-    return text
 
 
 async def route_fact(
@@ -530,22 +522,39 @@ async def ingest_doc_unregistered(
         ctx.edges_written += 1
 
 
-def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
-    """Validate a Fix YAML file. Raises MissingCommitShaError if commit_sha absent."""
+def _validate_commit_sha_yaml(path: Path, kind: str) -> None:
+    """Validate a Fix or ResolutionEvent YAML file. Raises MissingCommitShaError if commit_sha absent."""
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise MissingCommitShaError(f"Invalid YAML in {path}")
     if not data.get("commit_sha"):
-        raise MissingCommitShaError(f"commit_sha is required in Fix YAML: {path}")
+        raise MissingCommitShaError(f"commit_sha is required in {kind} YAML: {path}")
+
+
+def ingest_fix_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
+    _validate_commit_sha_yaml(path, "Fix")
 
 
 def ingest_resolution_yaml(path: Path, ctx: IngestionContext | None = None) -> None:
-    """Validate a ResolutionEvent YAML file. Raises MissingCommitShaError if commit_sha absent."""
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise MissingCommitShaError(f"Invalid YAML in {path}")
-    if not data.get("commit_sha"):
-        raise MissingCommitShaError(f"commit_sha is required in ResolutionEvent YAML: {path}")
+    _validate_commit_sha_yaml(path, "ResolutionEvent")
+
+
+def _patch_frontmatter(path: Path, updates: dict) -> None:
+    """Merge updates into the modok block of a doc's YAML frontmatter and write in-place."""
+    text = path.read_text(encoding="utf-8")
+    end = text.find("\n---", 3)
+    if end == -1:
+        return
+    fm_raw = text[3:end]
+    try:
+        fm_data = yaml.safe_load(fm_raw) or {}
+    except Exception:
+        fm_data = {}
+    modok_block = fm_data.get("modok", {}) or {}
+    modok_block.update(updates)
+    fm_data["modok"] = modok_block
+    new_fm = yaml.dump(fm_data, default_flow_style=False)
+    path.write_text(f"---\n{new_fm}---{text[end + 4:]}", encoding="utf-8")
 
 
 def apply_llm_proposals(
@@ -556,26 +565,7 @@ def apply_llm_proposals(
     """Apply approved LLM proposals by writing to doc frontmatter then re-parsing."""
     if not user_approves(proposals):
         return
-
-    text = path.read_text(encoding="utf-8")
-    end = text.find("\n---", 3)
-    if end == -1:
-        return
-
-    import yaml as _yaml
-    fm_raw = text[3:end]
-    try:
-        fm_data = _yaml.safe_load(fm_raw) or {}
-    except Exception:
-        fm_data = {}
-
-    modok_block = fm_data.get("modok", {}) or {}
-    modok_block.update(proposals)
-    fm_data["modok"] = modok_block
-
-    new_fm = _yaml.dump(fm_data, default_flow_style=False)
-    new_content = f"---\n{new_fm}---{text[end + 4:]}"
-    path.write_text(new_content, encoding="utf-8")
+    _patch_frontmatter(path, proposals)
 
 
 def user_approves(proposals: dict | list) -> bool:
@@ -587,14 +577,6 @@ def user_approves(proposals: dict | list) -> bool:
 
 
 
-def _load_llm_config() -> dict:
-    import tomllib
-    config_path = Path.home() / ".modok" / "config.toml"
-    if not config_path.exists():
-        return {}
-    with open(config_path, "rb") as f:
-        data = tomllib.load(f)
-    return data.get("llm", {})
 
 
 def _is_interactive() -> bool:
@@ -710,20 +692,7 @@ async def run_llm_proposal_pass(
     # Write valid_fields into doc frontmatter and re-parse (stages 2-5)
     if accumulated_valid:
         if doc_path.exists():
-            text = doc_path.read_text(encoding="utf-8")
-            end = text.find("\n---", 3)
-            if end != -1:
-                fm_raw = text[3:end]
-                try:
-                    fm_data = yaml.safe_load(fm_raw) or {}
-                except Exception:
-                    fm_data = {}
-                modok_block = fm_data.get("modok", {}) or {}
-                modok_block.update(accumulated_valid)
-                fm_data["modok"] = modok_block
-                new_fm = yaml.dump(fm_data, default_flow_style=False)
-                new_content = f"---\n{new_fm}---{text[end + 4:]}"
-                doc_path.write_text(new_content, encoding="utf-8")
+            _patch_frontmatter(doc_path, accumulated_valid)
 
         # SI-LLM-010: re-run stages 2-5 (parse, validate, check refs) — not discovery or sha
         import modok.ingestion.parser as _parser

@@ -112,6 +112,12 @@ def _extract_json(raw: str) -> dict | None:
 # Core HTTP calls
 # ---------------------------------------------------------------------------
 
+def _check_response_status(resp: httpx.Response) -> None:
+    if resp.status_code >= 500:
+        raise LLMUnavailableError(f"Server error {resp.status_code}")
+    if resp.status_code >= 400:
+        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
+
 async def _ollama_chat_completion(
     messages: list[dict],
     endpoint: str,
@@ -146,11 +152,7 @@ async def _ollama_chat_completion(
         except httpx.TimeoutException as exc:
             raise asyncio.TimeoutError(str(exc)) from exc
 
-    if resp.status_code >= 500:
-        raise LLMUnavailableError(f"Server error {resp.status_code}")
-    if resp.status_code >= 400:
-        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
-
+    _check_response_status(resp)
     data = resp.json()
     return data["message"]["content"]
 
@@ -187,11 +189,7 @@ async def _chat_completion(
         except httpx.TimeoutException as exc:
             raise asyncio.TimeoutError(str(exc)) from exc
 
-    if resp.status_code >= 500:
-        raise LLMUnavailableError(f"Server error {resp.status_code}")
-    if resp.status_code >= 400:
-        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
-
+    _check_response_status(resp)
     data = resp.json()
     return data["choices"][0]["message"]["content"]
 
@@ -257,6 +255,47 @@ def _parse_and_validate(raw: str, validator) -> Any:
         return validator(data, raw)
     except (KeyError, TypeError, ValueError) as exc:
         raise LLMResponseError(f"Response failed schema validation: {exc}") from exc
+
+
+async def _dispatch_async(
+    messages: list[dict],
+    response_format: dict,
+    timeout: float,
+    cfg: dict,
+    backend: str,
+    validator,
+    max_retries: int,
+) -> Any:
+    """Resolve backend, call with retry, parse and validate. Used by all async public functions."""
+    if backend == "auto":
+        return await _call_auto(messages, response_format, timeout, cfg, validator)
+
+    if backend == "remote":
+        endpoint, model, api_key = _check_remote_config(cfg)
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key=api_key,
+            max_retries=max_retries,
+            native_ollama=False,
+        )
+    else:
+        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
+        model = cfg.get("local_model", "llama3.2")
+        raw = await _call_with_retry(
+            messages=messages,
+            response_format=response_format,
+            endpoint=endpoint,
+            model=model,
+            timeout=timeout,
+            api_key="",
+            max_retries=max_retries,
+            native_ollama=True,
+        )
+    return _parse_and_validate(raw, validator)
 
 
 async def _call_auto(
@@ -401,11 +440,7 @@ def _ollama_enrich_call(
     except httpx.RequestError as exc:
         raise LLMUnavailableError(f"Request failed: {exc}") from exc
 
-    if resp.status_code >= 500:
-        raise LLMUnavailableError(f"Server error {resp.status_code}")
-    if resp.status_code >= 400:
-        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
-
+    _check_response_status(resp)
     content = resp.json()["message"]["content"]
     try:
         return json.loads(content)
@@ -445,11 +480,7 @@ def _openai_enrich_call(
     except httpx.RequestError as exc:
         raise LLMUnavailableError(f"Request failed: {exc}") from exc
 
-    if resp.status_code >= 500:
-        raise LLMUnavailableError(f"Server error {resp.status_code}")
-    if resp.status_code >= 400:
-        raise LLMGatewayError(f"Client error {resp.status_code}: {resp.text}")
-
+    _check_response_status(resp)
     content = resp.json()["choices"][0]["message"]["content"]
     try:
         return json.loads(content)
@@ -647,38 +678,7 @@ async def parse_ticket(
     ]
     response_format = {"type": "json_object"}
 
-    if backend == "auto":
-        return await _call_auto(messages, response_format, timeout, cfg, _validate_ticket)
-
-    if backend == "remote":
-        endpoint, model, api_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-            max_retries=max_retries,
-            native_ollama=False,
-            temperature=0,
-        )
-    else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-        model = cfg.get("local_model", "llama3.2")
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key="",
-            max_retries=max_retries,
-            native_ollama=True,
-            temperature=0,
-            num_ctx=num_ctx,
-        )
-    result = _parse_and_validate(raw, _validate_ticket)
+    result = await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_ticket, max_retries)
     if valid_slugs:
         result.feature_slugs = [s for s in result.feature_slugs if s in valid_slugs]
     return result
@@ -710,35 +710,7 @@ async def propose_metadata(
     ]
     response_format = {"type": "json_object"}
 
-    if backend == "auto":
-        return await _call_auto(messages, response_format, timeout, cfg, _validate_metadata)
-
-    if backend == "remote":
-        endpoint, model, api_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-            max_retries=max_retries,
-            native_ollama=False,
-        )
-    else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-        model = cfg.get("local_model", "llama3.2")
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key="",
-            max_retries=max_retries,
-            native_ollama=True,
-        )
-    return _parse_and_validate(raw, _validate_metadata)
+    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_metadata, max_retries)
 
 
 async def propose_similarity(
@@ -767,35 +739,7 @@ async def propose_similarity(
     ]
     response_format = {"type": "json_object"}
 
-    if backend == "auto":
-        return await _call_auto(messages, response_format, timeout, cfg, _validate_similarity)
-
-    if backend == "remote":
-        endpoint, model, api_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-            max_retries=max_retries,
-            native_ollama=False,
-        )
-    else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-        model = cfg.get("local_model", "llama3.2")
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key="",
-            max_retries=max_retries,
-            native_ollama=True,
-        )
-    return _parse_and_validate(raw, _validate_similarity)
+    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_similarity, max_retries)
 
 
 # @spec LLM-SUMM-001, LLM-SUMM-002, LLM-SUMM-003, LLM-SUMM-004
@@ -845,33 +789,4 @@ async def summarise_packet(
     ]
     response_format = {"type": "json_object"}
 
-    if backend == "auto":
-        return await _call_auto(messages, response_format, timeout, cfg, _validate_summary)
-
-    if backend == "remote":
-        endpoint, model, api_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-            max_retries=max_retries,
-            native_ollama=False,
-        )
-    else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-        model = cfg.get("local_model", "llama3.2")
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key="",
-            max_retries=max_retries,
-            native_ollama=True,
-            num_ctx=num_ctx,
-        )
-    return _parse_and_validate(raw, _validate_summary)
+    return await _dispatch_async(messages, response_format, timeout, cfg, backend, _validate_summary, max_retries)

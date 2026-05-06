@@ -12,11 +12,10 @@ from pathlib import Path
 from modok.code_map.languages import detect_language
 from modok.code_map.python_ast import extract_symbols
 from modok.code_map.roles import classify_role
+from modok.ingestion.discovery import IGNORE_DIR_NAMES
 
-_IGNORED_DIRS = {
-    ".git", "node_modules", "bin", "obj", "dist", "build",
-    "coverage", ".vs", "__pycache__", ".modok",
-    ".ruff_cache", ".venv", "venv",
+_IGNORED_DIRS = IGNORE_DIR_NAMES | {
+    "__pycache__", ".modok", ".ruff_cache", ".venv", "venv",
     "states",  # TLC model checker output (TLA+)
 }
 _IGNORED_EXTS = {

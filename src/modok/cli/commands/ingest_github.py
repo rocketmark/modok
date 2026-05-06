@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 import click
 
 from modok.cli.config import CONFIG_PATH, ModokConfig
+from modok.cli.commands._output import require_quine
 from modok.ingestion.github import GithubIngester, save_last_github_sync
-from modok.quine.client import QuineClient
 
 
 @click.command("ingest-github")
@@ -37,14 +37,7 @@ def ingest_github_cmd(project: str, full: bool) -> None:
         raise click.ClickException("GITHUB_TOKEN environment variable not set")
 
     # @spec GHING-ERR-001
-    client = QuineClient(base_url=config.quine.url)
-    if not asyncio.run(client.ping()):
-        click.echo(
-            f"Quine is not reachable at {config.quine.url} — "
-            "run `modok quine start` or check your config",
-            err=True,
-        )
-        raise SystemExit(2)
+    client = require_quine(config)
 
     # Record sync start time before any API calls (GHING-CONF-003)
     sync_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

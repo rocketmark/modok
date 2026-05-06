@@ -8,6 +8,8 @@ from collections import defaultdict
 from pathlib import Path
 
 
+from modok.import_arrow.extractor import slug_to_name as _title
+
 _NON_SOURCE_ROLES = {"config", "docs", "generated", "ignored"}
 
 
@@ -17,10 +19,6 @@ def _slug_from_stem(stem: str) -> str:
 
 def _slug_from_dir(dir_path: str) -> str:
     return dir_path.replace("/", "-").replace("_", "-").strip("-")
-
-
-def _title(slug: str) -> str:
-    return " ".join(w.capitalize() for w in slug.split("-"))
 
 
 def build_modules_pass1(features: dict, code_map: dict) -> dict:

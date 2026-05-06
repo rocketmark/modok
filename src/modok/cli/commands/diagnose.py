@@ -12,7 +12,9 @@ import json
 import click
 
 from modok.cli.config import ModokConfig
+from modok.cli.commands._output import require_quine
 from modok.quine.client import QuineClient
+from modok.retrieval.engine import _KI_CAP, _FIX_CAP, _FILE_CAP, _accumulate_match_count, _sort_and_cap
 from modok.retrieval.models import (
     AffectedArea,
     DebugPacket,
@@ -21,10 +23,6 @@ from modok.retrieval.models import (
     KnownIssueRef,
     PriorFix,
 )
-
-_KI_CAP = 10
-_FIX_CAP = 10
-_FILE_CAP = 20
 
 _FILES_CYPHER = """
 MATCH (f)
@@ -74,14 +72,6 @@ RETURN c
 """
 
 
-def _accumulate(counts: dict[str, int], key: str, delta: int = 1) -> None:
-    counts[key] = counts.get(key, 0) + delta
-
-
-def _sort_cap(items: list[dict], cap: int) -> list[dict]:
-    return sorted(items, key=lambda x: x["match_count"], reverse=True)[:cap]
-
-
 async def _run_diagnose(
     project: str,
     feature: str,
@@ -102,14 +92,14 @@ async def _run_diagnose(
     for row in rows:
         for item in row:
             if isinstance(item, dict) and item.get("properties", {}).get("repo_path"):
-                _accumulate(file_counts, item["properties"]["repo_path"])
+                _accumulate_match_count(file_counts, item["properties"]["repo_path"], 1)
 
     # Test files via feature → HAS_TEST → file
     rows = await client.query(_TEST_FILES_CYPHER, {"project_slug": project, "feature_slug": feature})
     for row in rows:
         for item in row:
             if isinstance(item, dict) and item.get("properties", {}).get("repo_path"):
-                _accumulate(test_file_counts, item["properties"]["repo_path"])
+                _accumulate_match_count(test_file_counts, item["properties"]["repo_path"], 1)
 
     # KnownIssues via feature → HAS_KNOWN_ISSUE
     rows = await client.query(_KI_CYPHER, {"project_slug": project, "feature_slug": feature})
@@ -123,7 +113,7 @@ async def _run_diagnose(
                 continue
             if symptom and symptom.lower() not in props.get("summary", "").lower():
                 continue
-            _accumulate(ki_counts, ki_id)
+            _accumulate_match_count(ki_counts, ki_id, 1)
             ki_meta[ki_id] = props
             ki_node_ids[ki_id] = item["id"]
 
@@ -140,7 +130,7 @@ async def _run_diagnose(
                     continue
                 if symptom and symptom.lower() not in props.get("summary", "").lower():
                     continue
-                _accumulate(ki_counts, ki_id)
+                _accumulate_match_count(ki_counts, ki_id, 1)
                 ki_meta.setdefault(ki_id, props)
                 ki_node_ids.setdefault(ki_id, item["id"])
 
@@ -154,13 +144,13 @@ async def _run_diagnose(
                 props = item.get("properties", {})
                 fix_id = props.get("fix_id")
                 if fix_id:
-                    _accumulate(fix_counts, fix_id)
+                    _accumulate_match_count(fix_counts, fix_id, 1)
                     fix_meta.setdefault(fix_id, props)
 
-    ki_items = _sort_cap([{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP)
-    fix_items = _sort_cap([{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP)
-    file_items = _sort_cap([{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP)
-    test_items = _sort_cap([{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP)
+    ki_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in ki_counts.items()], _KI_CAP)
+    fix_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in fix_counts.items()], _FIX_CAP)
+    file_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in file_counts.items()], _FILE_CAP)
+    test_items = _sort_and_cap([{"id": k, "match_count": v} for k, v in test_file_counts.items()], _FILE_CAP)
 
     # Fetch commit SHAs for fixes (best-effort)
     prior_fixes: list[PriorFix] = []
@@ -203,7 +193,6 @@ async def _run_diagnose(
             for item in ki_items
         ],
         prior_fixes=prior_fixes,
-        next_steps=[],
     )
 
 
@@ -224,13 +213,7 @@ def diagnose_cmd(
     config = ModokConfig.load()
     config.project(project)
 
-    client = QuineClient(base_url=config.quine.url)
-    if not asyncio.run(client.ping()):
-        click.echo(
-            f"Quine is not reachable at {config.quine.url} — run `modok quine start` or check your config",
-            err=True,
-        )
-        raise SystemExit(2)
+    client = require_quine(config)
 
     packet = asyncio.run(_run_diagnose(project, feature, error, symptom, client))
 

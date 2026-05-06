@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 
-
 def slug_to_name(slug: str) -> str:
     return " ".join(w.capitalize() for w in slug.split("-"))
 

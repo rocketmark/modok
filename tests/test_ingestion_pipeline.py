@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 
 from modok.ingestion.confidence import confidence_band
 from modok.ingestion.discovery import (
-    IGNORE_PATTERNS,
+    IGNORE_DIR_NAMES as IGNORE_PATTERNS,
     IGNORE_SUFFIXES,
     SUPPORTED_SUFFIXES,
     discover_files,

@@ -9,10 +9,10 @@ from pathlib import Path
 import click
 
 from modok.cli.config import ModokConfig
+from modok.cli.commands._output import require_quine
 from modok.ingestion.discovery import discover_docs
 from modok.ingestion.git_history import ingest_git
 from modok.ingestion.registry import Registry
-from modok.quine.client import QuineClient
 
 
 @click.command("ingest-git")
@@ -41,14 +41,7 @@ def ingest_git_cmd(
     proj = config.project(project)
     repo_root = Path(repo) if repo else Path(proj.repo)
 
-    client = QuineClient(base_url=config.quine.url)
-    if not asyncio.run(client.ping()):
-        click.echo(
-            f"Quine is not reachable at {config.quine.url} — "
-            "run `modok quine start` or check your config",
-            err=True,
-        )
-        raise SystemExit(2)
+    client = require_quine(config)
 
     registry = Registry(repo_root)
 

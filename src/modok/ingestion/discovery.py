@@ -9,25 +9,18 @@ import yaml
 if TYPE_CHECKING:
     from modok.ingestion.registry import Registry
 
-IGNORE_PATTERNS = [
-    ".git",
-    "node_modules",
-    "bin",
-    "obj",
-    "dist",
-    "build",
-    "coverage",
-    ".vs",
-]
+IGNORE_DIR_NAMES = frozenset([
+    ".git", "node_modules", "bin", "obj", "dist", "build", "coverage", ".vs",
+])
 
-IGNORE_SUFFIXES = [".key", ".pem", ".pfx"]
-IGNORE_NAMES = [".env"]
-SUPPORTED_SUFFIXES = {".md", ".mdx", ".yaml", ".yml"}
+IGNORE_SUFFIXES = frozenset([".key", ".pem", ".pfx"])
+IGNORE_NAMES = frozenset([".env"])
+SUPPORTED_SUFFIXES = frozenset([".md", ".mdx", ".yaml", ".yml"])
 
 
 def _is_ignored(path: Path) -> bool:
     for part in path.parts:
-        if part in IGNORE_PATTERNS:
+        if part in IGNORE_DIR_NAMES:
             return True
     if path.suffix in IGNORE_SUFFIXES:
         return True

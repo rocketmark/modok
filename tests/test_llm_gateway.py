@@ -1232,7 +1232,7 @@ def test_verifier_rejects_unknown_enum_value():
 # @spec LLM-VER-006
 @given(
     items=st.lists(st.text(min_size=1, max_size=15), min_size=2, max_size=10).filter(
-        lambda items: len(items) != len(set(items))
+        lambda items_: len(items_) != len(set(items_))
     ),
 )
 @settings(deadline=None)

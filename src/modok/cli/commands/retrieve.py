@@ -11,8 +11,8 @@ import sys
 import click
 
 from modok.cli.config import ModokConfig
+from modok.cli.commands._output import require_quine
 from modok.ingestion.registry import Registry
-from modok.quine.client import QuineClient
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import (
     DREAnchorError,
@@ -60,13 +60,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         module_elements = None
         module_source_files = None
 
-    client = QuineClient(base_url=config.quine.url)
-    if not asyncio.run(client.ping()):
-        click.echo(
-            f"Quine is not reachable at {config.quine.url} — run `modok quine start` or check your config",
-            err=True,
-        )
-        raise SystemExit(2)
+    client = require_quine(config)
 
     if has_node_id:
         resolved_id = str(node_id)
