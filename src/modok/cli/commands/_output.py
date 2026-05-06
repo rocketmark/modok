@@ -7,11 +7,13 @@ import asyncio
 import click
 
 
-def require_quine(config):
+def require_quine(config, client_class=None):
     """Return a connected QuineClient or print an error and exit with code 2."""
-    from modok.quine.client import QuineClient
+    if client_class is None:
+        from modok.quine.client import QuineClient
 
-    client = QuineClient(base_url=config.quine.url)
+        client_class = QuineClient
+    client = client_class(base_url=config.quine.url)
     if not asyncio.run(client.ping()):
         click.echo(
             f"Quine is not reachable at {config.quine.url} — run `modok quine start` or check your config",

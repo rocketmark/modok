@@ -24,7 +24,7 @@ def ingest_cmd(project: str, ticket_file: str | None) -> None:
     config = ModokConfig.load()
     proj = config.project(project)
 
-    client = require_quine(config)
+    client = require_quine(config, QuineClient)
 
     if ticket_file is not None:
         _ingest_customer_ticket(Path(ticket_file), project, client)

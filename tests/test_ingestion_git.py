@@ -257,11 +257,11 @@ async def test_touches_edge_written_without_properties(tmp_path):
     # Edge is written without properties (Quine does not persist relationship properties)
     assert client.write_edge_by_parts.call_count == 1
     call_args = client.write_edge_by_parts.call_args
+    assert call_args.args[1] == "TOUCHES"
     props = call_args.kwargs.get("properties") or (
         call_args.args[3] if len(call_args.args) > 3 else None
     )
-    assert isinstance(props, dict)
-    assert props.get("change_type") == "A"
+    assert props is None
 
 
 # ---------------------------------------------------------------------------

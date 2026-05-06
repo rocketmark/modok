@@ -13,6 +13,7 @@ import click
 from modok.cli.config import ModokConfig
 from modok.cli.commands._output import require_quine
 from modok.ingestion.registry import Registry
+from modok.quine.client import QuineClient
 from modok.retrieval.engine import retrieve
 from modok.retrieval.errors import (
     DREAnchorError,
@@ -67,7 +68,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         module_elements = None
         module_source_files = None
 
-    client = require_quine(config)
+    client = require_quine(config, QuineClient)
 
     if has_node_id:
         resolved_id = str(node_id)

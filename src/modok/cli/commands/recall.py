@@ -10,6 +10,7 @@ import click
 
 from modok.cli.config import ModokConfig
 from modok.cli.commands._output import collect_nodes, dedup_nodes, print_node, require_quine
+from modok.quine.client import QuineClient
 
 _FEATURE_CYPHER = """
 MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug)
@@ -43,7 +44,7 @@ def recall_cmd(
     config = ModokConfig.load()
     config.project(project)
 
-    client = require_quine(config)
+    client = require_quine(config, QuineClient)
 
     nodes = []
 

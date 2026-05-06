@@ -114,7 +114,7 @@ def test_discover_ignores_unsupported_extensions(tmp_path):
 
 
 # @spec SI-DISC-002
-@given(pattern=st.sampled_from(IGNORE_PATTERNS))
+@given(pattern=st.sampled_from(sorted(IGNORE_PATTERNS)))
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_discover_never_ingests_ignored_directory(tmp_path, pattern):
     ignored_dir = tmp_path / pattern
@@ -128,7 +128,7 @@ def test_discover_never_ingests_ignored_directory(tmp_path, pattern):
 
 
 # @spec SI-DISC-002
-@given(suffix=st.sampled_from(IGNORE_SUFFIXES))
+@given(suffix=st.sampled_from(sorted(IGNORE_SUFFIXES)))
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_discover_never_ingests_ignored_suffix(tmp_path, suffix):
     write_file(tmp_path / f"secret{suffix}", "content")
