@@ -21,6 +21,12 @@ Match the ticket to a module ONLY when the ticket contains an explicit signal:
 - Code identifiers: if the ticket mentions a variable, function, class, or symbol name that
   appears in a module's "code:" list, match that module. For example, "reinit button" → module
   with "reinit_requested"; "tracker_lost_logged" → module whose code includes that name.
+- Module name match: if a key term in the ticket directly matches a word in a module's slug or
+  name, match that module. Split slugs on hyphens and underscores to get individual words.
+  For example, "SHTP event dropped" → shtp-receiver (because "shtp" matches the slug word
+  "shtp"); "tracker lost" → tracker-recovery (because "tracker" matches the slug word "tracker").
+  Common English words (log, error, client, server, data) are NOT strong signals on their own —
+  only match when the term is specific to the module's domain.
 - Behavior match: if the ticket describes a behavior that is the core responsibility of a module
   (not a side-effect or general domain association), match that module.
 
