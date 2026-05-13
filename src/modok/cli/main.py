@@ -21,6 +21,7 @@ from modok.cli.commands.recall import recall_cmd
 from modok.cli.commands.search import search_cmd
 from modok.cli.commands.diagnose import diagnose_cmd
 from modok.cli.commands.quine import quine_cmd
+from modok.cli.commands.serve import serve_command
 from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
 
@@ -85,3 +86,4 @@ cli.add_command(recall_cmd, name="recall")
 cli.add_command(search_cmd, name="search")
 cli.add_command(diagnose_cmd, name="diagnose")
 cli.add_command(quine_cmd, name="quine")
+cli.add_command(serve_command, name="serve")
