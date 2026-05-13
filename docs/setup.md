@@ -160,9 +160,11 @@ Note: Quine does not expand `~` in HOCON paths. The heredoc above uses `$HOME` w
 
 ---
 
-## Step 6 — Install Ollama and pull a model
+## Step 6 — Install a local LLM backend
 
-MODOK uses a local LLM for metadata proposals (`--fix`) and ticket classification. Ollama is the supported local backend.
+MODOK uses a local LLM for metadata proposals (`--fix`) and ticket classification. Two backends are supported:
+
+### Option A — Ollama (default, cross-platform)
 
 **macOS:**
 ```bash
@@ -183,12 +185,33 @@ ollama pull gemma4
 
 Verify:
 ```bash
-curl http://localhost:11434/v1/models
+curl http://localhost:11434/api/tags
 ```
+
+### Option B — oMLX (macOS Apple Silicon, OpenAI-compatible)
+
+oMLX runs MLX-format models directly on the Metal GPU and exposes an OpenAI-compatible endpoint. No separate server process needed — it runs on demand.
+
+Install and start:
+```bash
+brew install omlx        # or follow oMLX install instructions
+omlx serve --model <your-model> --port 10240
+```
+
+Verify:
+```bash
+curl http://localhost:10240/v1/models
+```
+
+Use `protocol = "openai"` in your config (Step 7) when using oMLX.
 
 ---
 
 ## Step 7 — Create the MODOK config
+
+Choose the config that matches the LLM backend you set up in Step 6.
+
+**Option A — Ollama:**
 
 ```bash
 cat > ~/.modok/config.toml << 'EOF'
@@ -196,19 +219,25 @@ cat > ~/.modok/config.toml << 'EOF'
 url = "http://127.0.0.1:8080"
 jar = "~/.modok/quine.jar"
 
-[llm]
-# Local model via Ollama. Must be running before using --fix or ticket parsing.
-local_endpoint = "http://localhost:11434/v1"
-local_model = "gemma4"
+# LLM backends — tried in order. protocol: "ollama" (native /api/chat) or
+# "openai" (OpenAI-compatible /chat/completions).
+[[llm.backends]]
+name     = "local"
+protocol = "ollama"
+endpoint = "http://localhost:11434"
+model    = "gemma4"
 
-# Enable the bounded CEGIS repair loop: if the LLM's first proposal fails
-# verification, one repair attempt is made with the counterexamples as context.
+[llm]
+mode             = "auto"   # "auto" = escalate to next backend on validation failure
 cegis_fix_enabled = true
 
-# Optional: escalate to a remote model when local output fails schema validation.
-# remote_endpoint = "https://api.anthropic.com/v1"
-# remote_model = "claude-sonnet-4-6"
-# remote_api_key = ""   # or set MODOK_LLM_API_KEY env var
+# Optional: add a cloud fallback when local output fails schema validation.
+# [[llm.backends]]
+# name     = "cloud"
+# protocol = "openai"
+# endpoint = "https://api.anthropic.com/v1"
+# model    = "claude-haiku-4-5-20251001"
+# api_key  = ""   # or set MODOK_LLM_API_KEY env var
 
 # Optional: emit rejected-field counterexamples as YAML fixtures for offline eval.
 # counterexample_fixture_dir = "~/github/modok/tests/fixtures/llm_gateway"
@@ -217,6 +246,30 @@ cegis_fix_enabled = true
 # skip_summary skips the LLM summarise_packet call; the ticket subject is used instead.
 # This saves one full LLM round-trip (~5–10s) at the cost of the generated summary sentence.
 # skip_summary = true
+
+[[projects]]
+slug = "modok"
+repo = "~/github/modok"
+EOF
+```
+
+**Option B — oMLX (or any OpenAI-compatible local server):**
+
+```bash
+cat > ~/.modok/config.toml << 'EOF'
+[quine]
+url = "http://127.0.0.1:8080"
+jar = "~/.modok/quine.jar"
+
+[[llm.backends]]
+name     = "local-mlx"
+protocol = "openai"
+endpoint = "http://localhost:10240"   # adjust to your oMLX port
+model    = "your-model-name"
+
+[llm]
+mode              = "auto"
+cegis_fix_enabled = true
 
 [[projects]]
 slug = "modok"
