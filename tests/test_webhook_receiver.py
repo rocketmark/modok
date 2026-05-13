@@ -24,8 +24,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +32,6 @@ from fastapi.testclient import TestClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from modok.webhook.adapters.base import PullAdapter, PushAdapter
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import (
     CustomerIssueData,
@@ -41,7 +39,6 @@ from modok.webhook.models import (
     IngestEvent,
     WebhookConfig,
 )
-from modok.webhook.router import PULL_ADAPTERS, PUSH_ADAPTERS
 from modok.webhook.server import build_app, run_ingest_event, start_pull_adapters, stop_pull_adapters
 
 
@@ -831,8 +828,8 @@ def test_duplicate_github_event_no_duplicate_nodes(number, title):
     assert len(calls) == 2
     # Both calls must target a node with identical (project_slug, source_system, ticket_id)
     # — the upsert key — so the second call is a no-op update, not a new insert.
-    node_first: CustomerIssue = calls[0].args[0]
-    node_second: CustomerIssue = calls[1].args[0]
+    node_first = calls[0].args[0]
+    node_second = calls[1].args[0]
     assert node_first.project_slug == node_second.project_slug
     assert node_first.source_system == node_second.source_system
     assert node_first.ticket_id == node_second.ticket_id
@@ -960,4 +957,4 @@ def test_ingest_event_no_adapter_branching_in_pipeline():
     assert type(tkt_node).__name__ == "CustomerIssue"
     # source_system differs but node type must not — no adapter-identity branching
     assert gh_node.source_system != tkt_node.source_system
-    assert type(gh_node) == type(tkt_node)
+    assert type(gh_node) is type(tkt_node)

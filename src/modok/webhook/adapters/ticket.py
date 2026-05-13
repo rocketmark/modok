@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import CustomerIssueData, IngestEvent, WebhookConfig
