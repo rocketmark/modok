@@ -46,6 +46,7 @@ def make_config(
     timeout_propose_similarity=15,
     max_retries=2,
 ):
+    """Legacy flat-key config dict — exercises backwards compat shim."""
     cfg = {
         "local_endpoint": local_endpoint,
         "local_model": local_model,
@@ -63,6 +64,33 @@ def make_config(
     if remote_api_key is not None:
         cfg["remote_api_key"] = remote_api_key
     return cfg
+
+
+def make_backends_config(
+    backends: list[dict],
+    timeout_seconds: int = 30,
+    timeout_parse_ticket: int = 30,
+    timeout_propose_metadata: int = 15,
+    timeout_propose_similarity: int = 15,
+    max_retries: int = 2,
+) -> dict:
+    """New-style backends list config dict."""
+    return {
+        "backends": backends,
+        "timeout_seconds": timeout_seconds,
+        "timeout_parse_ticket": timeout_parse_ticket,
+        "timeout_propose_metadata": timeout_propose_metadata,
+        "timeout_propose_similarity": timeout_propose_similarity,
+        "max_retries": max_retries,
+    }
+
+
+def _ollama_backend(endpoint: str = "http://localhost:11434", model: str = "llama3.2") -> dict:
+    return {"name": "local", "protocol": "ollama", "endpoint": endpoint, "model": model, "api_key": ""}
+
+
+def _openai_backend(endpoint: str, model: str, api_key: str = "") -> dict:
+    return {"name": "remote", "protocol": "openai", "endpoint": endpoint, "model": model, "api_key": api_key}
 
 
 VALID_TICKET_RESPONSE = """\
@@ -2138,3 +2166,230 @@ def test_summarise_packet_system_prompt_distinct_from_other_prompts():
     assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PARSE_TICKET_SYSTEM
     assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PROPOSE_METADATA_SYSTEM
     assert prompts_mod.SUMMARISE_PACKET_SYSTEM != prompts_mod.PROPOSE_SIMILARITY_SYSTEM
+
+
+# ---------------------------------------------------------------------------
+# LLM-PROTO-001 — protocol field controls wire format (ollama vs openai)
+# ---------------------------------------------------------------------------
+
+
+# @spec LLM-PROTO-001
+@pytest.mark.asyncio
+async def test_ollama_protocol_uses_ollama_chat_completion():
+    """A backend with protocol=ollama hits _ollama_chat_completion, not _chat_completion."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([_ollama_backend()])
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_ollama:
+            with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_openai:
+                mock_ollama.return_value = VALID_TICKET_RESPONSE
+                await parse_ticket("text", "stagehand", backend="auto")
+
+    assert mock_ollama.call_count == 1
+    assert mock_openai.call_count == 0
+
+
+# @spec LLM-PROTO-001
+@pytest.mark.asyncio
+async def test_openai_protocol_uses_chat_completion():
+    """A backend with protocol=openai hits _chat_completion, not _ollama_chat_completion."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([_openai_backend("http://localhost:10240", "qwen3", api_key="")])
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_openai:
+            with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_ollama:
+                mock_openai.return_value = VALID_TICKET_RESPONSE
+                await parse_ticket("text", "stagehand", backend="auto")
+
+    assert mock_openai.call_count == 1
+    assert mock_ollama.call_count == 0
+
+
+# @spec LLM-PROTO-001
+@pytest.mark.asyncio
+async def test_openai_protocol_local_endpoint_still_uses_openai_wire_format():
+    """protocol=openai on a localhost endpoint still uses /chat/completions, not /api/chat."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([_openai_backend("http://localhost:10240", "mlx-model")])
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_openai:
+            with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_ollama:
+                mock_openai.return_value = VALID_TICKET_RESPONSE
+                await parse_ticket("text", "stagehand", backend="auto")
+
+    assert mock_openai.call_count == 1
+    assert mock_ollama.call_count == 0
+    call_kwargs = mock_openai.call_args.kwargs
+    assert "localhost:10240" in call_kwargs.get("endpoint", "")
+    assert call_kwargs.get("model") == "mlx-model"
+
+
+# ---------------------------------------------------------------------------
+# LLM-MULTI-001 — multi-backend: auto walks list on validation failure
+# ---------------------------------------------------------------------------
+
+
+# @spec LLM-MULTI-001
+@pytest.mark.asyncio
+async def test_multi_backend_auto_escalates_to_second_on_validation_failure():
+    """With two backends, auto mode escalates to backend[1] when backend[0] returns bad JSON."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([
+        _ollama_backend(),
+        _openai_backend("https://api.anthropic.com/v1", "claude-haiku-4-5-20251001"),
+    ])
+    bad_response = '{"not_a_valid_ticket": true}'
+
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_local:
+            mock_local.return_value = bad_response
+            with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_remote:
+                mock_remote.return_value = VALID_TICKET_RESPONSE
+                result = await parse_ticket("text", "stagehand", backend="auto")
+
+    assert mock_local.call_count == 1
+    assert mock_remote.call_count == 1
+    assert isinstance(result, TicketParseResult)
+
+
+# @spec LLM-MULTI-001
+@pytest.mark.asyncio
+async def test_multi_backend_first_mode_uses_only_first_backend():
+    """mode=first (or backend=local) uses only backend[0] even when backend[1] is configured."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([
+        _ollama_backend(),
+        _openai_backend("https://api.anthropic.com/v1", "claude-haiku-4-5-20251001"),
+    ])
+
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_local:
+            mock_local.return_value = VALID_TICKET_RESPONSE
+            with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_remote:
+                await parse_ticket("text", "stagehand", backend="local")
+
+    assert mock_local.call_count == 1
+    assert mock_remote.call_count == 0
+
+
+# @spec LLM-MULTI-001
+@pytest.mark.asyncio
+async def test_multi_backend_auto_succeeds_on_first_when_valid():
+    """When backend[0] returns valid JSON, backend[1] is never called."""
+    from modok.llm.gateway import parse_ticket
+
+    cfg = make_backends_config([
+        _ollama_backend(),
+        _openai_backend("https://api.anthropic.com/v1", "claude-haiku-4-5-20251001"),
+    ])
+
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new_callable=AsyncMock) as mock_local:
+            mock_local.return_value = VALID_TICKET_RESPONSE
+            with patch("modok.llm.gateway._chat_completion", new_callable=AsyncMock) as mock_remote:
+                result = await parse_ticket("text", "stagehand", backend="auto")
+
+    assert mock_local.call_count == 1
+    assert mock_remote.call_count == 0
+    assert isinstance(result, TicketParseResult)
+
+
+# @spec LLM-MULTI-001
+@pytest.mark.asyncio
+async def test_three_backends_walks_all_on_consecutive_validation_failures():
+    """With three backends all returning bad JSON, all three are tried before raising."""
+    from modok.llm.gateway import parse_ticket
+    from modok.llm.errors import LLMResponseError
+
+    cfg = make_backends_config([
+        _ollama_backend(),
+        _openai_backend("http://localhost:10240", "mlx-model"),
+        _openai_backend("https://api.anthropic.com/v1", "claude-haiku-4-5-20251001"),
+    ])
+    bad_response = '{"not_a_valid_ticket": true}'
+    call_log: list[str] = []
+
+    async def fake_ollama(endpoint="", **kwargs):
+        call_log.append("ollama")
+        return bad_response
+
+    async def fake_openai(endpoint="", **kwargs):
+        call_log.append(f"openai:{endpoint}")
+        return bad_response
+
+    with patch("modok.llm.gateway._load_config", return_value=cfg):
+        with patch("modok.llm.gateway._ollama_chat_completion", new=fake_ollama):
+            with patch("modok.llm.gateway._chat_completion", new=fake_openai):
+                with pytest.raises(LLMResponseError):
+                    await parse_ticket("text", "stagehand", backend="auto")
+
+    assert call_log[0] == "ollama"
+    assert len(call_log) == 3
+
+
+# ---------------------------------------------------------------------------
+# LLM-MULTI-002 — _resolve_backends: new-style and legacy produce equivalent results
+# ---------------------------------------------------------------------------
+
+
+# @spec LLM-MULTI-002
+def test_resolve_backends_new_style_single_ollama():
+    from modok.llm.gateway import _resolve_backends
+
+    cfg = {"backends": [{"protocol": "ollama", "endpoint": "http://localhost:11434", "model": "llama3.2", "api_key": ""}]}
+    result = _resolve_backends(cfg)
+    assert len(result) == 1
+    assert result[0]["native_ollama"] is True
+    assert result[0]["endpoint"] == "http://localhost:11434"
+
+
+# @spec LLM-MULTI-002
+def test_resolve_backends_new_style_single_openai():
+    from modok.llm.gateway import _resolve_backends
+
+    cfg = {"backends": [{"protocol": "openai", "endpoint": "http://localhost:10240", "model": "mlx-model", "api_key": ""}]}
+    result = _resolve_backends(cfg)
+    assert len(result) == 1
+    assert result[0]["native_ollama"] is False
+    assert result[0]["endpoint"] == "http://localhost:10240"
+
+
+# @spec LLM-MULTI-002
+def test_resolve_backends_legacy_with_remote_matches_new_style():
+    from modok.llm.gateway import _resolve_backends
+
+    legacy = {
+        "local_endpoint": "http://localhost:11434",
+        "local_model": "llama3.2",
+        "remote_endpoint": "https://api.anthropic.com/v1",
+        "remote_model": "claude-haiku-4-5-20251001",
+        "remote_api_key": "sk-test",
+    }
+    new_style = {
+        "backends": [
+            {"protocol": "ollama", "endpoint": "http://localhost:11434", "model": "llama3.2", "api_key": ""},
+            {"protocol": "openai", "endpoint": "https://api.anthropic.com/v1", "model": "claude-haiku-4-5-20251001", "api_key": "sk-test"},
+        ]
+    }
+    r_legacy = _resolve_backends(legacy)
+    r_new = _resolve_backends(new_style)
+
+    assert len(r_legacy) == len(r_new) == 2
+    assert r_legacy[0]["native_ollama"] == r_new[0]["native_ollama"]
+    assert r_legacy[1]["native_ollama"] == r_new[1]["native_ollama"]
+    assert r_legacy[1]["api_key"] == r_new[1]["api_key"] == "sk-test"
+
+
+# @spec LLM-MULTI-002
+def test_resolve_backends_legacy_single_local_no_remote():
+    from modok.llm.gateway import _resolve_backends
+
+    legacy = {"local_endpoint": "http://localhost:11434", "local_model": "llama3.2"}
+    result = _resolve_backends(legacy)
+    assert len(result) == 1
+    assert result[0]["native_ollama"] is True

@@ -545,15 +545,17 @@ def test_enrich_section_local_backend_uses_native_ollama_api(tmp_path):
 
 
 # @spec RP-ENRICH-007
-def test_enrich_section_remote_backend_uses_openai_compatible_api(tmp_path):
+def test_enrich_section_openai_protocol_uses_openai_compatible_api(tmp_path):
     from modok.registry.parser import parse_sections
     from modok.llm.gateway import enrich_section
 
     doc = write_file(tmp_path / "doc.md", SIMPLE_DOC)
     section = parse_sections(doc)[0]
-    cfg_llm = MagicMock()
-    cfg_llm.timeout_propose_registry = 60
-    cfg_llm.backend = "remote"
+    # New-style: protocol=openai selects the OpenAI-compatible wire format
+    cfg_llm = {
+        "backends": [{"protocol": "openai", "endpoint": "http://localhost:10240", "model": "mlx-model", "api_key": ""}],
+        "timeout_propose_registry": 60,
+    }
 
     with patch("modok.llm.gateway._openai_enrich_call") as mock_remote:
         mock_remote.return_value = {

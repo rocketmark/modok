@@ -43,15 +43,63 @@ def _get_timeout(cfg: dict, key: str) -> float:
     return float(cfg.get(key) or cfg.get("timeout_seconds", 30))
 
 
-def _resolve_api_key(cfg: dict) -> str:
-    key = cfg.get("remote_api_key", "")
+def _resolve_api_key(cfg: dict, key_field: str = "remote_api_key") -> str:
+    key = cfg.get(key_field, "")
     if not key:
         key = os.environ.get("MODOK_LLM_API_KEY", "")
     return key
 
 
+# ---------------------------------------------------------------------------
+# Backend list resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_backends(cfg: dict) -> list[dict]:
+    """Return an ordered list of backend dicts with keys: endpoint, model, api_key, native_ollama.
+
+    Supports both new-style [[llm.backends]] list and legacy flat local_*/remote_* keys.
+    """
+    backends_raw: list[dict] = cfg.get("backends", [])
+    if backends_raw:
+        result = []
+        for b in backends_raw:
+            protocol = b.get("protocol", "ollama")
+            api_key = b.get("api_key", "") or _resolve_api_key(b, "api_key")
+            result.append({
+                "endpoint": b.get("endpoint", "http://localhost:11434"),
+                "model": b.get("model", "llama3.2"),
+                "api_key": api_key,
+                "native_ollama": (protocol == "ollama"),
+            })
+        return result
+
+    # Legacy flat keys → synthesize list
+    result = [{
+        "endpoint": cfg.get("local_endpoint", "http://localhost:11434"),
+        "model": cfg.get("local_model", "llama3.2"),
+        "api_key": "",
+        "native_ollama": True,
+    }]
+    remote_ep = cfg.get("remote_endpoint", "")
+    remote_mod = cfg.get("remote_model", "")
+    if remote_ep and remote_mod:
+        api_key = _resolve_api_key(cfg)
+        if not api_key:
+            raise LLMConfigError(
+                "No API key found — set remote_api_key in config or MODOK_LLM_API_KEY env var"
+            )
+        result.append({
+            "endpoint": remote_ep,
+            "model": remote_mod,
+            "api_key": api_key,
+            "native_ollama": False,
+        })
+    return result
+
+
 def _check_remote_config(cfg: dict) -> tuple[str, str, str]:
-    """Return (endpoint, model, api_key) or raise LLMConfigError."""
+    """Return (endpoint, model, api_key) or raise LLMConfigError. Legacy helper."""
     endpoint = cfg.get("remote_endpoint", "")
     model = cfg.get("remote_model", "")
     if not endpoint or not model:
@@ -274,82 +322,50 @@ async def _dispatch_async(
     validator,
     max_retries: int,
 ) -> Any:
-    """Resolve backend, call with retry, parse and validate. Used by all async public functions."""
-    if backend == "auto":
-        return await _call_auto(messages, response_format, timeout, cfg, validator)
+    """Resolve backends, call with retry, parse and validate. Used by all async public functions.
 
+    backend parameter: "auto" walks all backends escalating on validation failure;
+    "local"/"first" uses only the first backend; "remote" uses only the last backend
+    (legacy compat). New configs should use mode= in the toml instead.
+    """
+    all_backends = _resolve_backends(cfg)
+
+    # Legacy backend= values map to a slice of the list
     if backend == "remote":
-        endpoint, model, api_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-            max_retries=max_retries,
-            native_ollama=False,
-        )
+        # Legacy: use only the last (remote) backend; raise config error if only one
+        if len(all_backends) < 2:
+            _check_remote_config(cfg)  # raises LLMConfigError
+        selected = all_backends[-1:]
+        mode = "first"
+    elif backend in ("local", "first"):
+        selected = all_backends[:1]
+        mode = "first"
     else:
-        endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-        model = cfg.get("local_model", "llama3.2")
+        # "auto" or anything else: walk full list
+        selected = all_backends
+        mode = "auto"
+
+    last_exc: Exception = LLMResponseError("no backends")
+    for i, b in enumerate(selected):
         raw = await _call_with_retry(
             messages=messages,
             response_format=response_format,
-            endpoint=endpoint,
-            model=model,
+            endpoint=b["endpoint"],
+            model=b["model"],
             timeout=timeout,
-            api_key="",
+            api_key=b["api_key"],
             max_retries=max_retries,
-            native_ollama=True,
+            native_ollama=b["native_ollama"],
         )
-    return _parse_and_validate(raw, validator)
-
-
-async def _call_auto(
-    messages: list[dict],
-    response_format: dict,
-    timeout: float,
-    cfg: dict,
-    validator,
-) -> Any:
-    """Run local first; escalate to remote on validation failure only."""
-    local_endpoint = cfg.get("local_endpoint", "http://localhost:11434")
-    local_model = cfg.get("local_model", "llama3.2")
-    max_retries = int(cfg.get("max_retries", 2))
-
-    has_remote = bool(cfg.get("remote_endpoint") and cfg.get("remote_model"))
-
-    raw = await _call_with_retry(
-        messages=messages,
-        response_format=response_format,
-        endpoint=local_endpoint,
-        model=local_model,
-        timeout=timeout,
-        api_key="",
-        max_retries=max_retries,
-        native_ollama=True,
-    )
-
-    if has_remote:
+        if mode == "first" or i == len(selected) - 1:
+            return _parse_and_validate(raw, validator)
+        # auto mode: try to validate; escalate to next on failure
         try:
             return _parse_and_validate(raw, validator)
-        except LLMResponseError:
-            pass
-        # Escalate to remote — at most once, only on validation failure
-        r_endpoint, r_model, r_key = _check_remote_config(cfg)
-        raw = await _call_with_retry(
-            messages=messages,
-            response_format=response_format,
-            endpoint=r_endpoint,
-            model=r_model,
-            timeout=timeout,
-            api_key=r_key,
-            max_retries=max_retries,
-            native_ollama=False,
-        )
+        except LLMResponseError as exc:
+            last_exc = exc
 
-    return _parse_and_validate(raw, validator)
+    raise last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +531,49 @@ def _openai_enrich_call(
 # ---------------------------------------------------------------------------
 
 
+def _cfg_llm_to_dict(cfg_llm: Any) -> dict:
+    """Convert an LLMConfig object or plain dict to a gateway cfg dict."""
+    if isinstance(cfg_llm, dict):
+        return cfg_llm
+    # LLMConfig object — extract backends list or fall back to flat attrs
+    backends = getattr(cfg_llm, "backends", None)
+    if backends:
+        return {"backends": [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in backends]}
+    return {
+        "local_endpoint": getattr(cfg_llm, "local_endpoint", "http://localhost:11434"),
+        "local_model": getattr(cfg_llm, "local_model", "llama3.2"),
+        "remote_endpoint": getattr(cfg_llm, "remote_endpoint", ""),
+        "remote_model": getattr(cfg_llm, "remote_model", ""),
+        "remote_api_key": getattr(cfg_llm, "remote_api_key", ""),
+    }
+
+
+def _sync_enrich_call(
+    messages: list[dict],
+    backend: dict,
+    timeout: float,
+    num_ctx: int | None = None,
+    temperature: float | None = None,
+) -> dict:
+    """Dispatch a single sync enrichment call based on backend protocol."""
+    if backend["native_ollama"]:
+        return _ollama_enrich_call(
+            messages=messages,
+            endpoint=backend["endpoint"],
+            model=backend["model"],
+            timeout=timeout,
+            num_ctx=num_ctx if num_ctx is not None else 8192,
+            temperature=temperature,
+        )
+    return _openai_enrich_call(
+        messages=messages,
+        endpoint=backend["endpoint"],
+        model=backend["model"],
+        timeout=timeout,
+        api_key=backend["api_key"],
+    )
+
+
 def enrich_section(section: Any, cfg_llm: Any) -> Any:
     # @spec RP-ENRICH-001, RP-ENRICH-005, RP-ENRICH-006, RP-ENRICH-007, RP-ENRICH-008
     from modok.registry.proposal import EnrichSectionResult
@@ -524,33 +583,15 @@ def enrich_section(section: Any, cfg_llm: Any) -> Any:
         timeout = getattr(cfg_llm, "timeout_seconds", 60)
     timeout = float(timeout)
 
-    backend = getattr(cfg_llm, "backend", "local")
+    cfg_dict = _cfg_llm_to_dict(cfg_llm)
+    backends = _resolve_backends(cfg_dict)
 
     messages = [
         {"role": "system", "content": prompts.ENRICH_SECTION_SYSTEM},
         {"role": "user", "content": f"Section heading: {section.heading}\n\n{section.body}"},
     ]
 
-    if backend == "remote":
-        endpoint = getattr(cfg_llm, "remote_endpoint", "") or getattr(cfg_llm, "base_url", "")
-        model = getattr(cfg_llm, "remote_model", "") or getattr(cfg_llm, "model", "")
-        api_key = getattr(cfg_llm, "remote_api_key", "")
-        data = _openai_enrich_call(
-            messages=messages,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-        )
-    else:
-        endpoint = getattr(cfg_llm, "local_endpoint", "http://localhost:11434")
-        model = getattr(cfg_llm, "local_model", "llama3.2")
-        data = _ollama_enrich_call(
-            messages=messages,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-        )
+    data = _sync_enrich_call(messages, backends[0], timeout)
 
     return EnrichSectionResult(
         features=list(data.get("features", [])),
@@ -577,7 +618,8 @@ def normalise_candidates(
         timeout = getattr(cfg_llm, "timeout_seconds", 60)
     timeout = float(timeout)
 
-    backend = getattr(cfg_llm, "backend", "local")
+    cfg_dict = _cfg_llm_to_dict(cfg_llm)
+    backends = _resolve_backends(cfg_dict)
 
     # Send only names to cut output tokens — no descriptions needed for normalisation
     name_key = "normalized_error" if field_type == "errors" else "name"
@@ -606,28 +648,7 @@ def normalise_candidates(
         {"role": "user", "content": user_content},
     ]
 
-    if backend == "remote":
-        endpoint = getattr(cfg_llm, "remote_endpoint", "") or getattr(cfg_llm, "base_url", "")
-        model = getattr(cfg_llm, "remote_model", "") or getattr(cfg_llm, "model", "")
-        api_key = getattr(cfg_llm, "remote_api_key", "")
-        raw = _openai_enrich_call(
-            messages=messages,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            api_key=api_key,
-        )
-    else:
-        endpoint = getattr(cfg_llm, "local_endpoint", "http://localhost:11434")
-        model = getattr(cfg_llm, "local_model", "llama3.2")
-        raw = _ollama_enrich_call(
-            messages=messages,
-            endpoint=endpoint,
-            model=model,
-            timeout=timeout,
-            num_ctx=131072,
-            temperature=0,
-        )
+    raw = _sync_enrich_call(messages, backends[0], timeout, num_ctx=131072, temperature=0)
 
     # Extract list from response
     if isinstance(raw, list):

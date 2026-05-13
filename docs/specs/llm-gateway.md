@@ -16,13 +16,26 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
-## Backend Selection
+## Backend Selection and Protocol
 
-- [x] **LLM-BACK-001** [U]: When `backend="local"`, the system shall send the request to the configured `local_endpoint` using the configured `local_model`, regardless of whether a remote backend is configured.
-- [x] **LLM-BACK-002** [U]: When `backend="remote"` and no remote endpoint or API key is configured, the system shall raise `LLMConfigError` without making any network call.
-- [x] **LLM-BACK-003** [U]: When `backend="auto"`, the system shall attempt the local backend first. If the local response fails pydantic validation, the system shall escalate to the remote backend if configured. Escalation happens at most once per gateway call.
-- [x] **LLM-BACK-005** [U]: When `backend="auto"` and no remote backend is configured, the system shall behave identically to `backend="local"` and shall not raise an error due to the absence of a remote backend.
-- [x] **LLM-BACK-006** [U]: The API key shall be read from `remote_api_key` in config first; if absent or empty, from the `MODOK_LLM_API_KEY` environment variable. If neither is set and a remote call is attempted, the system shall raise `LLMConfigError`.
+- [x] **LLM-BACK-001** [U]: When `backend="local"` (or `mode="first"` with a single-entry backends list), the system shall send the request to the first configured backend using its endpoint and model, regardless of whether additional backends are configured.
+- [x] **LLM-BACK-002** [U]: When `backend="remote"` and only one backend is configured (no second entry to use as the remote), the system shall raise `LLMConfigError` without making any network call.
+- [x] **LLM-BACK-003** [U]: When `backend="auto"` (or `mode="auto"`), the system shall attempt backends in list order. If a backend's response fails validation, the system shall escalate to the next backend. Escalation to any given backend happens at most once per gateway call.
+- [x] **LLM-BACK-005** [U]: When `backend="auto"` and only one backend is configured, the system shall behave identically to `backend="local"` and shall not raise an error due to the absence of additional backends.
+- [x] **LLM-BACK-006** [U]: The API key shall be read from the backend entry's `api_key` field first; if absent or empty, from the `MODOK_LLM_API_KEY` environment variable. If neither is set and a backend with `protocol="openai"` is called, the system shall raise `LLMConfigError`. Backends with `protocol="ollama"` do not require an API key.
+
+---
+
+## Protocol Discrimination
+
+- [x] **LLM-PROTO-001** [U]: A backend entry with `protocol="ollama"` shall use the Ollama native `/api/chat` endpoint. A backend entry with `protocol="openai"` shall use the OpenAI-compatible `/chat/completions` endpoint. The protocol selection shall be determined solely by the `protocol` field — not by the host or port of the endpoint. A `protocol="openai"` backend on localhost shall use `/chat/completions`; a `protocol="ollama"` backend on a remote host shall use `/api/chat`.
+
+---
+
+## Multi-Backend List
+
+- [x] **LLM-MULTI-001** [U]: When two or more backends are configured and `mode="auto"`, the system shall walk the list in order, escalating to the next backend only when the current backend's response fails validation (`LLMResponseError`). When a backend returns a response that passes validation, the system shall return immediately without calling subsequent backends. When all backends are exhausted and none produced a valid response, the system shall raise `LLMResponseError`.
+- [x] **LLM-MULTI-002** [U]: The legacy flat config keys (`local_endpoint`, `local_model`, `remote_endpoint`, `remote_model`, `remote_api_key`) shall be accepted and synthesized into an equivalent ordered backends list at runtime: the `local_*` keys produce a first entry with `protocol="ollama"`; the `remote_*` keys, when present, produce a second entry with `protocol="openai"`. Behaviour shall be identical to an equivalent explicit `[[llm.backends]]` configuration.
 
 ---
 

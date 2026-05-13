@@ -56,44 +56,58 @@ All four are thin wrappers around `_chat_completion(messages, response_format)`,
 
 ## Backend Model
 
-The gateway is backend-agnostic. It communicates via the OpenAI-compatible chat completions endpoint (`POST /v1/chat/completions`) with structured JSON output (`response_format: {type: "json_object"}`). Both Ollama and Claude/GPT-4 support this interface.
+The gateway supports two wire protocols:
 
-### Backend selection
+- **`ollama`** — Ollama's native `/api/chat` endpoint. Sends Ollama-specific fields (`think`, `format`, `keep_alive`, `options.num_ctx`). Use for a locally-running Ollama instance.
+- **`openai`** — OpenAI-compatible `/chat/completions` endpoint with `response_format: {type: "json_object"}`. Use for oMLX, LM Studio, vllm, actual OpenAI/Anthropic, or any other OpenAI-compatible server — local or remote.
 
-```
-local  →  Ollama (http://localhost:11434/v1)        default
-remote →  configured provider endpoint + api_key    optional escalation
-```
+The protocol is independent of where the server lives. An oMLX server on localhost uses `protocol = "openai"`; an Ollama server on a remote host uses `protocol = "ollama"`.
 
-Backend is selected per-call by the `backend` parameter: `"local"` (default), `"remote"`, or `"auto"`.
+### Backend list and dispatch mode
 
-`"auto"` runs local first, then escalates to remote if the local response fails pydantic validation. Remote is only attempted if configured; if not configured, `auto` behaves as `local`.
+Backends are configured as an ordered list. The gateway walks the list according to `mode`:
 
-Note: Ollama exposes the OpenAI-compatible endpoint for any hosted model including Gemma. Gemma variants may not reliably honour `response_format: json_object`. The response validator attempts JSON extraction from raw text as a fallback before raising `LLMResponseError`, which handles this case without escalation for minor formatting deviations.
+- **`auto`** (default) — tries backends in order. If a backend returns a response that passes validation, returns immediately. If validation fails (`LLMResponseError`), escalates to the next backend. Escalation to any given backend happens at most once per call.
+- **`first`** — uses only the first backend in the list; never escalates regardless of the result.
+
+The `backend` parameter on each public function is a legacy shim: `"local"` maps to `first` mode using backends[0]; `"remote"` maps to `first` mode using backends[-1]; `"auto"` maps to `auto` mode over the full list.
 
 ### Configuration (from `~/.modok/config.toml`)
 
 ```toml
+# Backends tried in order. protocol: "ollama" or "openai".
+[[llm.backends]]
+name     = "local-mlx"
+protocol = "openai"
+endpoint = "http://localhost:10240"
+model    = "your-model-name"
+api_key  = ""                      # optional; read from MODOK_LLM_API_KEY env var if absent
+
+[[llm.backends]]
+name     = "cloud-fallback"
+protocol = "openai"
+endpoint = "https://api.anthropic.com/v1"
+model    = "claude-haiku-4-5-20251001"
+api_key  = ""                      # or set MODOK_LLM_API_KEY
+
 [llm]
-local_endpoint  = "http://localhost:11434/v1"
-local_model     = "llama3.2"
-remote_endpoint = "https://api.anthropic.com/v1"   # optional
-remote_model    = "claude-sonnet-4-6"               # optional
-remote_api_key  = ""                                # optional; read from env if absent
-timeout_seconds = 30          # default; overridden per call type below
-timeout_parse_ticket    = 30  # background-safe; can be slow
-timeout_propose_metadata = 15 # interactive (--fix workflow); must feel fast
-timeout_propose_similarity = 15  # interactive; surfaced to user
-timeout_summarise_packet   = 30  # background; called after retrieval
+mode     = "auto"                  # "auto" | "first"
+timeout_seconds = 30               # default; overridden per call type below
+timeout_parse_ticket    = 30       # background-safe; can be slow
+timeout_propose_metadata = 15      # interactive (--fix workflow); must feel fast
+timeout_propose_similarity = 15    # interactive; surfaced to user
+timeout_summarise_packet   = 30    # background; called after retrieval
 max_retries     = 2
 cegis_fix_enabled = true
 cegis_max_iterations_propose_metadata = 1   # one repair attempt; total max 2 LLM calls
 counterexample_fixture_dir = ""             # required when using --emit-counterexamples; points to modok's own tests/fixtures/llm_gateway/
 ```
 
+**Legacy flat keys** (`local_endpoint`, `local_model`, `remote_endpoint`, `remote_model`, `remote_api_key`) are still accepted and synthesized into a two-entry backends list at runtime. New configs should use `[[llm.backends]]` instead.
+
 Per-call-type timeouts take precedence over `timeout_seconds`. If a per-call-type key is absent, `timeout_seconds` is used.
 
-API key is read from `remote_api_key` in config first, then from the environment variable `MODOK_LLM_API_KEY`. If neither is set and a remote call is attempted, the gateway raises `LLMConfigError`.
+API key is read from the backend entry's `api_key` field first, then from the environment variable `MODOK_LLM_API_KEY`. If neither is set and a backend with `protocol = "openai"` is called, the gateway raises `LLMConfigError`. Ollama backends do not require an API key.
 
 ## Retry and Timeout
 
@@ -293,14 +307,16 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| OpenAI-compatible endpoint | Single interface for all backends | Separate Ollama SDK + Anthropic SDK | One code path; Ollama, Claude, GPT-4, and any future model support it; no provider lock-in |
-| Local-first with optional escalation | Ollama default; remote opt-in | Remote-first; always-local; always-remote | Local keeps costs zero for normal use; remote available when local model is insufficient |
+| Two wire protocols | `ollama` (native `/api/chat`) and `openai` (`/chat/completions`) | Single OpenAI-compatible path for all backends | Ollama's native API supports `think`, `format`, `keep_alive`, `num_ctx`; forcing OpenAI compat on Ollama loses those knobs. Keeping both lets each server speak its own dialect. |
+| Protocol is independent of host location | `protocol = "openai"` works for localhost oMLX or remote Claude | `local` = Ollama, `remote` = OpenAI | "Local vs remote" is a network topology fact, not a wire-format fact. An oMLX server is local but speaks OpenAI; naming the protocol directly removes the ambiguity. |
+| Ordered backends list | `[[llm.backends]]` TOML array | Single primary + single fallback flat keys | A list is the natural generalisation: one, two, or ten backends all fit the same config shape. The old two-slot model was a one-way door. |
+| `auto` mode walks list; escalates only on validation failure | Walk in order; stop on first valid response | Escalate on low confidence; always try all | Confidence scores from small models are unreliable; validation failure is a concrete, deterministic signal. Stopping on success avoids unnecessary cloud calls. |
+| Legacy flat keys preserved as compat shim | `_resolve_backends()` synthesizes from flat keys when `backends` list is absent | Hard break; require migration | Existing configs keep working without change. The shim is a one-way read — it never writes flat keys back. |
 | Fixed 1s retry delay | Simple fixed delay | Exponential backoff | LLM calls are already 5–30s; backoff adds negligible benefit and complicates reasoning |
-| API key from env fallback | `MODOK_LLM_API_KEY` env var | Config file only; keychain | Env var is the standard CI/server pattern; config file is for local dev; both supported |
-| `response_format: json_object` | JSON mode on all calls | Free-form text parsed with regex; function calling / tool use | JSON mode is the most portable structured output across all providers; function calling is provider-specific |
+| API key per backend entry | `api_key` in each `[[llm.backends]]` entry; env var fallback | Single global `remote_api_key` | Each backend has its own credentials. A global key only makes sense when there is exactly one remote — which is now just a special case of one entry. |
+| `response_format: json_object` | JSON mode on openai-protocol calls | Free-form text parsed with regex; function calling / tool use | JSON mode is the most portable structured output across all OpenAI-compatible providers; function calling is provider-specific |
 | Prompts in `prompts.py` | Fixed frozen templates | Loaded from YAML/TOML at runtime; user-configurable | Fixed templates are auditable and testable; runtime loading adds attack surface and complexity |
 | Gateway never writes | Proposals returned to caller | Gateway writes directly to Quine; gateway writes to doc file | Keeps write path mechanical; gateway is purely read/inference; audit trail stays in caller |
-| `auto` escalation trigger | Validation failure only | Confidence only; validation + confidence | Confidence scores from small models are unreliable; validation failure is a concrete, deterministic signal |
 | `propose_similarity` caller supplies candidates | Caller pre-fetches `KnownIssueSummary` list and passes to gateway | Gateway queries Quine directly | Gateway stays stateless; retrieval logic belongs in the retrieval engine |
 | `LLMResponseError` is hard exception | Always raise; caller handles degradation | Gateway returns empty/partial result | Caller knows its UX context; swallowing errors in the gateway hides failures |
 | `raw_response` persistence | In-memory only; returned in result struct | Gateway persists to audit log | Persistence is a future audit-log concern; current callers only need it for debug logging |
@@ -314,22 +330,23 @@ The LLM Gateway writes no nodes — it has no Quine ID concerns. Callers own nod
 ## Open Questions & Future Decisions
 
 ### Resolved
-1. ✅ Backend protocol — OpenAI-compatible chat completions endpoint for all backends (including Ollama-hosted Gemma).
-2. ✅ Backend selection — local-first, remote as opt-in escalation, `auto` mode with configurable threshold.
-3. ✅ API key source — config file first, `MODOK_LLM_API_KEY` env var fallback, `LLMConfigError` if remote attempted without key.
+1. ✅ Backend protocol — two protocols: `ollama` (native `/api/chat`) and `openai` (OpenAI-compatible `/chat/completions`). Protocol is independent of host location.
+2. ✅ Backend selection — ordered `[[llm.backends]]` list; `auto` mode walks list escalating on validation failure; `first` mode uses only backends[0].
+3. ✅ API key source — per-backend `api_key` field first, `MODOK_LLM_API_KEY` env var fallback, `LLMConfigError` if an openai-protocol backend is called without a key.
 4. ✅ Retry strategy — fixed 1s delay, `max_retries` attempts, immediate raise on 4xx.
-5. ✅ Structured output — `json_object` response format, pydantic validation with raw-text JSON extraction fallback, `LLMResponseError` on failure.
+5. ✅ Structured output — `json_object` response format on openai-protocol calls; `format: json` on ollama-protocol calls. Pydantic validation with raw-text JSON extraction fallback; `LLMResponseError` on failure.
 6. ✅ Write responsibility — gateway returns proposals; callers own all writes.
-7. ✅ `auto` escalation trigger — validation failure only.
+7. ✅ `auto` escalation trigger — validation failure only; confidence score not used.
 8. ✅ `propose_similarity` inputs — caller passes pre-fetched `KnownIssueSummary` list; gateway is stateless.
 9. ✅ `LLMResponseError` handling — hard exception always; caller decides degradation strategy.
 10. ✅ `raw_response` storage — in-memory only; no gateway persistence.
 11. ✅ Per-call-type timeouts — 15s for interactive paths, 30s for background `parse_ticket`.
+12. ✅ Per-call-type model selection — the backends list naturally supports different models per position; callers can supply a custom list if needed.
+13. ✅ Legacy flat-key compat — `local_endpoint`/`local_model`/`remote_endpoint`/`remote_model`/`remote_api_key` synthesized into a two-entry backends list at load time; no migration required.
 
 ### Deferred
 1. **Streaming responses** — currently uses non-streaming completions. Streaming would improve perceived latency for long similarity proposals but adds response assembly complexity. Deferred until a concrete UX need arises.
 2. **Prompt versioning** — prompts in `prompts.py` are frozen strings. If prompt tuning becomes a workflow, a versioning scheme (hash in log, stored alongside response) would help audit which prompt produced which result. Not needed at current scale.
-3. **Local model selection per call type** — currently one `local_model` for all three call types. Ticket parsing may benefit from a smaller/faster model than similarity proposals. Deferred until model diversity in the local stack justifies it.
 
 ## References
 

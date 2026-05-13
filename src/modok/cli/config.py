@@ -16,10 +16,16 @@ _MINIMAL_TOML = """\
 url = "http://127.0.0.1:8080"
 jar = "~/.modok/quine.jar"
 
+# LLM backends — tried in order; auto mode escalates to the next on validation failure.
+# protocol: "ollama" (native /api/chat) or "openai" (OpenAI-compatible /chat/completions)
+[[llm.backends]]
+name = "local"
+protocol = "ollama"
+endpoint = "http://localhost:11434"
+model = "llama3.2"
+
 [llm]
-provider = "ollama"
-base_url = "http://127.0.0.1:11434/v1"
-model = "llama3"
+mode = "auto"
 """
 
 
@@ -33,22 +39,68 @@ class QuineConfig(BaseModel):
         return str(Path(v).expanduser())
 
 
+class LLMBackendConfig(BaseModel):
+    name: str = ""
+    protocol: str = "ollama"  # "ollama" | "openai"
+    endpoint: str = "http://localhost:11434"
+    model: str = "llama3.2"
+    api_key: str = ""
+
+    model_config = {"extra": "ignore"}
+
+
 class LLMConfig(BaseModel):
-    provider: str = "ollama"
-    base_url: str = "http://127.0.0.1:11434/v1"
-    model: str = "llama3"
+    # New-style: ordered list of backends
+    backends: list[LLMBackendConfig] = []
+    mode: str = "auto"  # "first" | "auto"
+
+    # Timeouts and pipeline knobs (unchanged)
     timeout_seconds: int = 30
     timeout_propose_registry: int = 60
     cegis_max_repairs: int = 1
     normalise_batch_size: int = 200
     normalise_refinement_passes: int = 2
-    backend: str = "local"
-    local_endpoint: str = "http://localhost:11434"
-    local_model: str = "llama3.2"
     skip_summary: bool = False
+
+    # Legacy flat keys — kept for backwards compatibility; synthesized into backends list
+    provider: str = ""
+    base_url: str = ""
+    model: str = ""
+    backend: str = ""          # old "local" | "remote" | "auto"
+    local_endpoint: str = ""
+    local_model: str = ""
     remote_endpoint: str = ""
     remote_model: str = ""
     remote_api_key: str = ""
+
+    model_config = {"extra": "ignore"}
+
+    def resolved_backends(self) -> list[LLMBackendConfig]:
+        """Return backends list, synthesizing from legacy flat keys when needed."""
+        if self.backends:
+            return self.backends
+        # Synthesize from old flat keys
+        result = []
+        local_ep = self.local_endpoint or "http://localhost:11434"
+        local_mod = self.local_model or "llama3.2"
+        result.append(LLMBackendConfig(name="local", protocol="ollama", endpoint=local_ep, model=local_mod))
+        if self.remote_endpoint and self.remote_model:
+            result.append(LLMBackendConfig(
+                name="remote",
+                protocol="openai",
+                endpoint=self.remote_endpoint,
+                model=self.remote_model,
+                api_key=self.remote_api_key or "",
+            ))
+        return result
+
+    def resolved_mode(self) -> str:
+        """Return effective mode, mapping legacy backend= values."""
+        if self.mode and self.mode not in ("auto",):
+            return self.mode
+        if self.backend in ("local", "remote"):
+            return "first"
+        return "auto"
 
 
 class ProjectConfig(BaseModel):
