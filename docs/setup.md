@@ -9,7 +9,7 @@ Complete bootstrap for a new machine — dev desktop or shared Mac mini. Follow 
 Before MODOK is useful you need three things cloned locally:
 
 1. **The `modok` repo** — the MODOK tool itself
-2. **Your project repo(s)** — e.g. `stagehand` — because MODOK validates file paths against disk at ingest time
+2. **Your project repo(s)** — the demo will use MODOK itself — currently MODOK validates file paths against disk at ingest time
 
 MODOK never stores full file contents. It stores pointers and relationships. But it needs the files present to confirm they exist and assign high confidence scores.
 
