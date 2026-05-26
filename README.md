@@ -72,7 +72,7 @@ Find connected:
 Return a debug packet
 ```
 
-The output is not “the answer." It is the context needed should to act.
+The output is not “the answer." It is the context needed to act.
 
 ---
 
