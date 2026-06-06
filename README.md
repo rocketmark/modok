@@ -148,19 +148,12 @@ Typical vector-based RAG is useful for finding text that looks semantically rela
 
 That is not the same thing as understanding how a system is connected.
 
-MODOK’s differentiator is not simply that it uses a graph. It is that the graph is shaped around support and troubleshooting workflows. MODOK maps an issue to operational relationships:
+MODOK’s differentiator is not simply that it uses a graph. It is that the graph is shaped around support and troubleshooting workflows. Powered by Quine’s streaming ingestion and standing queries, MODOK can continuously watch operational relationships as they change and turn them into proactive, enriched tickets before a user even opens one.
+
+MODOK maps an issue to the relationships that matter:
 
 ```text
 feature → module → file → test → known issue → fix
-```
-
-or:
-
-```text
-incident → affected system → recent change → related ticket → mitigation
-```
-
-Instead of returning a loose pile of similar chunks, MODOK returns a structured path through the things that matter.
 
 ---
 
