@@ -492,9 +492,9 @@ APIs, schemas, and commands may change.
 
 ## Inspiration
 
-At AWS, my team built an internal tool called Hyperion to help our on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, Hyperion gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system.
+In a past role my team built a tool to help our on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, it gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system. 
 
-It helped the on-call respond faster because they were no longer starting from a blank page.
+It helped the on-call respond faster because they were no longer starting from a blank page. This is my evolution of that concept.
 
 MODOK comes from the same belief: debugging is easier when the system can explain where to look first.
 
