@@ -483,13 +483,6 @@ APIs, schemas, and commands may change.
 
 ---
 
-## Docs
-
-- [High-Level Design](docs/high-level-design.md)
-- [Architecture Brainstorm](docs/modok-setup-brainstorm.md)
-
----
-
 ## Inspiration
 
 In a past role my team built a tool to help our on-call engineers get oriented during high-severity incidents. When a Sev1 or Sev2 came in, it gathered the context that usually lived in a dozen different places: recent commits, ongoing large-scale events, related tickets, impacted customers, and other signals about the state of the system. 
