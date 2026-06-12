@@ -6,7 +6,7 @@ import re
 from typing import Any, Callable
 
 from modok.llm import gateway
-from modok.llm.errors import LLMResponseError, LLMUnavailableError
+from modok.llm.errors import LLMGatewayError, LLMResponseError, LLMUnavailableError
 from modok.quine.client import QuineClient
 from modok.quine.errors import QuineNodeNotFoundError
 from modok.quine.models import CustomerIssue
@@ -588,11 +588,11 @@ async def retrieve(
             error_sigs = list(parse_result.error_signatures)
             symptoms = list(parse_result.symptoms)
             mentioned_files = list(parse_result.mentioned_files)
-        except LLMResponseError:
-            # @spec DRE-ANCH-006 — bad LLM output: fall back to mechanical pre-match only
-            feature_slugs = list(pre_matched)
         except LLMUnavailableError as exc:
             raise DRELLMUnavailableError(f"LLM gateway unreachable: {exc}") from exc
+        except LLMGatewayError:
+            # @spec DRE-ANCH-006 — bad/rejected LLM output (4xx, bad JSON): fall back to pre-match
+            feature_slugs = list(pre_matched)
 
         # @spec DRE-ANCH-010 — mechanical validation pass before Quine traversal
         if valid_slugs:

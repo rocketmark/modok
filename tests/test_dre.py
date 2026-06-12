@@ -12,7 +12,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from modok.llm.errors import LLMResponseError, LLMUnavailableError
+from modok.llm.errors import LLMGatewayError, LLMResponseError, LLMUnavailableError
 from modok.llm.models import TicketParseResult
 from modok.quine.models import CustomerIssue
 
@@ -268,6 +268,38 @@ async def test_llm_response_error_falls_back_to_pre_match():
 
     assert isinstance(packet, DebugPacket)
     # parse_ticket was attempted (confirming we hit the LLM path)
+    assert mock_gw.parse_ticket.called
+
+
+@pytest.mark.asyncio
+async def test_llm_gateway_error_falls_back_to_pre_match():
+    # @spec DRE-ANCH-006
+    # When parse_ticket raises LLMGatewayError (e.g. 4xx from LLM endpoint after an
+    # OMLX/backend upgrade), the engine falls back to mechanical pre-match rather than
+    # propagating an unhandled exception that would exit with code 1.
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue(raw_text="Problem in agent/src/shtp.c")
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=[],
+        has_errors=[],
+    )
+
+    with patch("modok.retrieval.engine.gateway") as mock_gw:
+        mock_gw.parse_ticket = AsyncMock(side_effect=LLMGatewayError("Client error 422: invalid model"))
+        mock_gw.summarise_packet = AsyncMock(return_value="summary")
+        packet = await retrieve(
+            issue_id=1,
+            project_slug="stagehand",
+            client=mock_client,
+            module_source_files={"shtp-receiver": ["agent/src/shtp.c"]},
+        )
+
+    from modok.retrieval.models import DebugPacket
+
+    assert isinstance(packet, DebugPacket)
     assert mock_gw.parse_ticket.called
 
 

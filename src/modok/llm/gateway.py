@@ -230,22 +230,43 @@ async def _chat_completion(
         "model": model,
         "messages": messages,
         "response_format": response_format,
+        "stream": False,
     }
     if temperature is not None:
         body["temperature"] = temperature
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
-            resp = await client.post(
+            # Stream the response to tolerate servers that send a complete JSON body
+            # but close the connection without the final chunked-encoding terminator
+            # (observed in oMLX >=0.4 for large prompts).
+            async with client.stream(
+                "POST",
                 f"{endpoint.rstrip('/')}/chat/completions",
                 headers=headers,
                 json=body,
-            )
+            ) as resp:
+                chunks: list[bytes] = []
+                try:
+                    async for chunk in resp.aiter_bytes():
+                        chunks.append(chunk)
+                except httpx.RemoteProtocolError:
+                    pass  # incomplete chunked terminator — body is already complete
+                raw = b"".join(chunks)
         except httpx.TimeoutException as exc:
             raise asyncio.TimeoutError(str(exc)) from exc
 
-    _check_response_status(resp)
-    data = resp.json()
+    # Build a minimal response-like object for status checking
+    class _Resp:
+        def __init__(self, status_code: int, content: bytes) -> None:
+            self.status_code = status_code
+            self.text = content.decode("utf-8", errors="replace")
+        def json(self) -> dict:
+            return json.loads(self.text)
+
+    resp_obj = _Resp(resp.status_code, raw)
+    _check_response_status(resp_obj)  # type: ignore[arg-type]
+    data = resp_obj.json()
     return data["choices"][0]["message"]["content"]
 
 
@@ -502,21 +523,36 @@ def _openai_enrich_call(
         "model": model,
         "messages": messages,
         "response_format": {"type": "json_object"},
+        "stream": False,
     }
     try:
-        resp = httpx.post(
+        with httpx.stream(
+            "POST",
             f"{endpoint.rstrip('/')}/chat/completions",
             headers=headers,
             json=body,
             timeout=timeout,
-        )
+        ) as resp:
+            chunks: list[bytes] = []
+            try:
+                for chunk in resp.iter_bytes():
+                    chunks.append(chunk)
+            except httpx.RemoteProtocolError:
+                pass  # incomplete chunked terminator — body is already complete
+            raw = b"".join(chunks)
+            status_code = resp.status_code
     except httpx.TimeoutException as exc:
         raise LLMUnavailableError(f"Timeout after {timeout}s") from exc
     except httpx.RequestError as exc:
         raise LLMUnavailableError(f"Request failed: {exc}") from exc
 
-    _check_response_status(resp)
-    content = resp.json()["choices"][0]["message"]["content"]
+    class _Resp:
+        def __init__(self, sc: int, content: bytes) -> None:
+            self.status_code = sc
+            self.text = content.decode("utf-8", errors="replace")
+
+    _check_response_status(_Resp(status_code, raw))  # type: ignore[arg-type]
+    content = json.loads(raw)["choices"][0]["message"]["content"]
     try:
         return json.loads(content)
     except json.JSONDecodeError:
