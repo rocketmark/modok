@@ -6,7 +6,7 @@ import re
 from typing import Any, Callable
 
 from modok.llm import gateway
-from modok.llm.errors import LLMGatewayError, LLMResponseError, LLMUnavailableError
+from modok.llm.errors import LLMGatewayError, LLMUnavailableError
 from modok.quine.client import QuineClient
 from modok.quine.errors import QuineNodeNotFoundError
 from modok.quine.models import CustomerIssue
