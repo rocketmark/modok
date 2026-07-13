@@ -366,6 +366,26 @@ They do not directly mutate the graph.
 
 ---
 
+### 5. Detection
+
+This is where MODOK stops being a passive graph and starts acting like one.
+
+MODOK installs a small set of **Quine standing queries** — patterns Quine evaluates continuously as the graph changes, not on a schedule and not because someone asked. The moment independently-arriving evidence completes a pattern — a new ticket lands on a known error that already has a documented fix, or a fix ships for an error a customer already hit — Quine fires immediately, regardless of which piece of evidence happened to arrive last.
+
+```text
+CustomerIssue --[mentions]--> ErrorSignature <--[has]-- KnownIssue --[resolved by]--> Fix
+```
+
+When that pattern completes, MODOK:
+
+- records an `Investigation` — what fired, what evidence completed it, when
+- assembles the debug packet automatically, with no one calling `retrieve`
+- posts it back to the originating GitHub issue, if that's where the ticket came from
+
+No polling loop decides this happened. The graph write *is* the trigger.
+
+---
+
 ## What MODOK is — and is not
 
 ### MODOK is
@@ -375,6 +395,7 @@ They do not directly mutate the graph.
 - A **debug starting point** for engineers, operators, and agents
 - A way to connect issues to the code, docs, tests, tickets, incidents, changes, and prior fixes that matter
 - A retrieval layer for operational context
+- A system that notices, on its own, when connected evidence becomes actionable
 
 ### MODOK is not
 
@@ -423,7 +444,7 @@ It makes the agent less blind.
 
 ## Current scope
 
-MODOK currently focuses on static, inspectable support/debugging context:
+MODOK currently focuses on inspectable support/debugging context, static and live:
 
 - structured ingestion
 - typed graph relationships
@@ -431,6 +452,9 @@ MODOK currently focuses on static, inspectable support/debugging context:
 - debug packet generation
 - bounded LLM-assisted parsing
 - Quine-backed graph storage
+- incremental pattern detection via Quine standing queries
+- automatic investigation triggering when connected evidence becomes actionable
+- GitHub issue write-back with the resulting debug packet
 
 ---
 
@@ -451,15 +475,27 @@ These are intentionally not part of the initial version:
 
 Potential future work:
 
-- live event ingestion
+- live event ingestion beyond GitHub (deployments, CI, observability)
 - deployment/change correlation
-- standing queries
-- streaming incident enrichment
+- agent run tracking — steps, evidence used, conclusions reached
+- multi-agent coordination
 - MCP integration
 - richer agent workflows
 - confidence scoring for relationships
 - stale relationship detection
 - source artifact validation
+
+---
+
+## Try the detection path
+
+`docs/standing-query-demo.md` walks through installing the standing query, seeding a known issue and fix, then landing a ticket that mentions the error — and watching MODOK record an investigation and comment on the originating GitHub issue with no `retrieve` call in between.
+
+```bash
+modok quine start
+modok stream install
+modok serve
+```
 
 ---
 
