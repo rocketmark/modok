@@ -12,6 +12,7 @@ import yaml
 from modok.import_arrow import dedup as _dedup
 from modok.import_arrow import llm as _llm
 from modok.import_arrow.extractor import (
+    arrow_doc_paths,
     extract_features,
     parse_key_components_from_doc,
     report_unclaimed_files,
@@ -89,8 +90,11 @@ def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool
     # Module extraction — Pass 2 (Key Components overlay)
     arrow_key_components: dict[str, list[dict]] = {}
     for entry in arrow_entries:
-        doc_content = (repo_root / entry["arrow_doc"]).read_text(encoding="utf-8")
-        components = parse_key_components_from_doc(doc_content)
+        # @spec IA-FEAT-011 — arrow_doc may be a single path or a list of paths
+        components: list[dict] = []
+        for doc_rel_path in arrow_doc_paths(entry):
+            doc_content = (repo_root / doc_rel_path).read_text(encoding="utf-8")
+            components.extend(parse_key_components_from_doc(doc_content))
         if components:
             arrow_key_components[entry["id"]] = components
 

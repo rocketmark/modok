@@ -59,23 +59,38 @@ def validate_source_files(
             warn(f"WARN [{slug}]: source file is ignored in code map: {path}")
 
 
+def arrow_doc_paths(entry: dict) -> list[str]:
+    """Normalize an arrow entry's arrow_doc field to a list of paths.
+
+    arrow_doc may be a single string or a list (a feature spanning more
+    than one arrow doc, e.g. a client-side and a Pi-side half).
+    """
+    value = entry.get("arrow_doc")
+    if not value:
+        return []
+    return list(value) if isinstance(value, list) else [value]
+
+
 def extract_features(index_data: list[dict], repo_root: Path) -> dict:
     """Extract features dict keyed by slug from arrow index entries."""
     features = {}
     for entry in index_data:
         slug = entry["id"]
-        doc_path = repo_root / entry["arrow_doc"]
-        doc_content = doc_path.read_text(encoding="utf-8")
 
-        source_files_result = extract_source_files_from_doc(doc_content)
-        if source_files_result is None:
-            print(
-                f"WARN [{slug}]: arrow doc has no ### Code section — source_files: []",
-                file=sys.stderr,
-            )
-            source_files = []
-        else:
-            source_files = source_files_result
+        # @spec IA-FEAT-011
+        source_files: list[str] = []
+        for doc_rel_path in arrow_doc_paths(entry):
+            doc_content = (repo_root / doc_rel_path).read_text(encoding="utf-8")
+            result = extract_source_files_from_doc(doc_content)
+            if result is None:
+                print(
+                    f"WARN [{slug}]: arrow doc has no ### Code section — {doc_rel_path}",
+                    file=sys.stderr,
+                )
+                continue
+            for p in result:
+                if p not in source_files:
+                    source_files.append(p)
 
         features[slug] = {
             "name": slug_to_name(slug),

@@ -38,6 +38,7 @@ LLD: `docs/llds/import-arrow.md`
 - [ ] **IA-FEAT-008** [U]: Each path in `source_files` shall be validated against the code map. A path absent from the code map shall produce a warning to stderr and shall still be included in the output. A path present in the code map with `role: ignored` shall produce a separate warning.
 - [x] **IA-FEAT-009** [U]: An arrow index entry missing any of `id`, `description`, `arrow_doc`, or `specs` — whether the key is absent or present with a falsy/null value — shall cause the command to exit non-zero with a clear error identifying the missing field and the entry.
 - [x] **IA-FEAT-010** [U]: If an entry in `index.yaml`'s `tests` list is not a string (e.g. an unquoted list item containing a colon, which YAML parses as a single-key mapping rather than a scalar), the system shall skip that entry with a warning to stderr rather than raising.
+- [x] **IA-FEAT-011** [U]: If an arrow entry's `arrow_doc` field is a list rather than a single string, the system shall read the `### Code` section from every doc in the list and merge the resulting `source_files` (deduplicated), warning per-doc for any doc lacking a `### Code` section rather than only once for the feature. The Key Components overlay pass shall likewise parse and merge `### Key Components` from every doc in the list. A list-valued `specs` field shall be passed through into `features.yml` unchanged (no consumer currently depends on `specs` being a single string).
 
 ---
 

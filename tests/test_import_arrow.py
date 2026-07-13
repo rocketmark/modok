@@ -502,6 +502,51 @@ def test_feature_source_files_multiple_per_line():
     assert "src/b.py" in paths
 
 
+# @spec IA-FEAT-011
+def test_feature_arrow_doc_accepts_list_merges_source_files(tmp_path):
+    # A feature can legitimately span more than one arrow doc (e.g. a
+    # client-side and a Pi-side half) — arrow_doc may then be a list.
+    from modok.import_arrow.extractor import extract_features
+
+    index = [
+        {
+            "id": "wifi-provisioning",
+            "description": "X",
+            "specs": "s.md",
+            "arrow_doc": ["client.md", "pi.md"],
+            "tests": [],
+        }
+    ]
+    write(tmp_path / "client.md", "### Code\n- `client/wifi.py`\n")
+    write(tmp_path / "pi.md", "### Code\n- `pi/wifi.py`\n")
+
+    features = extract_features(index, repo_root=tmp_path)
+    source_files = features["wifi-provisioning"]["source_files"]
+    assert "client/wifi.py" in source_files
+    assert "pi/wifi.py" in source_files
+
+
+# @spec IA-FEAT-011
+def test_feature_arrow_doc_list_warns_per_doc_missing_code_section(tmp_path, capsys):
+    from modok.import_arrow.extractor import extract_features
+
+    index = [
+        {
+            "id": "wifi-provisioning",
+            "description": "X",
+            "specs": "s.md",
+            "arrow_doc": ["client.md", "pi.md"],
+            "tests": [],
+        }
+    ]
+    write(tmp_path / "client.md", "### Code\n- `client/wifi.py`\n")
+    write(tmp_path / "pi.md", "No code section here.\n")
+
+    features = extract_features(index, repo_root=tmp_path)
+    assert features["wifi-provisioning"]["source_files"] == ["client/wifi.py"]
+    assert "pi.md" in capsys.readouterr().err
+
+
 # @spec IA-FEAT-007
 def test_feature_no_code_section_empty_source_files_warns(tmp_path, capsys):
     from modok.import_arrow.extractor import extract_features
