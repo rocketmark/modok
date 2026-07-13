@@ -37,6 +37,7 @@ from modok.webhook.models import (
     CustomerIssueData,
     FixData,
     IngestEvent,
+    InvestigationData,
     WebhookConfig,
 )
 from modok.webhook.server import build_app, run_ingest_event, start_pull_adapters, stop_pull_adapters
@@ -958,3 +959,338 @@ def test_ingest_event_no_adapter_branching_in_pipeline():
     # source_system differs but node type must not — no adapter-identity branching
     assert gh_node.source_system != tkt_node.source_system
     assert type(gh_node) is type(tkt_node)
+
+
+# ---------------------------------------------------------------------------
+# SQ-ANCH-006 / SQ-ANCH-007 — customer_issue branch invokes anchor linking,
+# resiliently, without breaking the pre-existing bare-mock-client contract
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-ANCH-006
+def test_customer_issue_branch_invokes_anchor_linking():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="GSS_FAILURE seen", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])) as mock_link:
+        run_ingest_event(event, mock_client)
+
+    mock_link.assert_called_once()
+
+
+# @spec SQ-ANCH-007
+def test_customer_issue_branch_survives_missing_project_config():
+    # No config file exists for "test-project" — anchor linking's repo_root
+    # resolution must fail gracefully rather than propagate, matching the
+    # pre-existing test_customer_issue_ingested_regardless_of_source_system
+    # contract (bare mock client, no config on disk).
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="unconfigured-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="GSS_FAILURE seen", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch("modok.cli.config.ModokConfig.load", side_effect=FileNotFoundError("no config")):
+        nodes_written = run_ingest_event(event, mock_client)  # must not raise
+
+    assert nodes_written == 1
+    mock_client.upsert_node.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# SQ-INV-001..004 — the "investigation" IngestEvent branch
+# ---------------------------------------------------------------------------
+
+
+def _investigation_event(**overrides) -> IngestEvent:
+    defaults = dict(
+        source_system="github",
+        ticket_id="42",
+        known_issue_id="ki-shtp-version-mismatch",
+        fix_id="fix-shtp-version-offset",
+        standing_query_name="actionable-issue-pattern",
+    )
+    defaults.update(overrides)
+    return IngestEvent(
+        kind="investigation",
+        project_slug="test-project",
+        data=InvestigationData(**defaults),
+    )
+
+
+# @spec WH-EXT-004
+def test_investigation_kind_accepted_by_run_ingest_event():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        nodes_written = run_ingest_event(_investigation_event(), mock_client)
+
+    assert nodes_written == 1
+    mock_client.upsert_node.assert_called_once()
+
+
+# @spec SQ-INV-001, SQ-INV-002
+def test_investigation_node_address_uses_composite_investigation_id():
+    from modok.webhook.server import run_ingest_event
+    from modok.quine.ids import idFrom as _idFrom
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        run_ingest_event(_investigation_event(), mock_client)
+
+    written_node = mock_client.upsert_node.call_args.args[0]
+    assert written_node.node_type == "Investigation"
+    expected_id = (
+        "github-42--ki-shtp-version-mismatch--fix-shtp-version-offset--"
+        "actionable-issue-pattern"
+    )
+    assert written_node.investigation_id == expected_id
+
+
+# @spec SQ-INV-004
+def test_investigation_writes_investigates_edge_to_customer_issue():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        run_ingest_event(_investigation_event(), mock_client)
+
+    edge_call = mock_client.write_edge_by_parts.call_args
+    assert edge_call.args[1] == "INVESTIGATES"
+    assert edge_call.args[2] == ("customer-issue", "test-project", "github", "42")
+
+
+# @spec SQ-INV-004
+def test_investigation_status_and_trigger_type():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        run_ingest_event(_investigation_event(), mock_client)
+
+    written_node = mock_client.upsert_node.call_args.args[0]
+    assert written_node.status == "open"
+    assert written_node.trigger_type == "standing_query"
+    assert written_node.standing_query_name == "actionable-issue-pattern"
+
+
+# ---------------------------------------------------------------------------
+# SQ-INV-003 / SQ-INV-005 — redelivery of an existing match is a full no-op
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-INV-003
+def test_investigation_skips_everything_when_already_recorded():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=True)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)) as mock_notify:
+        nodes_written = run_ingest_event(_investigation_event(), mock_client)
+
+    assert nodes_written == 0
+    mock_client.upsert_node.assert_not_called()
+    mock_client.write_edge_by_parts.assert_not_called()
+    mock_notify.assert_not_called()
+
+
+# @spec SQ-INV-005
+def test_investigation_dedup_is_order_and_repetition_independent():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    seen_ids: set = set()
+
+    async def fake_node_exists(node_id):
+        exists = node_id in seen_ids
+        return exists
+
+    async def fake_upsert(node):
+        seen_ids.add(_investigation_address(node))
+
+    mock_client.node_exists = fake_node_exists
+    mock_client.upsert_node = fake_upsert
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        first = run_ingest_event(_investigation_event(), mock_client)
+        second = run_ingest_event(_investigation_event(), mock_client)
+
+    assert first == 1
+    assert second == 0
+
+
+def _investigation_address(node) -> int:
+    from modok.quine.ids import idFrom as _idFrom
+
+    return _idFrom("investigation", node.project_slug, node.investigation_id)
+
+
+# @spec SQ-INV-006
+def test_distinct_evidence_combinations_produce_distinct_investigations():
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        run_ingest_event(_investigation_event(known_issue_id="ki-a", fix_id="fix-a"), mock_client)
+        run_ingest_event(_investigation_event(known_issue_id="ki-b", fix_id="fix-b"), mock_client)
+
+    written = [c.args[0].investigation_id for c in mock_client.upsert_node.call_args_list]
+    assert len(set(written)) == 2
+
+
+# ---------------------------------------------------------------------------
+# SQ-ROUTE-001..005 — POST /standing-query/result
+# ---------------------------------------------------------------------------
+
+
+def _match_object(**overrides) -> dict:
+    defaults = dict(
+        project_slug="test-project",
+        source_system="github",
+        ticket_id="42",
+        known_issue_id="ki-shtp-version-mismatch",
+        fix_id="fix-shtp-version-offset",
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+# @spec SQ-ROUTE-001
+def test_standing_query_result_accepts_single_object(client):
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = client.post("/standing-query/result", json=_match_object())
+    assert resp.status_code == 200
+    assert resp.json()["investigations_written"] == 1
+
+
+# @spec SQ-ROUTE-001
+def test_standing_query_result_accepts_array(client):
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = client.post(
+            "/standing-query/result",
+            json=[_match_object(ticket_id="1"), _match_object(ticket_id="2")],
+        )
+    assert resp.status_code == 200
+    assert resp.json()["investigations_written"] == 2
+
+
+# @spec SQ-ROUTE-002
+def test_standing_query_result_unknown_project_returns_404(client):
+    resp = client.post(
+        "/standing-query/result", json=_match_object(project_slug="not-a-real-project")
+    )
+    assert resp.status_code == 404
+
+
+# @spec SQ-ROUTE-002
+def test_standing_query_result_accepts_any_project_when_slugs_unconfigured():
+    cfg = _make_config()
+    mock_q = AsyncMock()
+    mock_q.ping = AsyncMock(return_value=True)
+    app = build_app(config=cfg, quine_client=mock_q)  # known_project_slugs=None
+    c = TestClient(app, raise_server_exceptions=False)
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = c.post("/standing-query/result", json=_match_object(project_slug="anything"))
+    assert resp.status_code == 200
+
+
+# @spec SQ-ROUTE-003
+def test_standing_query_result_missing_field_returns_400(client):
+    incomplete = _match_object()
+    del incomplete["fix_id"]
+    resp = client.post("/standing-query/result", json=incomplete)
+    assert resp.status_code == 400
+
+
+# @spec SQ-ROUTE-004
+def test_standing_query_result_constructs_investigation_ingest_event(client):
+    captured = {}
+
+    def fake_run_ingest_event(event, quine_client):
+        captured["event"] = event
+        return 1
+
+    with patch("modok.webhook.server.run_ingest_event", side_effect=fake_run_ingest_event):
+        client.post("/standing-query/result", json=_match_object())
+
+    assert captured["event"].kind == "investigation"
+    assert captured["event"].data.known_issue_id == "ki-shtp-version-mismatch"
+
+
+# @spec SQ-ROUTE-005
+def test_standing_query_result_requires_no_authentication(client):
+    # No Authorization / X-Hub-Signature-256 header supplied at all.
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = client.post("/standing-query/result", json=_match_object())
+    assert resp.status_code == 200
+
+
+# @spec SQ-ROUTE-006
+def test_standing_query_result_unwraps_quine_metadata_envelope(client):
+    # Confirmed live against Quine 1.10.0: PostToEndpoint's default output
+    # structure wraps the enrichment row as {"meta": {...}, "data": {...}}
+    # rather than posting the fields flat.
+    captured = {}
+
+    def fake_run_ingest_event(event, quine_client):
+        captured["event"] = event
+        return 1
+
+    wrapped = {"meta": {"isPositiveMatch": True}, "data": _match_object()}
+    with patch("modok.webhook.server.run_ingest_event", side_effect=fake_run_ingest_event):
+        resp = client.post("/standing-query/result", json=wrapped)
+
+    assert resp.status_code == 200
+    assert captured["event"].data.known_issue_id == "ki-shtp-version-mismatch"
+
+
+# @spec SQ-ROUTE-006
+def test_standing_query_result_still_accepts_flat_body(client):
+    # A flat body (no meta/data envelope) must continue to work — this is
+    # what the test suite's own _match_object() already exercises elsewhere,
+    # confirmed explicitly here so the unwrap logic can't regress it.
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = client.post("/standing-query/result", json=_match_object())
+    assert resp.status_code == 200

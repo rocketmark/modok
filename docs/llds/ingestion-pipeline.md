@@ -132,6 +132,31 @@ relevant_tests:
 ```
 ```
 
+### Known issue and fix blocks
+
+```markdown
+## Known Issues
+
+### Version mismatch corrupts calibration
+
+```modok
+kind: known_issue
+id: ki-shtp-version-mismatch
+summary: Client rejects v2 header due to version field mismatch
+status: open
+affects:
+  - feature:shtp-receiver
+error_signatures:
+  - shtp-version-mismatch
+fixes:
+  - fix-shtp-version-offset
+```
+```
+
+`error_signatures` and `fixes` are optional lists on a `known_issue` block. Each entry writes an edge — `error_signatures` writes `KnownIssue -[:HAS_ERROR]-> ErrorSignature`; `fixes` writes `KnownIssue -[:RESOLVED_BY]-> Fix`. Both follow the confidence-1.00, no-existence-check convention already used for `affects`: a `known_issue` block is source-of-truth, MODOK-block-declared content, so the edge target may be written as a shell node if the referenced `Fix`/`ErrorSignature` hasn't been ingested yet in this run (`quine-client.md § Edge-before-node writes are permitted`) — the target is expected to be promoted to a full node by its own ingestion (a `fix` block or a doc's frontmatter `error_signatures`), not invented here.
+
+These two edges are what let a standing query (`docs/llds/standing-queries.md`) observe that a `KnownIssue` already has a documented fix for a known error — before this addition, `KnownIssue -[:HAS_ERROR]->` and `KnownIssue -[:RESOLVED_BY]->` were schema-documented and DRE-consumed (`diagnostic-retrieval-engine.md`, `modok diagnose`) but not written by any ingestion code path; they were only exercised by hand-built test fixtures.
+
 ### Ticket YAML
 
 ```yaml

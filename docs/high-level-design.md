@@ -10,11 +10,12 @@ MODOK solves this by maintaining a persistent, graph-structured diagnostic memor
 
 ## Approach
 
-MODOK is a **Quine-backed diagnostic memory graph** with a mechanical ingestion pipeline and an LLM-agnostic query interface.
+MODOK is a **Quine-backed diagnostic memory graph** with a mechanical ingestion pipeline, an LLM-agnostic query interface, and incremental pattern detection over the accumulating graph.
 
-Three disciplines combine:
+Four disciplines combine:
 
 - **Graph (Quine):** stores typed, source-backed relationships — feature → module → file → test → known issue → fix. Deterministic IDs. No inferred facts stored as truth.
+- **Incremental pattern detection (Quine standing queries):** Quine evaluates registered graph patterns continuously as nodes and edges are written — not on a poll or a caller-triggered traversal. When connected evidence completes a pattern (e.g., a customer issue's error signature is already covered by a known issue that already has a fix), Quine fires the moment the last piece of evidence lands, in whichever order the evidence arrived, and emits an enriched result. This is what makes Quine authoritative for *when* a workflow becomes actionable, not just for *what* is connected.
 - **Vector index (optional):** fuzzy recall for vague natural-language tickets. Candidates from vector search are always validated or expanded through Quine before being treated as matches.
 - **LLM (pluggable):** used only for proposals — parsing unstructured ticket text, suggesting missing metadata, proposing similarity. LLM output is never written to Quine without validation.
 
@@ -25,9 +26,24 @@ Convention + registries are truth for structure.
 Explicit frontmatter overrides convention.
 LLM output is a proposal.
 Quine stores validated structure.
+Quine detects when that structure becomes actionable.
 Files are the source of truth.
 Tests verify the diagnosis.
 ```
+
+### Authority model
+
+Source systems remain authoritative for their own domain of record; MODOK is authoritative only for the investigation layer built on top of them:
+
+| Domain | Authoritative system |
+|---|---|
+| Source code | Git |
+| Original tickets | The ticketing/CRM system that raised them |
+| Test execution | The CI system that ran them |
+| Deployment events | The deployment system |
+| Investigation state, evidence relationships, trigger history, workflow transitions, and the explanation of *why* a workflow advanced | **MODOK** |
+
+MODOK never becomes the source of record for code, tickets, tests, or deployments — it ingests references to them (paths, ticket IDs, commit SHAs) and stores the graph of relationships and triggering evidence between them. This is why `Investigation` (see Key Design Decisions) records *which* standing query fired and *what evidence* completed the match, rather than duplicating the underlying issue or fix content.
 
 ## Target Users
 
@@ -45,13 +61,15 @@ Tests verify the diagnosis.
 - Deterministic code extraction runs before doc ingestion. The repo is the first source of truth for what files, modules, and symbols exist. Docs make claims against that known code universe — they do not define it.
 - LLM-agnostic: any model (local or remote) can drive MODOK. Claude and GPT-4 are optional escalation targets, not hard dependencies.
 - Stagehand is the first target project. MODOK must be useful for tracking issues against specific code changes and faster diagnosis before the stream-mode work begins.
+- When connected evidence in the graph completes a registered pattern, MODOK records an investigation-ready result the moment that pattern becomes true — without any caller re-running `retrieve`/`diagnose` to notice it.
 
 ## Non-Goals
 
 - MODOK does not store full source files, full doc text, raw logs, raw ticket transcripts, secrets, or customer PII.
 - MODOK does not replace reading current repo files or running tests. It points; the agent reads.
 - MODOK does not produce a diagnosis. It produces a debug packet. The agent reasons.
-- Stream mode (AWS/Kinesis/CloudWatch) is a future vision item, not a v1 requirement. The schema accommodates event nodes but the ingestion pipeline for them is not built in v1.
+- Live incident streaming from external systems (AWS/Kinesis/CloudWatch) is a future vision item, not a v1 requirement — the ingestion pipeline for those sources is not built in v1. Standing-query-based pattern detection *over already-ingested graph state* is in scope; ingesting new external event sources is not.
+- A generalized workflow engine, multi-agent orchestration, and arbitrary user-authored standing queries are out of scope. MODOK installs a small, fixed set of maintained standing queries — it does not expose a query-authoring surface to agents or users in v1.
 - MODOK does not enforce access control in v1. It is a single-user or trusted-team tool.
 - The Demo UI is not a production-grade application. It has no authentication, no persistent database, and no multi-user support.
 
@@ -128,6 +146,44 @@ Read path assistance                       Write path assistance
 - propose similarity candidates            - never writes to Quine directly
 ```
 
+### Detection / Trigger Path (standing queries)
+
+The read and write paths above are both caller-initiated: something asks Quine a question, or writes a fact. This third path is not caller-initiated — it fires from *inside* Quine the moment a graph write makes a registered pattern true, regardless of which write (ticket ingestion, doc ingestion, GitHub PR merge) completes it last:
+
+```
+      Quine Memory Graph
+      standing queries evaluate incrementally on every node/edge write
+              │
+              │ pattern match: CypherQuery enrichment (andThen) fetches
+              │ the matched CustomerIssue/KnownIssue/Fix identifiers —
+              │ enrichment happens inside Quine, not by MODOK re-polling
+              ▼
+      PostToEndpoint output
+              │
+              ▼
+      MODOK Standing Query Adapter
+      POST /webhook/{project}/standing-query
+              │
+    ┌─────────┴──────────────────────────┐
+    ▼                                    ▼
+writes Investigation node       calls Diagnostic Retrieval Engine
++ INVESTIGATES edge             to assemble the full debug packet —
+(idempotent — deterministic     including its existing LLM Gateway
+ investigation_id via idFrom)   summary step (local-first, e.g. Ollama;
+                                 falls back to issue.summary on failure)
+                                            │
+                                            ▼
+                              if CustomerIssue.source_system == "github":
+                              posts the debug packet (LLM summary included)
+                              as a comment on the originating GitHub issue
+                              (best-effort; failure is logged, never blocks
+                              the Investigation write)
+```
+
+The DRE's LLM involvement here is unchanged from how it already works: LLM output enriches the *summary* of already-validated graph facts, never decides *what matched*. The match itself is already settled — mechanically, by the standing query — before the DRE or its LLM Gateway is invoked at all. This keeps the "LLM output is a proposal, never the source of a written edge" invariant intact even though a local LLM call now sits in the write-back path.
+
+This path is what makes Quine authoritative for *when* a workflow becomes actionable — not merely a durable store that MODOK polls. See Key Design Decisions §11.
+
 ### Major components
 
 **Code Map Extractor** — a deterministic, LLM-free command (`modok extract-code-map`) that walks the repo and extracts file facts: repo-relative path, SHA-256 hash, language, role (source / test / config / docs / generated / ignored), line count, and test-to-source coverage by mirrored path convention. For Python files, symbol and import facts are extracted via `ast` (classes, functions, methods, line ranges, imports). The output is `.modok/code-map.yml` — a sorted, stable YAML artifact. The same repo state always produces the same code map. `modok ingest-docs` auto-generates the code map if one does not exist. The code map is the foundation against which doc ingestion validates source file and module claims; it is not required for registry validation or ticket ingestion.
@@ -138,15 +194,19 @@ Read path assistance                       Write path assistance
 
 **LLM Gateway** — an abstract interface with pluggable backends. Local model (Ollama/llama.cpp) is the default. Remote models (Claude, GPT-4) are optional escalation targets configured per-project or per-call. The gateway is used only for: (a) parsing unstructured ticket text into structured YAML, (b) proposing missing doc metadata, (c) proposing similarity candidates, (d) per-section registry enrichment and per-field normalisation during registry bootstrapping. It never writes to Quine directly.
 
-**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, git history, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. Doc discovery uses a three-tier approach: (1) arrow-index-driven — walk `docs/arrows/index.yaml` and follow registered LLD/spec paths, inferring all metadata from the index and registries; (2) path-based inference — scan `docs/` for remaining files, infer `doc_type` from directory and `feature` from stem; (3) `unregistered` doc type — docs that don't resolve to a known feature are ingested as bare `Doc` nodes without Feature edges, surfaced as a discovery signal in the ingestion report. Frontmatter is override-only: any field can be overridden explicitly, but none are required when convention applies. LLM is invoked only when metadata cannot be inferred and a proposal is needed. Git commit history is ingested as `Commit` nodes with `TOUCHES` edges to `File` nodes via `ingest-git` (local git log, no auth). GitHub issues and merged PRs are ingested separately via `ingest-github` (GitHub REST API, requires token): issues become `CustomerIssue` nodes; merged PRs become `Fix` nodes linked to their merge commit, with `RESOLVED_BY` edges written when a PR's closing references are detected.
+**Ingestion Pipeline Layer** — the mechanical pipeline. Discovers, parses, validates, and writes docs, code maps, git history, tickets, and resolution records to Quine. Schema-driven. Fails loudly on invalid references. Doc discovery uses a three-tier approach: (1) arrow-index-driven — walk `docs/arrows/index.yaml` and follow registered LLD/spec paths, inferring all metadata from the index and registries; (2) path-based inference — scan `docs/` for remaining files, infer `doc_type` from directory and `feature` from stem; (3) `unregistered` doc type — docs that don't resolve to a known feature are ingested as bare `Doc` nodes without Feature edges, surfaced as a discovery signal in the ingestion report. Frontmatter is override-only: any field can be overridden explicitly, but none are required when convention applies. LLM is invoked only when metadata cannot be inferred and a proposal is needed. Git commit history is ingested as `Commit` nodes with `TOUCHES` edges to `File` nodes via `ingest-git` (local git log, no auth). GitHub issues and merged PRs are ingested separately via `ingest-github` (GitHub REST API, requires token): issues become `CustomerIssue` nodes; merged PRs become `Fix` nodes linked to their merge commit, with `RESOLVED_BY` edges written when a PR's closing references are detected. A `GitHubPollAdapter` (implementing the existing `PullAdapter` protocol — see Standing Query Engine below and `docs/llds/webhook-receiver.md § Pull adapter`) runs the same incremental fetch as `ingest-github` on a configurable interval while `modok serve` is running, for projects that opt in. This means a real GitHub issue, opened with no webhook tunnel configured, is ingested within one poll cycle — no ngrok or public endpoint required for a live demo. It reuses `GithubIngester` and the same `last_github_sync` tracking `ingest-github` already persists; it is not a new ingestion code path, only a new caller of the existing one. Every path that writes a `CustomerIssue` node (webhook push or `ingest-github` pull) also runs a mechanical, LLM-free anchor-linking step: `raw_text` is substring-matched against `ErrorSignature.normalized_error` values that already exist in the project's graph, and a `HAS_ERROR` edge is written only to matches that are already validated nodes — no anchor is ever invented. This is what gives standing queries something to watch; without it, `CustomerIssue` nodes carry no outbound edges until a caller happens to invoke the Diagnostic Retrieval Engine's LLM fallback.
 
 **Registry Proposal Engine** — an LLM-assisted bootstrap tool, used when starting a project with no registry and no code map to derive one from. Not part of normal ingestion. Split across two CLI commands. `modok init --assisted` handles the enrichment pass: discovers all eligible docs, splits each into sections mechanically (H2 boundaries), sends sections to the LLM gateway one at a time for typed node extraction (features, modules, error signatures, failure modes, decisions, known issues), prints a `N/total` progress counter to stderr per section, and writes raw candidates to `features.raw.yml`, `modules.raw.yml`, and `errors.raw.yml` in `{repo}/registries/`. `modok normalise --project <slug>` is then run separately: reads the raw files, normalises each field type independently (separate LLM call per field to keep context small), applies a CEGIS loop to verify no new concepts were introduced, and overwrites the final `features.yml`, `modules.yml`, and `errors.yml`. No Quine interaction in either pass — this is a pre-ingestion step. The more docs the repo contains, the more complete the registry output.
 
 **Registry Import (Arrow-Based)** — a structured alternative to the Registry Proposal Engine for projects that maintain arrow docs (`docs/arrows/index.yaml` and per-arrow `.md` files). `modok import-arrow --project <slug>` extracts features and modules mechanically from the structured arrow index and arrow doc `### Code` / `### Key Components` sections, validates all file paths against the code map, and writes `features.yml` and `modules.yml` directly. LLM is used in two narrow passes only: generating human-readable names and descriptions for modules where the slug is ambiguous, and resolving duplicate module candidates (same source files, different names) by first confirming they represent the same concept, then picking the more user-facing label. This approach is preferred over `init --assisted` when structured arrow docs exist — the output is more accurate, faster, and requires fewer LLM calls. For projects without arrow docs, the proposal engine remains the bootstrap path.
 
-**Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types.
+**Quine Memory Graph** — the persistent store. Typed nodes with deterministic IDs (`idFrom(type, projectSlug, ...)`). Multi-project from day one — `projectSlug` is a first-class namespace in every ID. No broad property scans; all traversals follow explicit edge types. `Investigation` is the one workflow-tracking node type: it records that a standing query fired for a `CustomerIssue`, not the underlying diagnosis (which the Diagnostic Retrieval Engine still owns).
 
-**Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Results are prioritized by anchor match count: items matched by more anchors appear first. No numeric scoring or vector search in v1.
+**Standing Query Engine** — a small, fixed set of Quine standing queries, each installed idempotently by name via `modok stream install` (`POST /api/v1/query/standing/{name}`; a name that already exists is a no-op). A standing query pattern is a maintained Cypher artifact (not an embedded string) that Quine evaluates incrementally against every graph write — no polling, no caller-triggered traversal. Each standing query's output pipeline runs a `CypherQuery` enrichment stage inside Quine itself before `PostToEndpoint` delivers the match to MODOK's webhook server. This is deliberately narrow: MODOK does not expose standing-query authoring to agents or users in v1 — see Non-Goals.
+
+**Standing Query Adapter (write-back)** — a webhook push adapter (`POST /webhook/{project}/standing-query`) that receives a fired standing query's enriched match, writes the `Investigation` node and its `INVESTIGATES` edge (idempotent — `investigation_id` is deterministic), then calls the Diagnostic Retrieval Engine to assemble the same debug packet a human would get from `retrieve`/`diagnose` — including that engine's existing LLM Gateway summary step (local-first, e.g. Ollama; falls back to `issue.summary` on failure). The LLM only ever enriches the *prose summary* of facts the standing query already settled mechanically; it is never consulted on whether a match occurred. If the triggering `CustomerIssue` came from GitHub (`source_system == "github"`), the packet is posted back as a comment on the originating GitHub issue using the same `GITHUB_TOKEN` + `github_repo` config `ingest-github` already uses. Best-effort: a failed GitHub write-back is logged and never blocks or rolls back the `Investigation` write, which remains MODOK's authoritative record of the trigger regardless of whether the external notification succeeded.
+
+**Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Results are prioritized by anchor match count: items matched by more anchors appear first. No numeric scoring or vector search in v1. Reused as-is by the Standing Query Adapter — the debug packet content is identical whether it was requested on demand or assembled automatically after a standing-query match.
 
 **Optional Vector Index** — fuzzy recall for natural-language ticket text. Candidates from vector search are always expanded through Quine before inclusion in the debug packet. Not required for Phase 4 functionality; graph-anchor similarity (shared ErrorSignature, Feature, FailureMode, etc.) is sufficient for most cases.
 
@@ -242,7 +302,15 @@ Consequences:
 
 The code map is language-agnostic at the file level and Python-specific at the symbol level (via `ast`). Tree-sitter for other languages is deferred.
 
-### 10. Python implementation
+### 10. Standing queries, not polling, for pattern detection
+
+Considered: (a) Quine standing queries with Quine-side `CypherQuery` enrichment before `PostToEndpoint` delivery (chosen); (b) standing queries that emit only a bare matched node ID, with MODOK re-querying Quine to enrich (rejected for v1 — enrichment would be ordinary, more easily unit-tested Python, but would make the demo's central claim weaker: a skeptical observer could reasonably ask what Quine did beyond flag an ID); (c) a `modok stream status` polling loop with no standing-query API involved (rejected — this is the exact behavior the whole increment exists to move away from).
+
+Consequence of (a): the enrichment stage is Quine-native Cypher/JSON configuration, which MODOK's `DummyQuine` hifi harness (fingerprint-dispatch on Cypher strings) cannot simulate. That slice of behavior is covered by a contract test against a real local Quine instance rather than the fast mocked suite — an accepted gap, consistent with how `[C]`-level specs already work elsewhere in this project (see `docs/specs/quine-client.md § Test Level Convention`).
+
+Standing queries are a small, fixed, MODOK-maintained set — not a capability exposed to agents or end users. This keeps the graph's trigger surface auditable: every `Investigation` traces back to one of a known, reviewed set of patterns, never an ad hoc query an agent constructed at runtime.
+
+### 11. Python implementation
 
 Python is chosen for iteration speed, natural LLM SDK integration, and consistency with the stagehand codebase (the first target project). The modular layout (`modok.core`, `modok.quine`, `modok.ingestion`, `modok.mcp`, `modok.cli`) mirrors the logical component split and allows future replacement of performance-critical pieces without rewriting the whole system. `pydantic` v2 enforces schema correctness at runtime. `ruff` + `mypy` enforce style and types statically.
 
@@ -252,10 +320,14 @@ Python is chosen for iteration speed, natural LLM SDK integration, and consisten
 - Doc ingestion for the stagehand project (all design docs, testing docs, known issues) completes without manual schema corrections.
 - An agent using the debug packet identifies the correct feature area and relevant files on first attempt for at least 80% of test tickets drawn from stagehand's issue history.
 - A new developer (or agent in a fresh session) can orient to an unfamiliar stagehand issue faster with MODOK than without it.
+- Opening a real GitHub issue whose text mentions a known error signature already covered by a `KnownIssue` + `Fix` results in an `Investigation` node and a debug-packet comment on that issue, with no caller invoking `retrieve`/`diagnose` — falsified if a manual query is required to surface the match, or if reordering the underlying evidence writes (issue first vs. fix first) changes the outcome.
 
 ## References
 
 - `docs/modok-setup-brainstorm.md` — original architecture brainstorm
 - `docs/setup.md` — full new-machine bootstrap guide (clone, Quine, config, init, first ingest)
+- `docs/standing-query-demo.md` — step-by-step demonstration of the Detection / Trigger Path
 - Quine documentation: https://docs.quine.io
+- Quine standing queries: https://docs.quine.io/components/writing-standing-queries.html
+- Quine REST API (v1, matches the `/api/v1/query/cypher` endpoint this project already targets at Quine 1.10.0): https://docs.quine.io/reference/rest-api.html
 - OpenAI-compatible chat completions API (used by Ollama and remote providers)

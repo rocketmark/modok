@@ -1,0 +1,14 @@
+name: actionable-issue-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(ki)-[:RESOLVED_BY]->(fix)
+  WHERE ci.node_type = 'CustomerIssue' AND e.node_type = 'ErrorSignature'
+    AND ki.node_type = 'KnownIssue' AND fix.node_type = 'Fix'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  MATCH (ci)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(ki)-[:RESOLVED_BY]->(fix)
+  WHERE e.node_type = 'ErrorSignature' AND ki.node_type = 'KnownIssue' AND fix.node_type = 'Fix'
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, ki.issue_id AS known_issue_id, fix.fix_id AS fix_id
+output_name: investigation-trigger

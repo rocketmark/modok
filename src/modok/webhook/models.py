@@ -17,6 +17,8 @@ class WebhookConfig(BaseModel):
     github_secret: str = ""
     bearer_token: str = ""
     enabled_sources: list[str] | None = None  # None = all adapters active
+    github_poll_enabled: bool = False
+    github_poll_interval_seconds: float = 30
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +43,16 @@ class FixData:
 
 
 @dataclass(frozen=True, eq=True)
+class InvestigationData:
+    source_system: str
+    ticket_id: str
+    known_issue_id: str
+    fix_id: str
+    standing_query_name: str
+
+
+@dataclass(frozen=True, eq=True)
 class IngestEvent:
-    kind: Literal["customer_issue", "fix", "skip"]
+    kind: Literal["customer_issue", "fix", "investigation", "skip"]
     project_slug: str
-    data: CustomerIssueData | FixData | None = field(default=None)
+    data: CustomerIssueData | FixData | InvestigationData | None = field(default=None)

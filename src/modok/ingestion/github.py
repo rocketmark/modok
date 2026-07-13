@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from modok.ingestion.anchor_linking import link_customer_issue_error_anchors
 from modok.ingestion.git_history import _update_project_config_field
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix
@@ -133,7 +135,29 @@ class GithubIngester:
             status="open" if issue["state"] == "open" else "closed",
         )
         await self._quine.upsert_node(node)
+        await self._link_anchors(node)
         return True
+
+    # @spec SQ-ANCH-006, SQ-ANCH-007
+    async def _link_anchors(self, node: CustomerIssue) -> None:
+        """Resolve repo_root and run mechanical anchor linking. Any failure
+        (project not configured, config file absent, etc.) is logged and
+        swallowed — the CustomerIssue node write above must not be affected."""
+        try:
+            from modok.cli.config import ModokConfig
+
+            config = ModokConfig.load()
+            repo_root = config.project(self._project_slug).repo
+            await link_customer_issue_error_anchors(
+                self._quine,
+                self._project_slug,
+                repo_root,
+                node.source_system,
+                node.ticket_id,
+                node.raw_text,
+            )
+        except Exception as exc:
+            print(f"anchor linking skipped for {self._project_slug}: {exc}", file=sys.stderr)
 
     # ------------------------------------------------------------------
     # PR ingestion
@@ -257,6 +281,24 @@ class GithubIngester:
                 results.extend(page)
             next_url = self._next_link(resp)
         return results
+
+
+# @spec SQ-GH-001, SQ-GH-004
+async def post_issue_comment(github_repo: str, token: str, issue_number: str, body: str) -> None:
+    """Best-effort: post a comment to a GitHub issue. Never raises."""
+    url = f"{_API_BASE}/repos/{github_repo}/issues/{issue_number}/comments"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30) as http:
+            resp = await http.post(url, json={"body": body})
+            if resp.status_code >= 300:
+                print(f"GitHub comment post failed ({resp.status_code}): {url}", file=sys.stderr)
+    except Exception as exc:
+        print(f"GitHub comment post failed: {exc}", file=sys.stderr)
 
 
 def click_exit2(msg: str) -> SystemExit:

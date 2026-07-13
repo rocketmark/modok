@@ -246,6 +246,38 @@ async def test_ingest_issue_skips_prs(ingester, mock_client):
     mock_client.upsert_node.assert_not_awaited()
 
 
+# ---------------------------------------------------------------------------
+# SQ-ANCH-006 — ingest_issue invokes mechanical anchor linking
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-ANCH-006
+@pytest.mark.asyncio
+async def test_ingest_issue_invokes_anchor_linking(ingester, mock_client):
+    issue = make_issue(number=11, body="GSS_FAILURE observed during resolve")
+
+    with patch(
+        "modok.ingestion.github.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=[]),
+    ) as mock_link:
+        await ingester.ingest_issue(issue)
+
+    mock_link.assert_called_once()
+
+
+# @spec SQ-ANCH-006 (resilience half — same contract as SQ-ANCH-007)
+@pytest.mark.asyncio
+async def test_ingest_issue_survives_repo_root_resolution_failure(ingester, mock_client):
+    issue = make_issue(number=12, body="GSS_FAILURE observed")
+
+    with patch(
+        "modok.cli.config.ModokConfig.load", side_effect=FileNotFoundError("no config")
+    ):
+        await ingester.ingest_issue(issue)  # must not raise
+
+    mock_client.upsert_node.assert_awaited_once()
+
+
 # @spec GHING-PR-001
 @pytest.mark.asyncio
 async def test_ingest_merged_pr(ingester, mock_client):

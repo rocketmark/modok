@@ -378,6 +378,24 @@ async def _write_known_issue_block(
         )
         ctx.edges_written += 1
 
+    # @spec SI-BLOCK-005
+    for err_slug in block.get("error_signatures", []):
+        await client.write_edge_by_parts(
+            ("known-issue", project_slug, issue_id),
+            "HAS_ERROR",
+            ("error", project_slug, err_slug),
+        )
+        ctx.edges_written += 1
+
+    # @spec SI-BLOCK-006
+    for fix_id in block.get("fixes", []):
+        await client.write_edge_by_parts(
+            ("known-issue", project_slug, issue_id),
+            "RESOLVED_BY",
+            ("fix", project_slug, fix_id),
+        )
+        ctx.edges_written += 1
+
 
 # @spec SI-BLOCK-004
 async def _write_fix_block(

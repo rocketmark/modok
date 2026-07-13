@@ -74,6 +74,9 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **SI-BLOCK-001** [U]: The system shall parse fenced `modok` blocks in doc bodies and extract structured facts (failure modes, risks, decisions) as typed nodes.
 - [x] **SI-BLOCK-002** [U]: Facts declared in frontmatter or fenced MODOK blocks shall be assigned a confidence score of 1.00 (verified) and bypass the prose confidence scoring model entirely.
 - [x] **SI-BLOCK-003** [U]: When a fenced MODOK block contains an unrecognised `kind` value, the system shall emit a structured warning and skip that block without halting ingestion of the rest of the file.
+- [x] **SI-BLOCK-004** [U]: When a fenced MODOK block has `kind: fix`, the system shall create a `Fix` node and, if the enclosing doc declares a `feature`, write a `Feature -[:HAS_FIX]-> Fix` edge.
+- [x] **SI-BLOCK-005** [U]: When a fenced MODOK block has `kind: known_issue` and declares `error_signatures`, the system shall write a `KnownIssue -[:HAS_ERROR]-> ErrorSignature` edge for each listed slug.
+- [x] **SI-BLOCK-006** [U]: When a fenced MODOK block has `kind: known_issue` and declares `fixes`, the system shall write a `KnownIssue -[:RESOLVED_BY]-> Fix` edge for each listed slug.
 
 ---
 

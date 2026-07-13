@@ -86,7 +86,7 @@ See `docs/testing-standard.md` for full definitions.
 
 ## Idempotency
 
-- [ ] **WH-IDEM-001** [P]: Delivering the same webhook event twice (identical payload and headers) shall produce no duplicate nodes or edges in Quine. The second delivery shall be a no-op upsert.
+- [ ] **WH-IDEM-001** [P]: Delivering the same event twice to `POST /webhook/{project_slug}/{source}` (identical payload and headers) shall produce no duplicate nodes or edges in Quine. The second delivery shall be a no-op upsert. (The standing-query result route, `POST /standing-query/result`, has its own dedicated idempotency requirement — `SQ-INV-005` in `docs/specs/standing-queries.md` — since its dedup key is a computed `investigation_id`, not a re-delivered payload.)
 - [ ] **WH-IDEM-002** [U]: When Quine is unreachable during event processing, the system shall return HTTP 500. GitHub's automatic retry shall re-deliver the event; on the retry the pipeline shall write the nodes as if it were the first delivery.
 - [ ] **WH-IDEM-003** [U]: The system shall write `CustomerIssue` and `Fix` nodes via the same upsert path used by `ingest-github`, keyed on `idFrom("CustomerIssue" | "Fix", project_slug, ...)`. Insert-only writes are not permitted.
 
@@ -97,3 +97,4 @@ See `docs/testing-standard.md` for full definitions.
 - [ ] **WH-EXT-001** [U]: A push adapter registered in `PUSH_ADAPTERS` with key `"test-source"` shall be reachable at `POST /webhook/test-project/test-source` and shall receive dispatched requests without any other configuration change.
 - [ ] **WH-EXT-002** [U]: A pull adapter registered in `PULL_ADAPTERS` with key `"test-pull"` shall have `start()` called during server startup and `stop()` called on shutdown without any other configuration change.
 - [ ] **WH-EXT-003** [U]: An `IngestEvent` with `kind="customer_issue"` or `kind="fix"` produced by any adapter shall be accepted by `run_ingest_event` and result in a graph write, with no branching in `run_ingest_event` on adapter identity or source system.
+- [x] **WH-EXT-004** [U]: An `IngestEvent` with `kind="investigation"` — constructed by the dedicated `POST /standing-query/result` route (`docs/specs/standing-queries.md § SQ-ROUTE`) rather than by a `PUSH_ADAPTERS`/`PULL_ADAPTERS` entry — shall likewise be accepted by `run_ingest_event` and result in a graph write, with no branching in `run_ingest_event` on the event's origin.

@@ -1,0 +1,109 @@
+# Standing Queries Specs
+
+Specs for the standing-query detection path: the `actionable-issue-pattern` Quine standing query, mechanical anchor linking, the `Investigation` node, the `POST /standing-query/result` route, GitHub write-back, and the `GitHubPollAdapter`.
+
+LLD: `docs/llds/standing-queries.md`
+
+---
+
+## Test Level Convention
+
+- **[U]** — Unit test. At least one `@spec`-annotated test directly exercises the specified behavior with mocked dependencies (`DummyQuine` where the Cypher fingerprint is simulatable, otherwise a mocked `httpx` transport).
+- **[P]** — Property test (`hypothesis`). The invariant must hold across arbitrary inputs, not just handpicked examples.
+- **[C]** — Contract test. Runs against a live local Quine instance (`~/.modok/quine.jar`, v1.10.0). Applied to specs whose correctness depends on Quine's actual standing-query wire behavior, which `DummyQuine`'s Cypher-fingerprint dispatch cannot simulate.
+
+Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`.
+
+---
+
+## Standing Query Definition
+
+- [x] **SQ-DEF-001** [U]: The system shall load standing query definitions from checked-in YAML artifacts under `src/modok/quine/standing_queries/`, never as inline Python strings.
+- [x] **SQ-DEF-002** [U]: The `actionable-issue-pattern` definition shall use `DistinctId` mode with pattern `MATCH (ci:CustomerIssue)-[:HAS_ERROR]->(e:ErrorSignature)<-[:HAS_ERROR]-(ki:KnownIssue)-[:RESOLVED_BY]->(fix:Fix) RETURN DISTINCT id(ci)`.
+- [x] **SQ-DEF-003** [U]: The `actionable-issue-pattern` definition's pattern shall not filter on `project_slug` — project isolation is provided by `idFrom()` node-address topology (`docs/llds/quine-client.md § ID Scheme`), under which a `CustomerIssue` in one project can never share an `ErrorSignature`, `KnownIssue`, or `Fix` node with another project.
+- [x] **SQ-DEF-004** [C]: The `actionable-issue-pattern` definition shall filter each of its four bound nodes by a `WHERE ... node_type = '...'` equality check rather than Cypher `:Label` syntax, and its `RETURN` clause shall alias the matched id as `RETURN DISTINCT id(ci) AS id` — both confirmed required by live verification against Quine 1.10.0 (`node_type` is a property, not a real label; an unaliased `id(ci)` produces a result-field key of `id(ci)`, not `id`, breaking the `$that.data.id` reference in the enrichment stage).
+
+---
+
+## `QuineClient` Standing Query Methods
+
+- [x] **SQ-CLIENT-001** [C]: `standing_query_exists(name)` shall return `True` if a standing query with that name is registered in Quine (`GET /api/v1/query/standing/{name}` succeeds) and `False` if it is not registered (404).
+- [x] **SQ-CLIENT-002** [U, C]: When `install_standing_query` is called for a name `standing_query_exists` reports absent, the system shall register it via `POST /api/v1/query/standing/{name}` — pattern, mode, and a `CypherQuery`-then-`PostToEndpoint` output built from the definition's `enrichment_query` and the supplied `callback_url` — and return `True`.
+- [x] **SQ-CLIENT-003** [U, C]: When `install_standing_query` is called for a name that already exists, the system shall send no request to Quine and return `False`.
+- [x] **SQ-CLIENT-004** [C]: `list_standing_queries()` shall return the names of all standing queries currently registered in Quine via `GET /api/v1/query/standing`.
+- [x] **SQ-CLIENT-005** [U, C]: When `remove_standing_query(name)` is called for a name that exists, the system shall delete it via `DELETE /api/v1/query/standing/{name}` and return `True`; if it does not exist, the system shall send no request and return `False`.
+
+---
+
+## CLI (`modok stream`)
+
+- [x] **SQ-CLI-001** [U]: `modok stream install` shall call `install_standing_query` for every definition returned by `all_definitions()` and report, per definition, whether it was newly installed or already present.
+- [x] **SQ-CLI-002** [U]: `modok stream install`, `modok stream status`, and `modok stream remove` shall not accept a `--project` option (SQ-DEF-003 — standing queries are Quine-instance-level, not per-project).
+- [x] **SQ-CLI-003** [U]: `modok stream status` shall print the names returned by `list_standing_queries()`.
+- [x] **SQ-CLI-004** [U]: `modok stream remove` shall call `remove_standing_query` for each checked-in definition's name and report, per definition, whether it was removed or was not present.
+- [x] **SQ-CLI-005** [U]: If Quine is unreachable, `modok stream install`/`status`/`remove` shall exit non-zero with a message naming the configured Quine URL, matching the convention `modok quine start` already uses for the same failure.
+
+---
+
+## Mechanical Anchor Linking
+
+- [x] **SQ-ANCH-001** [U]: When a `CustomerIssue` node is written with non-empty `raw_text` (write-time mechanical linking — distinct from, and does not replace, the Diagnostic Retrieval Engine's independent read-time LLM anchor-extraction fallback in `docs/llds/diagnostic-retrieval-engine.md`), the system shall word-boundary match `raw_text` (case-insensitive) against every `normalized_error` value in the project's `errors.yml` registry.
+- [x] **SQ-ANCH-002** [U]: For each `normalized_error` match found (SQ-ANCH-001), the system shall treat it as a candidate `HAS_ERROR` target only if an `ErrorSignature` node with that `normalized_error` already exists in the graph; the system shall never create an `ErrorSignature` node from this step.
+- [x] **SQ-ANCH-003** [U]: The system shall compute the full current set of matched `ErrorSignature` targets for a `CustomerIssue` write and call `replace_edges` once for its outbound `HAS_ERROR` edges, rather than writing individual matches additively.
+- [x] **SQ-ANCH-004** [U]: If `raw_text` is `None` or empty, the system shall perform no anchor matching and write no `HAS_ERROR` edges for that `CustomerIssue`.
+- [x] **SQ-ANCH-005** [U]: If the project's registries cannot be loaded (`RegistryNotFoundError`), the system shall log a warning and continue; the `CustomerIssue` node write shall not fail because anchor linking could not run.
+- [x] **SQ-ANCH-006** [U]: Every code path that writes a `CustomerIssue` node — the webhook `customer_issue` ingest branch (covering the push adapters and the poll adapter, both of which call `on_event`) and `GithubIngester.ingest_issue` (covering batch `ingest-github`) — shall invoke mechanical anchor linking immediately after the node write.
+- [x] **SQ-ANCH-007** [U]: If resolving the calling project's `repo_root` (to load its registries) fails for any reason — no project config found, config file absent, or any other exception — the `customer_issue` ingest branch shall log a warning and continue; the `CustomerIssue` node write itself shall already have completed and shall not be affected.
+
+---
+
+## `Investigation` Node and Deduplication
+
+- [x] **SQ-INV-001** [U]: When a standing-query match result is received naming `project_slug`, `source_system`, `ticket_id`, `known_issue_id`, and `fix_id`, the system shall compute a deterministic `investigation_id` from exactly those five values plus the firing standing query's name.
+- [x] **SQ-INV-002** [U]: The system shall address `Investigation` nodes with `idFrom('investigation', project_slug, investigation_id)`.
+- [x] **SQ-INV-003** [U]: If an `Investigation` node already exists at the computed address, the system shall not re-upsert it, shall not call the Diagnostic Retrieval Engine, and shall not attempt a GitHub write-back for that match.
+- [x] **SQ-INV-004** [U]: If no `Investigation` node exists at the computed address, the system shall upsert one with `status="open"`, `trigger_type="standing_query"`, `triggered_at` set to the current time, and the firing standing query's name, then write `Investigation -[:INVESTIGATES]-> CustomerIssue`.
+- [x] **SQ-INV-005** [P]: Two standing-query match deliveries carrying identical `project_slug`/`source_system`/`ticket_id`/`known_issue_id`/`fix_id`/standing-query-name shall never result in more than one `Investigation` node, regardless of delivery order or repetition.
+- [x] **SQ-INV-006** [U]: When a single `CustomerIssue` matches the standing query pattern via more than one distinct `(known_issue_id, fix_id)` combination, the system shall create a separate `Investigation` node per combination, each with its own `investigation_id`.
+
+---
+
+## Standing Query Result Route
+
+- [x] **SQ-ROUTE-001** [U]: The system shall expose `POST /standing-query/result`, accepting either a single match object or a JSON array of match objects in the request body.
+- [x] **SQ-ROUTE-002** [U]: For each match object, if its `project_slug` is not a known configured project, the system shall respond 404 for that object; if `known_project_slugs` is `None` (unconfigured), every `project_slug` shall be accepted, mirroring `WH-ROUTE-001`.
+- [x] **SQ-ROUTE-003** [U]: If a match object is missing any of `project_slug`, `source_system`, `ticket_id`, `known_issue_id`, `fix_id`, the system shall respond 400 for that object without writing to Quine.
+- [x] **SQ-ROUTE-004** [U]: For each valid match object, the system shall construct an `IngestEvent(kind="investigation", ...)` and process it through the same `run_ingest_event` path used by other adapters.
+- [x] **SQ-ROUTE-005** [U]: The route shall require no request authentication (no HMAC or bearer check) — it is reachable only from the co-located Quine instance in MODOK's single-user, trusted-deployment model (HLD Non-Goals).
+- [x] **SQ-ROUTE-006** [U, C]: If the request body (or an element of it, when a list) is of the shape `{"meta": {...}, "data": {...}}`, the route shall process the `data` object as the match — confirmed live that Quine 1.10.0's default `PostToEndpoint` output structure wraps the enrichment row this way rather than posting it flat. A flat body (no envelope) shall continue to work unchanged.
+
+---
+
+## GitHub Write-Back
+
+- [x] **SQ-GH-001** [U]: When an `Investigation` is newly recorded (SQ-INV-004) for a `CustomerIssue` whose `source_system` is `"github"`, and both the project's `github_repo` and the environment's `GITHUB_TOKEN` are present, the system shall call the Diagnostic Retrieval Engine's `retrieve()` for that `CustomerIssue` and post the resulting debug packet, formatted as markdown, as a comment on the originating GitHub issue.
+- [x] **SQ-GH-002** [U]: The markdown comment shall include the firing standing query's name, the packet's summary (LLM-generated, or its `issue.summary` fallback per `docs/llds/diagnostic-retrieval-engine.md § LLM Summary`), known issues, prior fixes, relevant files, and relevant tests — each list section omitted when empty — and the `investigation_id`.
+- [x] **SQ-GH-003** [U]: If `github_repo` or `GITHUB_TOKEN` is not configured for the project, the system shall skip the GitHub write-back without error; the `Investigation` node write is unaffected.
+- [x] **SQ-GH-004** [U]: If the GitHub comment API call fails (non-2xx response or exception), the system shall log the failure and shall not roll back the `Investigation` node or its `INVESTIGATES` edge.
+
+---
+
+## GitHub Poll Adapter
+
+- [x] **SQ-POLL-001** [U]: The system shall provide a `GitHubPollAdapter` implementing the existing `PullAdapter` protocol (`docs/specs/webhook-receiver.md`) with no changes to that protocol's signature.
+- [x] **SQ-POLL-002** [U]: While `WebhookConfig.github_poll_enabled` is `True`, the adapter shall, for every configured project with a non-empty `github_repo`, call `GithubIngester.run(since=last_github_sync)` every `github_poll_interval_seconds` seconds (default 30) and persist the resulting `last_github_sync`.
+- [x] **SQ-POLL-003** [U]: While `WebhookConfig.github_poll_enabled` is `False` (the default), the adapter shall not poll any project.
+- [x] **SQ-POLL-004** [U]: A project with no `github_repo` configured, or with `GITHUB_TOKEN` unset in the environment, shall be silently skipped by the poll loop rather than treated as an error.
+- [x] **SQ-POLL-005** [U]: `stop()` shall cancel and await the adapter's background polling task(s) without raising.
+
+---
+
+## References
+
+- `docs/high-level-design.md § Detection / Trigger Path`, `§ Key Design Decisions #10`
+- `docs/llds/standing-queries.md`
+- `docs/specs/quine-client.md` — `idFrom()` scheme, `replace_edges`, connection/retry
+- `docs/specs/diagnostic-retrieval-engine.md` — `retrieve()`, reused unchanged
+- `docs/specs/webhook-receiver.md` — `PullAdapter`/`PushAdapter` protocols, `WH-ROUTE-001`
+- `docs/specs/github-ingestion.md` — `GithubIngester`, reused unchanged except the SQ-ANCH-006 call site
+- `docs/specs/ingestion-pipeline.md` — `SI-BLOCK-004/005/006`, the known-issue block fields this path depends on

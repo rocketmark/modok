@@ -1792,3 +1792,100 @@ async def test_fix_block_writes_fix_node_but_no_edge_when_no_feature_slug(tmp_pa
     assert client.upsert_node.called  # Fix node is still written
     edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
     assert not any(c[1] == "HAS_FIX" for c in edge_calls)
+
+
+# ---------------------------------------------------------------------------
+# SI-BLOCK-005 — known_issue error_signatures -> KnownIssue -[:HAS_ERROR]-> ErrorSignature
+# ---------------------------------------------------------------------------
+
+
+# @spec SI-BLOCK-005
+@pytest.mark.asyncio
+async def test_known_issue_block_writes_has_error_edges():
+    from modok.ingestion.pipeline import _write_known_issue_block, IngestionContext
+
+    block = {
+        "kind": "known_issue",
+        "id": "ki-shtp-version-mismatch",
+        "summary": "Version mismatch corrupts calibration",
+        "status": "open",
+        "error_signatures": ["shtp-version-mismatch", "gss-failure"],
+    }
+    ctx = IngestionContext(project_slug="stagehand", repo_root="/repo")
+    client = AsyncMock()
+
+    await _write_known_issue_block(
+        block, project_slug="stagehand", feature_slug="shtp-receiver", client=client, ctx=ctx
+    )
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    has_error = [c for c in edge_calls if c[1] == "HAS_ERROR"]
+    assert len(has_error) == 2
+    for from_parts, _, to_parts in has_error:
+        assert from_parts == ("known-issue", "stagehand", "ki-shtp-version-mismatch")
+        assert to_parts[0] == "error"
+
+
+# @spec SI-BLOCK-005
+@pytest.mark.asyncio
+async def test_known_issue_block_without_error_signatures_writes_no_has_error_edge():
+    from modok.ingestion.pipeline import _write_known_issue_block, IngestionContext
+
+    block = {"kind": "known_issue", "id": "ki-no-errors", "summary": "no errors here"}
+    ctx = IngestionContext(project_slug="stagehand", repo_root="/repo")
+    client = AsyncMock()
+
+    await _write_known_issue_block(
+        block, project_slug="stagehand", feature_slug="shtp-receiver", client=client, ctx=ctx
+    )
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    assert not any(c[1] == "HAS_ERROR" for c in edge_calls)
+
+
+# ---------------------------------------------------------------------------
+# SI-BLOCK-006 — known_issue fixes -> KnownIssue -[:RESOLVED_BY]-> Fix
+# ---------------------------------------------------------------------------
+
+
+# @spec SI-BLOCK-006
+@pytest.mark.asyncio
+async def test_known_issue_block_writes_resolved_by_edges():
+    from modok.ingestion.pipeline import _write_known_issue_block, IngestionContext
+
+    block = {
+        "kind": "known_issue",
+        "id": "ki-shtp-version-mismatch",
+        "summary": "Version mismatch corrupts calibration",
+        "fixes": ["fix-shtp-version-offset"],
+    }
+    ctx = IngestionContext(project_slug="stagehand", repo_root="/repo")
+    client = AsyncMock()
+
+    await _write_known_issue_block(
+        block, project_slug="stagehand", feature_slug="shtp-receiver", client=client, ctx=ctx
+    )
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    resolved_by = [c for c in edge_calls if c[1] == "RESOLVED_BY"]
+    assert len(resolved_by) == 1
+    from_parts, _, to_parts = resolved_by[0]
+    assert from_parts == ("known-issue", "stagehand", "ki-shtp-version-mismatch")
+    assert to_parts == ("fix", "stagehand", "fix-shtp-version-offset")
+
+
+# @spec SI-BLOCK-006
+@pytest.mark.asyncio
+async def test_known_issue_block_without_fixes_writes_no_resolved_by_edge():
+    from modok.ingestion.pipeline import _write_known_issue_block, IngestionContext
+
+    block = {"kind": "known_issue", "id": "ki-unresolved", "summary": "still open"}
+    ctx = IngestionContext(project_slug="stagehand", repo_root="/repo")
+    client = AsyncMock()
+
+    await _write_known_issue_block(
+        block, project_slug="stagehand", feature_slug="shtp-receiver", client=client, ctx=ctx
+    )
+
+    edge_calls = [c.args for c in client.write_edge_by_parts.call_args_list]
+    assert not any(c[1] == "RESOLVED_BY" for c in edge_calls)

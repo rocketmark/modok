@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from modok.webhook.adapters.github import GitHubAdapter
+from modok.webhook.adapters.github_poll import GitHubPollAdapter
 from modok.webhook.adapters.ticket import GenericTicketAdapter
 
 # @spec WH-EXT-001, WH-EXT-002
@@ -16,5 +17,6 @@ PUSH_ADAPTERS: dict[str, object] = {
 }
 
 PULL_ADAPTERS: dict[str, object] = {
+    "github-poll": GitHubPollAdapter(),
     # "redis": RedisStreamsAdapter(),  ← see docs/llds/webhook-receiver.md § Redis Streams adapter
 }

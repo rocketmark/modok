@@ -135,6 +135,16 @@ class Commit(QuineNode):
     file_hunks: str = ""  # JSON: {file_path: [{lines, function, defs}]}
 
 
+class Investigation(QuineNode):
+    node_type: Literal["Investigation"]
+    project_slug: str
+    investigation_id: str
+    status: str
+    trigger_type: str
+    triggered_at: str
+    standing_query_name: str
+
+
 _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "Project": Project,
     "Feature": Feature,
@@ -150,4 +160,5 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "ResolutionEvent": ResolutionEvent,
     "DiagnosticNote": DiagnosticNote,
     "Commit": Commit,
+    "Investigation": Investigation,
 }

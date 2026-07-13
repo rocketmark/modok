@@ -225,6 +225,56 @@ class QuineClient:
         except Exception:
             return False
 
+    # -----------------------------------------------------------------
+    # Standing queries
+    # -----------------------------------------------------------------
+
+    # @spec SQ-CLIENT-001
+    async def standing_query_exists(self, name: str) -> bool:
+        async with self._make_http_client() as http:
+            resp = await http.get(f"/api/v1/query/standing/{name}")
+            return resp.status_code == 200
+
+    # @spec SQ-CLIENT-002, SQ-CLIENT-003
+    async def install_standing_query(self, definition: Any, callback_url: str) -> bool:
+        if await self.standing_query_exists(definition.name):
+            return False
+        body = {
+            "pattern": {
+                "query": definition.pattern,
+                "type": "Cypher",
+                "mode": definition.mode,
+            },
+            "outputs": {
+                definition.output_name: {
+                    "type": "CypherQuery",
+                    "query": definition.enrichment_query,
+                    "andThen": {"type": "PostToEndpoint", "url": callback_url},
+                }
+            },
+        }
+        async with self._make_http_client() as http:
+            resp = await http.post(f"/api/v1/query/standing/{definition.name}", json=body)
+            resp.raise_for_status()
+        return True
+
+    # @spec SQ-CLIENT-004
+    async def list_standing_queries(self) -> list[str]:
+        async with self._make_http_client() as http:
+            resp = await http.get("/api/v1/query/standing")
+            resp.raise_for_status()
+            data = resp.json()
+        return [entry["name"] for entry in data]
+
+    # @spec SQ-CLIENT-005
+    async def remove_standing_query(self, name: str) -> bool:
+        if not await self.standing_query_exists(name):
+            return False
+        async with self._make_http_client() as http:
+            resp = await http.delete(f"/api/v1/query/standing/{name}")
+            resp.raise_for_status()
+        return True
+
 
 def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
     """Return (cypher_idFrom_arg_list, params) for this node's idFrom() address.
@@ -249,6 +299,7 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
         ResolutionEvent,
         DiagnosticNote,
         Commit,
+        Investigation,
     )
 
     if isinstance(node, Doc):
@@ -340,5 +391,13 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
         return (
             "'diagnostic-note', $idf_project_slug, $idf_note_id",
             {"idf_project_slug": node.project_slug, "idf_note_id": node.note_id},
+        )
+    if isinstance(node, Investigation):
+        return (
+            "'investigation', $idf_project_slug, $idf_investigation_id",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_investigation_id": node.investigation_id,
+            },
         )
     raise ValueError(f"No idFrom() scheme for node type {type(node).__name__}")

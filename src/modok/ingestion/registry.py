@@ -70,6 +70,14 @@ class Registry:
     def has_error(self, slug: str) -> bool:
         return slug in self._errors
 
+    def error_normalized_values(self) -> list[str]:
+        """Return the normalized_error string for every registered error."""
+        return [
+            entry.get("normalized_error", "")
+            for entry in self._errors.values()
+            if isinstance(entry, dict) and entry.get("normalized_error")
+        ]
+
     def has_doc_type(self, slug: str) -> bool:
         return slug in self._doc_types
 
