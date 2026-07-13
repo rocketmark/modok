@@ -303,6 +303,30 @@ def test_build_registered_file_set_includes_arrow_doc_paths():
     assert "docs/specs/pi-agent-specs.md" in file_set
 
 
+# @spec SI-GIT-011
+def test_build_registered_file_set_accepts_list_valued_lld():
+    # A feature can legitimately have more than one LLD (e.g. client-side
+    # and Pi-side halves of one arrow) — arrow_doc/lld/specs may then be a
+    # YAML list rather than a single string.
+    features = {}
+    arrow_index = {
+        "arrows": [
+            {
+                "id": "wifi-provisioning",
+                "arrow_doc": "docs/arrows/wifi-provisioning.md",
+                "lld": [
+                    "docs/llds/wifi-provisioning.md",
+                    "docs/llds/wifi-provisioning-client.md",
+                ],
+                "specs": "docs/specs/wifi-provisioning-specs.md",
+            }
+        ]
+    }
+    file_set = build_registered_file_set(features, arrow_index)  # must not raise
+    assert "docs/llds/wifi-provisioning.md" in file_set
+    assert "docs/llds/wifi-provisioning-client.md" in file_set
+
+
 # @spec SI-GIT-004
 def test_build_registered_file_set_includes_doc_paths():
     features = {}

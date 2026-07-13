@@ -146,9 +146,14 @@ def build_registered_file_set(
         if not isinstance(arrow, dict):
             continue
         for key in ("arrow_doc", "lld", "specs"):
-            p = arrow.get(key)
-            if p:
-                paths.add(p)
+            field_value = arrow.get(key)
+            if not field_value:
+                continue
+            # @spec SI-GIT-011 — field may be a single path or a list of
+            # paths (a feature spanning more than one LLD, e.g.).
+            for p in field_value if isinstance(field_value, list) else [field_value]:
+                if p:
+                    paths.add(p)
 
     for p in doc_paths or []:
         if p:

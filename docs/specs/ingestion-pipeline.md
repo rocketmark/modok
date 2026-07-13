@@ -53,6 +53,7 @@ See `docs/testing-standard.md` for full definitions.
 - [ ] **SI-GIT-008** [U]: The post-commit hook installed by `modok init` shall invoke `modok ingest-git` unconditionally after every commit. The registered-file filter inside `modok ingest-git` (SI-GIT-004) handles skipping commits that touch no registered files; the hook does not pre-check this.
 - [ ] **SI-GIT-009** [P]: Running `modok ingest-git` twice on the same repo state shall produce no duplicate `Commit` nodes or `TOUCHES` edges.
 - [ ] **SI-GIT-010** [U]: When `--since <date>` (ISO-8601) is specified, the system shall import only commits authored after `<date>`, overriding the 6-month default. `--since` and `--max-commits` may be combined; both limits apply and whichever is reached first stops the import. `--since` and `--full` are mutually exclusive; specifying both shall emit a structured error and exit `1`.
+- [x] **SI-GIT-011** [U]: If an arrow index entry's `arrow_doc`, `lld`, or `specs` field is a YAML list rather than a single string, `build_registered_file_set` shall add every path in the list to the registered-file set, matching Tier-1 doc discovery's handling of the same fields (SI-TIER1-003).
 
 ---
 
