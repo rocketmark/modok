@@ -94,6 +94,7 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **CLI-REC-006** [U]: Without `--json`, `modok recall` shall print results in a human-readable tabular format to stdout, formatted per node type.
 - [x] **CLI-REC-007** [U]: With `--json`, `modok recall` shall print results as a JSON object to stdout.
 - [x] **CLI-REC-008** [U]: When Quine is unreachable during `modok recall`, the system shall exit `2`.
+- [x] **CLI-REC-009** [U]: A returned row whose node has no `node_type` property (a Quine address referenced by `idFrom()` but never actually written — e.g. `--module <slug>` for a module that was never ingested) shall be excluded from the result, so a nonexistent slug prints "(no results)" rather than a misleading empty `[Node] {}`.
 
 ---
 

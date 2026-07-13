@@ -776,6 +776,33 @@ def test_recall_empty_results_exits_0(tmp_path):
     assert result.exit_code == 0
 
 
+# @spec CLI-REC-009
+def test_recall_nonexistent_module_prints_no_results(tmp_path):
+    # Real Quine auto-vivifies a node the moment its idFrom() address is
+    # referenced in a MATCH, even if it was never written — the query
+    # returns a node with empty properties rather than no rows at all.
+    # This must not be surfaced as a real result.
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+
+    config_path = write_config(tmp_path / "config.toml")
+    runner = CliRunner()
+
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.recall.QuineClient") as mock_cls:
+            mock_cls.return_value.ping = AsyncMock(return_value=True)
+            mock_cls.return_value.query = AsyncMock(
+                return_value=[[{"id": "abc123", "properties": {}}, None, None, None]]
+            )
+            result = runner.invoke(
+                cli, ["recall", "--project", "stagehand", "--module", "nonexistent-module"]
+            )
+
+    assert result.exit_code == 0
+    assert "no results" in result.output.lower()
+    assert "[Node]" not in result.output
+
+
 # @spec CLI-REC-003
 def test_recall_default_output_is_tabular(tmp_path):
     from click.testing import CliRunner

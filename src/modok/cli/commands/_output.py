@@ -24,10 +24,14 @@ def require_quine(config, client_class=None):
 
 
 def collect_nodes(rows: list) -> list[dict]:
+    # @spec CLI-REC-009 — Quine auto-vivifies a node the moment its idFrom()
+    # address is referenced in a MATCH, even if it was never written. Such
+    # a node has no node_type (indeed no properties at all) and must not be
+    # surfaced as a real result.
     out = []
     for row in rows:
         for item in row:
-            if item is not None and isinstance(item, dict):
+            if item is not None and isinstance(item, dict) and item.get("properties", {}).get("node_type"):
                 out.append(item)
     return out
 
