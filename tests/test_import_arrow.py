@@ -200,6 +200,32 @@ def test_import_arrow_missing_index_yaml_exits_nonzero(tmp_path):
     assert "index.yaml not found" in result.output.lower()
 
 
+# @spec IA-FEAT-009
+def test_import_arrow_null_valued_required_field_exits_nonzero(tmp_path):
+    # A required field can be present as a YAML key with a null value (e.g.
+    # an arrow not yet audited: "arrow_doc: null") — `field not in entry` is
+    # not sufficient; the value itself must be checked.
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+
+    write(
+        tmp_path / "docs/arrows/index.yaml",
+        """\
+        arrows:
+          - id: unaudited-feature
+            description: "Not yet audited"
+            specs: docs/specs/unaudited-specs.md
+            arrow_doc: null
+            tests: []
+    """,
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["import-arrow", "--project", "x", "--repo", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "arrow_doc" in result.output
+    assert "unaudited-feature" in result.output
+
+
 # @spec IA-CMD-004
 def test_import_arrow_empty_index_exits_zero_no_files(tmp_path):
     from click.testing import CliRunner
@@ -404,6 +430,32 @@ def test_feature_test_files_filtering(tmp_path):
     assert not any(f.startswith("spec/") for f in test_files)
     assert not any("(" in f for f in test_files)
     assert "just-a-label" not in test_files
+
+
+# @spec IA-FEAT-010
+def test_feature_test_files_skips_non_string_entry(tmp_path, capsys):
+    from modok.import_arrow.extractor import extract_features
+
+    index = [
+        {
+            "id": "feat-a",
+            "description": "X",
+            "specs": "s.md",
+            "arrow_doc": "a.md",
+            "tests": [
+                "client/tests/test_widget.py",
+                # An unquoted "tests:" list item containing a colon, e.g.
+                # "foo.c (label: detail)", parses as a single-key mapping
+                # rather than a scalar string — must not crash extraction.
+                {"agent/src/foo.c (C property tests": "match, normalize)"},
+            ],
+        }
+    ]
+    write(tmp_path / "a.md", "### Code\n")
+    features = extract_features(index, repo_root=tmp_path)
+    test_files = features["feat-a"]["test_files"]
+    assert test_files == ["client/tests/test_widget.py"]
+    assert "skipping" in capsys.readouterr().err.lower()
 
 
 # @spec IA-FEAT-006

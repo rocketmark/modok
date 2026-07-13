@@ -36,7 +36,8 @@ LLD: `docs/llds/import-arrow.md`
 - [ ] **IA-FEAT-006** [U]: The feature `source_files` shall be extracted from the Code section of the arrow doc. The Code section is detected by either a `### Code` H3 header or a `**Code:**` bold-with-colon label (both formats are accepted). For each `-` bullet line: the line shall be split on the first em-dash separator (normalised to accept U+2014, U+2013, and spaced hyphen); all backtick-quoted strings on the left side of the separator shall be extracted; strings containing `/` or `.` and not containing `(` shall be kept as file paths.
 - [ ] **IA-FEAT-007** [U]: When an arrow doc has no Code section (neither `### Code` nor `**Code:**`), the feature shall be produced with `source_files: []` and a warning shall be printed to stderr.
 - [ ] **IA-FEAT-008** [U]: Each path in `source_files` shall be validated against the code map. A path absent from the code map shall produce a warning to stderr and shall still be included in the output. A path present in the code map with `role: ignored` shall produce a separate warning.
-- [ ] **IA-FEAT-009** [U]: An arrow index entry missing any of `id`, `description`, `arrow_doc`, or `specs` shall cause the command to exit non-zero with a clear error identifying the missing field.
+- [x] **IA-FEAT-009** [U]: An arrow index entry missing any of `id`, `description`, `arrow_doc`, or `specs` — whether the key is absent or present with a falsy/null value — shall cause the command to exit non-zero with a clear error identifying the missing field and the entry.
+- [x] **IA-FEAT-010** [U]: If an entry in `index.yaml`'s `tests` list is not a string (e.g. an unquoted list item containing a colon, which YAML parses as a single-key mapping rather than a scalar), the system shall skip that entry with a warning to stderr rather than raising.
 
 ---
 

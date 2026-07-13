@@ -113,9 +113,15 @@ def _extract_section(doc_content: str, section_name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _clean_test_files(tests: list[str]) -> list[str]:
+def _clean_test_files(tests: list) -> list[str]:
     result = []
     for t in tests:
+        # @spec IA-FEAT-010 — an unquoted "tests:" list item containing a
+        # colon (e.g. "foo.c (label: detail)") parses as a single-key YAML
+        # mapping rather than a scalar string; skip rather than crash.
+        if not isinstance(t, str):
+            print(f"WARN: skipping malformed tests entry (not a string): {t!r}", file=sys.stderr)
+            continue
         if t.startswith("spec/"):
             continue
         t = t.split("(")[0].strip()

@@ -55,7 +55,10 @@ def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool
 
     for entry in arrow_entries:
         for field in _REQUIRED_FIELDS:
-            if field not in entry:
+            # @spec IA-FEAT-009 — a required field can be present as a YAML
+            # key with a null value (e.g. an arrow not yet audited:
+            # "arrow_doc: null"); check the value, not just key presence.
+            if not entry.get(field):
                 click.echo(
                     f"Error: arrow entry missing required field '{field}': {entry}",
                     err=True,

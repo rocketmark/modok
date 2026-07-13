@@ -114,6 +114,7 @@ features:
 - Drop entries starting with `spec/` (TLA+ specs, not pytest files).
 - Strip trailing annotations: split on `(`, take the left side, strip whitespace.
 - Drop entries that do not look like file paths (no `/` or `.`).
+- Drop entries that are not strings, with a warning to stderr, rather than raising. An unquoted `tests:` list item containing a colon (e.g. a parenthetical annotation like `foo.c (label: detail)`) parses as a single-key YAML mapping instead of a scalar string — this is malformed authoring in the source repo's `index.yaml`, not something `import-arrow` should crash on.
 
 **`source_files` validation:**
 - Each path is looked up in the code map.
