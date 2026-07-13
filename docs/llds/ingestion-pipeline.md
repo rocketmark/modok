@@ -68,6 +68,8 @@ Walk `docs/arrows/index.yaml`. For each arrow entry, discover the associated doc
 
 Feature is the arrow's `id`. Modules, source_files, and test_files are looked up from `features.yml` and `modules.yml` — the registries are the source of truth. No frontmatter required for any of these.
 
+Any of `arrow_doc`, `lld`, or `specs` may be a YAML list instead of a single string, when a feature genuinely spans more than one doc of that type (e.g. a client-side and a Pi-side LLD for one arrow). Each path in the list is ingested as its own Tier-1 doc record with the same `doc_type` and `feature`.
+
 **Tier 2 — Path-based inference (secondary)**
 
 After Tier 1, scan `docs/` for any `.md` file not already discovered. Infer `doc_type` from the containing directory and `feature` from the filename stem:

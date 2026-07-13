@@ -28,6 +28,7 @@ See `docs/testing-standard.md` for full definitions.
 
 - [ ] **SI-TIER1-001** [U]: The system shall walk `docs/arrows/index.yaml` as the first discovery pass. For each arrow entry, the system shall ingest the `arrow_doc` path as `doc_type: hld`, the `lld` path as `doc_type: lld`, and the `specs` path as `doc_type: spec`, each with `feature` set to the arrow's `id`.
 - [ ] **SI-TIER1-002** [U]: For Tier 1 docs, the system shall derive `modules`, `source_files`, and `test_files` from the feature and module registries rather than from frontmatter.
+- [x] **SI-TIER1-003** [U]: If an arrow entry's `arrow_doc`, `lld`, or `specs` field is a YAML list rather than a single string (a feature legitimately spanning more than one LLD, for example), the system shall ingest one Tier-1 doc record per path in the list, each with the same `doc_type` and `feature` the field would produce for a single string.
 - [ ] **SI-TIER2-001** [U]: For docs not discovered in Tier 1, the system shall infer `doc_type` from the containing directory: `docs/llds/` → `lld`; `docs/arrows/` → `hld`; `docs/specs/` → `spec`; `docs/` root → `hld`; other `docs/**` → attempt inference.
 - [ ] **SI-TIER2-002** [U]: For Tier 2 docs, the system shall infer `feature` from the filename stem, stripping a trailing `-specs` suffix for spec files.
 - [ ] **SI-TIER2-003** [U]: When the inferred feature slug exists in the feature registry, the system shall ingest the doc with full registry-derived metadata. When it does not exist, the doc proceeds to Tier 3.

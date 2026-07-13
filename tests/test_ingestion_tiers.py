@@ -163,6 +163,37 @@ def test_tier1_assigns_lld_and_spec_doc_types(tmp_path):
     assert spec is not None and spec.tier == 1
 
 
+# @spec SI-TIER1-003
+def test_tier1_lld_accepts_a_list_of_paths(tmp_path):
+    # A feature can legitimately have more than one LLD (e.g. client-side and
+    # Pi-side halves of the same arrow) — index.yaml's `lld` field is then a
+    # YAML list rather than a single string.
+    make_setup(
+        tmp_path,
+        features=_ONE_FEATURE,
+        arrows=[
+            {
+                "id": "pi-agent",
+                "arrow_doc": "docs/arrows/pi-agent.md",
+                "lld": [
+                    "docs/llds/pi-agent-client.md",
+                    "docs/llds/pi-agent-server.md",
+                ],
+                "specs": "docs/specs/pi-agent-specs.md",
+            }
+        ],
+    )
+    write_file(tmp_path / "docs" / "arrows" / "pi-agent.md", "# Arrow\n")
+    write_file(tmp_path / "docs" / "llds" / "pi-agent-client.md", "# LLD client\n")
+    write_file(tmp_path / "docs" / "llds" / "pi-agent-server.md", "# LLD server\n")
+    write_file(tmp_path / "docs" / "specs" / "pi-agent-specs.md", "# Specs\n")
+
+    registered, _, _ = discover_docs(tmp_path, Registry(repo_root=tmp_path))  # must not raise
+
+    lld_names = {r.path.name for r in registered if r.doc_type == "lld" and r.tier == 1}
+    assert lld_names == {"pi-agent-client.md", "pi-agent-server.md"}
+
+
 # @spec SI-TIER1-001
 def test_tier1_feature_set_to_arrow_id(tmp_path):
     make_setup(

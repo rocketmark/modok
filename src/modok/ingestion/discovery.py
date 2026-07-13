@@ -104,25 +104,24 @@ def discover_docs(
 
         mod_slugs = registry.modules_for_feature(feature_id)
         for field_name, doc_type in [("arrow_doc", "hld"), ("lld", "lld"), ("specs", "spec")]:
-            rel_path = entry.get(field_name)
-            if not rel_path:
+            field_value = entry.get(field_name)
+            if not field_value:
                 continue
-            abs_path = (
-                (repo_root / rel_path).resolve()
-                if not Path(rel_path).is_absolute()
-                else Path(rel_path)
-            )
-            abs_path = repo_root / rel_path
-            rec = DocRecord(
-                path=abs_path,
-                doc_type=doc_type,
-                feature=feature_id,
-                tier=1,
-                modules=list(mod_slugs),
-                source_files=list(src_files),
-                test_files=list(tst_files),
-            )
-            tier1_paths[abs_path] = rec
+            # @spec SI-TIER1-003 — arrow_doc/lld/specs may be a single path
+            # or a list of paths (a feature spanning more than one LLD, e.g.).
+            rel_paths = field_value if isinstance(field_value, list) else [field_value]
+            for rel_path in rel_paths:
+                abs_path = repo_root / rel_path
+                rec = DocRecord(
+                    path=abs_path,
+                    doc_type=doc_type,
+                    feature=feature_id,
+                    tier=1,
+                    modules=list(mod_slugs),
+                    source_files=list(src_files),
+                    test_files=list(tst_files),
+                )
+                tier1_paths[abs_path] = rec
 
     # --- Scan docs/ for all .md files ---
     docs_root = repo_root / "docs"
