@@ -1054,7 +1054,6 @@ def test_investigation_kind_accepted_by_run_ingest_event():
 # @spec SQ-INV-001, SQ-INV-002
 def test_investigation_node_address_uses_composite_investigation_id():
     from modok.webhook.server import run_ingest_event
-    from modok.quine.ids import idFrom as _idFrom
 
     mock_client = AsyncMock()
     mock_client.node_exists = AsyncMock(return_value=False)

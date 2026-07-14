@@ -140,24 +140,35 @@ class GithubIngester:
 
     # @spec SQ-ANCH-006, SQ-ANCH-007
     async def _link_anchors(self, node: CustomerIssue) -> None:
-        """Resolve repo_root and run mechanical anchor linking. Any failure
-        (project not configured, config file absent, etc.) is logged and
-        swallowed — the CustomerIssue node write above must not be affected."""
+        """Resolve repo_root and run mechanical anchor linking.
+
+        The call to link_customer_issue_error_anchors always happens
+        (SQ-ANCH-006) — a repo_root resolution failure (project not
+        configured, config file absent, etc.) falls back to an
+        intentionally-invalid path rather than skipping the call outright;
+        the linker's own RegistryNotFoundError handling (SQ-ANCH-005) is
+        the actual safety net. Matches _link_anchors_resilient in
+        modok.webhook.server.
+        """
         try:
             from modok.cli.config import ModokConfig
 
-            config = ModokConfig.load()
-            repo_root = config.project(self._project_slug).repo
-            await link_customer_issue_error_anchors(
-                self._quine,
-                self._project_slug,
-                repo_root,
-                node.source_system,
-                node.ticket_id,
-                node.raw_text,
-            )
+            repo_root = Path(ModokConfig.load().project(self._project_slug).repo)
         except Exception as exc:
-            print(f"anchor linking skipped for {self._project_slug}: {exc}", file=sys.stderr)
+            print(
+                f"anchor linking: could not resolve repo_root for {self._project_slug}: {exc}",
+                file=sys.stderr,
+            )
+            repo_root = Path("/dev/null/modok-unconfigured-project")
+
+        await link_customer_issue_error_anchors(
+            self._quine,
+            self._project_slug,
+            repo_root,
+            node.source_system,
+            node.ticket_id,
+            node.raw_text,
+        )
 
     # ------------------------------------------------------------------
     # PR ingestion

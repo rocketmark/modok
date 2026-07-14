@@ -188,6 +188,7 @@ def mock_client():
     client.upsert_node = AsyncMock()
     client.write_edge_by_parts = AsyncMock()
     client.node_exists = AsyncMock(return_value=True)
+    client.replace_edges = AsyncMock()
     return client
 
 
@@ -256,7 +257,11 @@ async def test_ingest_issue_skips_prs(ingester, mock_client):
 async def test_ingest_issue_invokes_anchor_linking(ingester, mock_client):
     issue = make_issue(number=11, body="GSS_FAILURE observed during resolve")
 
-    with patch(
+    fake_project = type("P", (), {"slug": "stagehand", "repo": "/fake/repo"})()
+    fake_config = type("C", (), {"projects": [fake_project]})()
+    fake_config.project = lambda slug: fake_project  # instance attr — no self binding
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), patch(
         "modok.ingestion.github.link_customer_issue_error_anchors",
         new=AsyncMock(return_value=[]),
     ) as mock_link:

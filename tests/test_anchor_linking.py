@@ -32,7 +32,7 @@ def make_registries(tmp_path: Path, errors: dict[str, str] | None = None) -> Pat
         for slug, normalized in errors.items():
             lines.append(f"  {slug}:")
             lines.append(f"    normalized_error: {normalized!r}")
-            lines.append(f"    description: test error")
+            lines.append("    description: test error")
         (reg_dir / "errors.yml").write_text("\n".join(lines) + "\n")
     return tmp_path
 
@@ -148,7 +148,6 @@ async def test_calls_replace_edges_once_with_full_matched_set(tmp_path):
     )
 
     assert client.replace_edges.await_count == 1
-    _, kwargs_or_args = client.replace_edges.await_args, client.replace_edges.await_args
     call = client.replace_edges.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert len(to_ids) == 2
