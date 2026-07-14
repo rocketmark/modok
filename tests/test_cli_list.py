@@ -3,7 +3,7 @@ Tests for `modok list` — lists valid feature/module slugs from the project's
 registries. All tests are written before implementation (Phase 5). Every
 test cites the EARS spec it verifies via @spec annotation.
 
-Specs verified: CLI-LIST-001 through CLI-LIST-013.
+Specs verified: CLI-LIST-001 through CLI-LIST-019.
 """
 
 from __future__ import annotations
@@ -34,17 +34,24 @@ def write_config(path: Path, repo_path: str) -> Path:
     return path
 
 
-def write_registries(repo_root: Path, features: dict | None = None, modules: dict | None = None) -> None:
+def write_registries(
+    repo_root: Path,
+    features: dict | None = None,
+    modules: dict | None = None,
+    elements: dict | None = None,
+) -> None:
     reg_dir = repo_root / "registries"
     reg_dir.mkdir(parents=True, exist_ok=True)
     (reg_dir / "features.yml").write_text(yaml.dump({"features": features or {}}))
     (reg_dir / "modules.yml").write_text(yaml.dump({"modules": modules or {}}))
+    if elements is not None:
+        (reg_dir / "elements.yml").write_text(yaml.dump({"elements": elements}))
 
 
-def _run(tmp_path, args, features=None, modules=None, write_regs=True):
+def _run(tmp_path, args, features=None, modules=None, elements=None, write_regs=True):
     config_path = write_config(tmp_path / "config.toml", str(tmp_path))
     if write_regs:
-        write_registries(tmp_path, features, modules)
+        write_registries(tmp_path, features, modules, elements)
     runner = CliRunner()
     with patch("modok.cli.config.CONFIG_PATH", config_path):
         return runner.invoke(cli, ["list", "--project", "stagehand", *args])
@@ -58,6 +65,10 @@ _MODULES = {
     "device-card": {"name": "Device Card"},
     "app": {"name": "App"},
 }
+_ELEMENTS = {
+    "device-card": ["DeviceCard", "reinit_requested"],
+    "app": ["StagehandApp"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -66,39 +77,65 @@ _MODULES = {
 
 
 # @spec CLI-LIST-002
-def test_list_default_shows_both_sections(tmp_path):
-    result = _run(tmp_path, [], features=_FEATURES, modules=_MODULES)
+def test_list_default_shows_all_three_sections(tmp_path):
+    result = _run(tmp_path, [], features=_FEATURES, modules=_MODULES, elements=_ELEMENTS)
     assert result.exit_code == 0
     assert "Features:" in result.output
     assert "Modules:" in result.output
+    assert "Elements:" in result.output
     assert "wifi-provisioning" in result.output
     assert "device-card" in result.output
 
 
 # @spec CLI-LIST-003
 def test_list_features_only(tmp_path):
-    result = _run(tmp_path, ["--features"], features=_FEATURES, modules=_MODULES)
+    result = _run(
+        tmp_path, ["--features"], features=_FEATURES, modules=_MODULES, elements=_ELEMENTS
+    )
     assert result.exit_code == 0
     assert "Features:" in result.output
     assert "Modules:" not in result.output
+    assert "Elements:" not in result.output
     assert "device-card" not in result.output
 
 
 # @spec CLI-LIST-004
 def test_list_modules_only(tmp_path):
-    result = _run(tmp_path, ["--modules"], features=_FEATURES, modules=_MODULES)
+    result = _run(
+        tmp_path, ["--modules"], features=_FEATURES, modules=_MODULES, elements=_ELEMENTS
+    )
     assert result.exit_code == 0
     assert "Modules:" in result.output
     assert "Features:" not in result.output
+    assert "Elements:" not in result.output
     assert "wifi-provisioning" not in result.output
 
 
+# @spec CLI-LIST-014
+def test_list_elements_only(tmp_path):
+    result = _run(
+        tmp_path, ["--elements"], features=_FEATURES, modules=_MODULES, elements=_ELEMENTS
+    )
+    assert result.exit_code == 0
+    assert "Elements:" in result.output
+    assert "Features:" not in result.output
+    assert "Modules:" not in result.output
+    assert "reinit_requested" in result.output
+
+
 # @spec CLI-LIST-005
-def test_list_both_flags_same_as_neither(tmp_path):
-    result = _run(tmp_path, ["--features", "--modules"], features=_FEATURES, modules=_MODULES)
+def test_list_all_flags_same_as_neither(tmp_path):
+    result = _run(
+        tmp_path,
+        ["--features", "--modules", "--elements"],
+        features=_FEATURES,
+        modules=_MODULES,
+        elements=_ELEMENTS,
+    )
     assert result.exit_code == 0
     assert "Features:" in result.output
     assert "Modules:" in result.output
+    assert "Elements:" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +203,75 @@ def test_list_json_empty_requested_section_is_empty_list(tmp_path):
 
 
 # @spec CLI-LIST-010
-def test_list_json_both_sections_when_no_flags(tmp_path):
-    result = _run(tmp_path, ["--json"], features=_FEATURES, modules=_MODULES)
+def test_list_json_all_sections_when_no_flags(tmp_path):
+    result = _run(tmp_path, ["--json"], features=_FEATURES, modules=_MODULES, elements=_ELEMENTS)
     parsed = json.loads(result.output)
     assert "features" in parsed
     assert "modules" in parsed
+    assert "elements" in parsed
     assert parsed["project"] == "stagehand"
+
+
+# ---------------------------------------------------------------------------
+# CLI-LIST-015/016/017/018/019 — elements section specifics
+# ---------------------------------------------------------------------------
+
+
+# @spec CLI-LIST-015
+def test_list_elements_only_shows_modules_present_in_registry(tmp_path):
+    # "widgets" is a real module (in modules.yml) with no entry in
+    # elements.yml at all — it must not appear with an empty list.
+    modules = {**_MODULES, "widgets": {"name": "Widgets"}}
+    result = _run(tmp_path, ["--elements"], modules=modules, elements=_ELEMENTS)
+    assert "device-card" in result.output
+    assert "widgets" not in result.output
+
+
+# @spec CLI-LIST-016
+def test_list_elements_sorted_by_module_slug_element_order_preserved(tmp_path):
+    elements = {"zzz-module": ["z1", "a1"], "aaa-module": ["m2", "m1"]}
+    result = _run(tmp_path, ["--elements"], elements=elements)
+    lines = [
+        line for line in result.output.splitlines() if line.strip() and "Elements:" not in line
+    ]
+    module_order = [line.strip().split()[0] for line in lines]
+    assert module_order == ["aaa-module", "zzz-module"]
+    # element order within a module is preserved (not alphabetized: m2 before m1)
+    aaa_line = next(line for line in lines if line.strip().startswith("aaa-module"))
+    assert aaa_line.index("m2") < aaa_line.index("m1")
+
+
+# @spec CLI-LIST-017
+def test_list_elements_tabular_format(tmp_path):
+    result = _run(tmp_path, ["--elements"], elements=_ELEMENTS)
+    assert "device-card" in result.output
+    assert "DeviceCard" in result.output
+    assert "reinit_requested" in result.output
+
+
+# @spec CLI-LIST-018
+def test_list_elements_json_shape(tmp_path):
+    result = _run(tmp_path, ["--elements", "--json"], elements=_ELEMENTS)
+    parsed = json.loads(result.output)
+    assert {"module": "device-card", "elements": ["DeviceCard", "reinit_requested"]} in parsed[
+        "elements"
+    ]
+
+
+# @spec CLI-LIST-019
+def test_list_elements_yml_absent_is_not_an_error(tmp_path):
+    # elements=None (default) means write_registries never creates elements.yml at all.
+    result = _run(tmp_path, ["--elements"], features=_FEATURES, modules=_MODULES)
+    assert result.exit_code == 0
+    assert "Elements:" in result.output
+    assert "(none)" in result.output
+
+
+# @spec CLI-LIST-019
+def test_list_elements_yml_absent_json_is_empty_list(tmp_path):
+    result = _run(tmp_path, ["--elements", "--json"], features=_FEATURES, modules=_MODULES)
+    parsed = json.loads(result.output)
+    assert parsed["elements"] == []
 
 
 # ---------------------------------------------------------------------------

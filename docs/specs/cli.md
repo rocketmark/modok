@@ -141,19 +141,25 @@ See `docs/testing-standard.md` for full definitions.
 
 ## `modok list`
 
-- [x] **CLI-LIST-001** [U]: The system shall read feature and module slugs from the project's `Registry` (`registries/features.yml`, `registries/modules.yml`) rather than querying Quine, and shall not ping Quine or require it to be reachable.
-- [x] **CLI-LIST-002** [U]: When neither `--features` nor `--modules` is supplied, `modok list` shall include both the features section and the modules section in its output.
-- [x] **CLI-LIST-003** [U]: When `--features` is supplied without `--modules`, `modok list` shall include only the features section.
-- [x] **CLI-LIST-004** [U]: When `--modules` is supplied without `--features`, `modok list` shall include only the modules section.
-- [x] **CLI-LIST-005** [U]: When both `--features` and `--modules` are supplied, `modok list` shall behave identically to when neither is supplied (both sections included) — this is not a usage error.
-- [x] **CLI-LIST-006** [U]: Within each included section, entries shall be sorted alphabetically by slug, not by registry-file (YAML) order.
+- [x] **CLI-LIST-001** [U]: The system shall read feature slugs, module slugs, and per-module element names from the project's `Registry` (`registries/features.yml`, `registries/modules.yml`, `registries/elements.yml`) rather than querying Quine, and shall not ping Quine or require it to be reachable.
+- [x] **CLI-LIST-002** [U]: When none of `--features`, `--modules`, or `--elements` is supplied, `modok list` shall include all three sections (features, modules, elements) in its output.
+- [x] **CLI-LIST-003** [U]: Supplying `--features` shall include the features section, independent of whether `--modules` or `--elements` are also supplied.
+- [x] **CLI-LIST-004** [U]: Supplying `--modules` shall include the modules section, independent of whether `--features` or `--elements` are also supplied.
+- [x] **CLI-LIST-005** [U]: A section shall be included if and only if no flag was supplied at all, or its own flag was supplied — supplying all three of `--features`/`--modules`/`--elements` together is equivalent to supplying none, and is not a usage error.
+- [x] **CLI-LIST-006** [U]: Within the features and modules sections, entries shall be sorted alphabetically by slug, not by registry-file (YAML) order.
 - [x] **CLI-LIST-007** [U]: Without `--json`, `modok list` shall print each included section under a `Features:` / `Modules:` header, with one `<slug>  <name>` line per entry.
 - [x] **CLI-LIST-008** [U]: Without `--json`, a section that is included but has zero registry entries shall still print its header, followed by `(none)`.
-- [x] **CLI-LIST-009** [U]: Without `--json`, a section that was not requested (narrowed away by the other flag) shall not appear in the output at all.
+- [x] **CLI-LIST-009** [U]: Without `--json`, a section that was not requested (narrowed away by another flag) shall not appear in the output at all.
 - [x] **CLI-LIST-010** [U]: With `--json`, `modok list` shall print `{"project": "<slug>", ...}` with a `"features"` key present (as a list, empty if the registry has no entries) if and only if the features section was included, and likewise for a `"modules"` key.
 - [x] **CLI-LIST-011** [U]: When the project slug is not present in `~/.modok/config.toml`, `modok list` shall exit `1` before attempting to load any registry.
 - [x] **CLI-LIST-012** [U]: When the project's registries cannot be loaded (`RegistryNotFoundError` — e.g. `modok init` or `modok import-arrow` was never run for this project), `modok list` shall exit `1` with a message identifying the missing registries directory.
 - [x] **CLI-LIST-013** [U]: `modok list` shall exit `0` on success, including when an included section has zero entries.
+- [x] **CLI-LIST-014** [U]: Supplying `--elements` shall include the elements section (from `registries/elements.yml`), independent of whether `--features` or `--modules` are also supplied.
+- [x] **CLI-LIST-015** [U]: The elements section shall list one entry per module present in `elements.yml` — a module absent from `elements.yml` (no code identifiers were extracted for it, or `modok ingest-elements` has never been run) shall not appear, rather than appearing with an empty element list.
+- [x] **CLI-LIST-016** [U]: Entries in the elements section shall be sorted alphabetically by module slug; element names within one module's entry shall preserve `elements.yml`'s stored order (not further sorted).
+- [x] **CLI-LIST-017** [U]: Without `--json`, the elements section shall print one `<module-slug>  <elem1>, <elem2>, ...` line per module under an `Elements:` header.
+- [x] **CLI-LIST-018** [U]: With `--json`, the elements section shall be emitted as `"elements": [{"module": "<slug>", "elements": ["<elem>", ...]}, ...]`.
+- [x] **CLI-LIST-019** [U]: An absent or empty `registries/elements.yml` shall not raise `RegistryNotFoundError` — `elements.yml` is optional at the `Registry` level; the elements section, if included, behaves as zero entries (`(none)` / `[]`) rather than the command exiting `1`.
 
 ---
 

@@ -29,7 +29,7 @@ modok retrieve    --project <slug> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
 modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
-modok list     --project <slug> [--features] [--modules] [--json]
+modok list     --project <slug> [--features] [--modules] [--elements] [--json]
 modok diagnose --project <slug> --feature <slug>
                [--error <slug>] [--symptom <str>] [--json]
 modok quine    (start | stop | status)
@@ -187,17 +187,17 @@ Exit codes: `0` on success (including empty results), `1` if args are invalid or
 
 Lists the valid feature and module slugs for a project — the discovery command for `recall`'s `--feature`/`--module` and `diagnose`'s `--feature`, both of which require an exact, already-known slug and silently return "(no results)" on a near-miss (e.g. `--feature client` when the real slug is `client-ui`).
 
-Reads directly from the project's registries (`registries/features.yml`, `registries/modules.yml`) via the existing `Registry` class (`feature_slugs()`/`module_slugs()`/`feature_descriptions()`/`module_descriptions()`) — no Quine query. Does not require Quine to be running.
+Reads directly from the project's registries (`registries/features.yml`, `registries/modules.yml`, `registries/elements.yml`) via the existing `Registry` class (`feature_slugs()`/`module_slugs()`/`feature_names()`/`module_names()`/`module_elements()`) — no Quine query. Does not require Quine to be running.
 
-With neither `--features` nor `--modules`, lists both (features first, then modules). Either flag alone narrows to just that list. Both flags together behave identically to neither — there is no "conflicting flags" error state, since `--features --modules` and no flags both mean "show everything."
+Three independent flags: `--features`, `--modules`, `--elements`. With none supplied, all three sections are included. Any subset of flags narrows to just those sections. All flags together behave identically to none — there is no "conflicting flags" error state.
 
-Entries within each section are sorted alphabetically by slug — registry-file (YAML) order is insertion order, not a meaningful sequence to preserve, and alphabetical is easier to scan for the "what's the exact slug" lookup this command exists for.
+Entries within the features/modules sections are sorted alphabetically by slug — registry-file (YAML) order is insertion order, not a meaningful sequence to preserve, and alphabetical is easier to scan for the "what's the exact slug" lookup this command exists for. The elements section is sorted alphabetically by *module* slug, matching the other two sections; element names within a module keep the order `ingest-elements` extracted them in (source-file scan order), since that order isn't arbitrary in the same way YAML mapping order is.
 
-Prints tabular output by default — one `<slug>  <name>` line per entry, under a `Features:` / `Modules:` header. A section is omitted from tabular output when it wasn't requested (narrowed away by the other flag); a *requested* section with zero entries still prints its header with `(none)` below it, so an empty registry is visibly distinct from "you only asked for the other list."
+Prints tabular output by default — one `<slug>  <name>` line per entry for features/modules, under a `Features:` / `Modules:` header; one `<module-slug>  <elem1, elem2, ...>` line per module for elements, under an `Elements:` header. Only modules with at least one registered element appear (`ingest-elements` itself never writes an empty entry — see `docs/llds/ingestion-pipeline.md` — so this isn't a further filter, just a consequence of what's in the registry). A section is omitted from tabular output entirely when it wasn't requested; a *requested* section with zero entries (registry file empty, or `ingest-elements` never run) still prints its header with `(none)` below it, so an empty registry is visibly distinct from "you only asked for the other lists."
 
-`--json` emits `{"project": "<slug>", "features": [{"slug": ..., "name": ...}, ...], "modules": [...]}`. A key is present whenever that section was requested (including as an empty list `[]` if the registry has no entries); a key is omitted entirely only when its section was never requested at all. This mirrors the tabular distinction: JSON consumers can tell "empty" from "not asked for" the same way a human reading stdout can.
+`--json` emits `{"project": "<slug>", "features": [{"slug": ..., "name": ...}, ...], "modules": [...], "elements": [{"module": ..., "elements": [...]}, ...]}`. A key is present whenever that section was requested (including as an empty list `[]` if the registry has no entries); a key is omitted entirely only when its section was never requested at all. This mirrors the tabular distinction: JSON consumers can tell "empty" from "not asked for" the same way a human reading stdout can.
 
-Exit codes: `0` on success (including a project with zero features or modules), `1` if the project is not in config or its registries cannot be loaded (`RegistryNotFoundError` — e.g. `modok init`/`modok import-arrow` was never run for this project).
+Exit codes: `0` on success (including a project with zero features, modules, or elements), `1` if the project is not in config or its registries cannot be loaded (`RegistryNotFoundError` — e.g. `modok init`/`modok import-arrow` was never run for this project). `elements.yml` is optional at the `Registry` level (`ingest-elements` may never have been run) — its absence does not raise `RegistryNotFoundError`, it just means `module_elements()` returns `{}`.
 
 **Caveat: a listed slug is not guaranteed to be ingested.** `list` reads what's *registered* (`registries/*.yml`), not what's actually been written to Quine. A feature or module can be registered by `import-arrow` before `modok ingest`/`ingest-git` has run (or after a partial ingestion failure) — in that window, `list` will show the slug but `recall --feature <slug>` can still legitimately print "(no results)". This is accepted: checking ingestion status would require `list` to query Quine per slug, reintroducing the Quine dependency this command deliberately avoids (see Decisions & Alternatives).
 
