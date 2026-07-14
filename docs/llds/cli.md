@@ -29,9 +29,11 @@ modok retrieve    --project <slug> --ticket <id>
                [--node-id <int>]
 modok recall   --project <slug> (--feature <slug> | --module <slug>) [--json]
 modok search   --project <slug> (QUERY | --section <str> | --text <str>) [--json]
+modok list     --project <slug> [--features] [--modules] [--json]
 modok diagnose --project <slug> --feature <slug>
                [--error <slug>] [--symptom <str>] [--json]
 modok quine    (start | stop | status)
+modok stream   (install | status | remove)
 ```
 
 ### `modok init`
@@ -181,6 +183,24 @@ Prints tabular output by default; `--json` emits `{"project": "<slug>", "nodes":
 
 Exit codes: `0` on success (including empty results), `1` if args are invalid or the project is not in config, `2` if Quine is unreachable.
 
+### `modok list`
+
+Lists the valid feature and module slugs for a project — the discovery command for `recall`'s `--feature`/`--module` and `diagnose`'s `--feature`, both of which require an exact, already-known slug and silently return "(no results)" on a near-miss (e.g. `--feature client` when the real slug is `client-ui`).
+
+Reads directly from the project's registries (`registries/features.yml`, `registries/modules.yml`) via the existing `Registry` class (`feature_slugs()`/`module_slugs()`/`feature_descriptions()`/`module_descriptions()`) — no Quine query. Does not require Quine to be running.
+
+With neither `--features` nor `--modules`, lists both (features first, then modules). Either flag alone narrows to just that list. Both flags together behave identically to neither — there is no "conflicting flags" error state, since `--features --modules` and no flags both mean "show everything."
+
+Entries within each section are sorted alphabetically by slug — registry-file (YAML) order is insertion order, not a meaningful sequence to preserve, and alphabetical is easier to scan for the "what's the exact slug" lookup this command exists for.
+
+Prints tabular output by default — one `<slug>  <name>` line per entry, under a `Features:` / `Modules:` header. A section is omitted from tabular output when it wasn't requested (narrowed away by the other flag); a *requested* section with zero entries still prints its header with `(none)` below it, so an empty registry is visibly distinct from "you only asked for the other list."
+
+`--json` emits `{"project": "<slug>", "features": [{"slug": ..., "name": ...}, ...], "modules": [...]}`. A key is present whenever that section was requested (including as an empty list `[]` if the registry has no entries); a key is omitted entirely only when its section was never requested at all. This mirrors the tabular distinction: JSON consumers can tell "empty" from "not asked for" the same way a human reading stdout can.
+
+Exit codes: `0` on success (including a project with zero features or modules), `1` if the project is not in config or its registries cannot be loaded (`RegistryNotFoundError` — e.g. `modok init`/`modok import-arrow` was never run for this project).
+
+**Caveat: a listed slug is not guaranteed to be ingested.** `list` reads what's *registered* (`registries/*.yml`), not what's actually been written to Quine. A feature or module can be registered by `import-arrow` before `modok ingest`/`ingest-git` has run (or after a partial ingestion failure) — in that window, `list` will show the slug but `recall --feature <slug>` can still legitimately print "(no results)". This is accepted: checking ingestion status would require `list` to query Quine per slug, reintroducing the Quine dependency this command deliberately avoids (see Decisions & Alternatives).
+
 ### `modok diagnose`
 
 Feature-anchored debug packet assembly. Use when you know the feature slug and optionally have an error or symptom to narrow the results. Does not require a `CustomerIssue` node — intended for interactive/manual debugging.
@@ -291,8 +311,12 @@ src/modok/cli/
         retrieve.py
         recall.py
         search.py
+        list.py
         diagnose.py
         quine.py
+        stream.py
+        _output.py     # shared graph-result helpers: require_quine(), collect_nodes(),
+                        # dedup_nodes(), print_node() — used by recall.py and search.py
     config.py          # ModokConfig pydantic model, load(), path expansion
     output.py          # stdout formatters: json_out(), tabular(), report_out()
     errors.py          # CliError(exit_code, message); caught in main and sys.exit'd
@@ -322,6 +346,7 @@ modok = "modok.cli.main:cli"
 | `init --assisted` write behaviour | Write files directly; user edits if needed | Interactive review before write | Simpler. Registry files are source-of-truth text files — editing them is the natural correction mechanism. An interactive approval loop adds ceremony with no safety benefit here. |
 | JAR path validation on `quine start` | Check before forking, exit `1` with clear message | Let JVM error surface | JVM errors for missing JARs are unactionable. A path check before fork gives an operator-readable error. |
 | `quine stop` when process already dead | Exit `2` with crash message, leave PID file | Treat as success (delete PID, exit `0`) | Crashes should be visible. Silently cleaning up a dead-process PID file hides the fact that Quine crashed between start and stop. The operator needs to check logs. |
+| `list` data source | Registries (`Registry` class) directly | Query Quine's `Feature`/`Module` nodes | The registries are already the source of truth for which slugs are valid (HLD: "Convention + registries are truth for structure") — querying Quine would require it to be running just to discover topic names, and could show a slug that was registered but never actually ingested (or vice versa after a partial run). Reading the registry file directly is faster, has no infrastructure dependency, and can never disagree with what `recall`/`diagnose` will accept as a valid slug. |
 
 ## Open Questions & Future Decisions
 

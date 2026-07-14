@@ -139,6 +139,24 @@ See `docs/testing-standard.md` for full definitions.
 
 ---
 
+## `modok list`
+
+- [x] **CLI-LIST-001** [U]: The system shall read feature and module slugs from the project's `Registry` (`registries/features.yml`, `registries/modules.yml`) rather than querying Quine, and shall not ping Quine or require it to be reachable.
+- [x] **CLI-LIST-002** [U]: When neither `--features` nor `--modules` is supplied, `modok list` shall include both the features section and the modules section in its output.
+- [x] **CLI-LIST-003** [U]: When `--features` is supplied without `--modules`, `modok list` shall include only the features section.
+- [x] **CLI-LIST-004** [U]: When `--modules` is supplied without `--features`, `modok list` shall include only the modules section.
+- [x] **CLI-LIST-005** [U]: When both `--features` and `--modules` are supplied, `modok list` shall behave identically to when neither is supplied (both sections included) — this is not a usage error.
+- [x] **CLI-LIST-006** [U]: Within each included section, entries shall be sorted alphabetically by slug, not by registry-file (YAML) order.
+- [x] **CLI-LIST-007** [U]: Without `--json`, `modok list` shall print each included section under a `Features:` / `Modules:` header, with one `<slug>  <name>` line per entry.
+- [x] **CLI-LIST-008** [U]: Without `--json`, a section that is included but has zero registry entries shall still print its header, followed by `(none)`.
+- [x] **CLI-LIST-009** [U]: Without `--json`, a section that was not requested (narrowed away by the other flag) shall not appear in the output at all.
+- [x] **CLI-LIST-010** [U]: With `--json`, `modok list` shall print `{"project": "<slug>", ...}` with a `"features"` key present (as a list, empty if the registry has no entries) if and only if the features section was included, and likewise for a `"modules"` key.
+- [x] **CLI-LIST-011** [U]: When the project slug is not present in `~/.modok/config.toml`, `modok list` shall exit `1` before attempting to load any registry.
+- [x] **CLI-LIST-012** [U]: When the project's registries cannot be loaded (`RegistryNotFoundError` — e.g. `modok init` or `modok import-arrow` was never run for this project), `modok list` shall exit `1` with a message identifying the missing registries directory.
+- [x] **CLI-LIST-013** [U]: `modok list` shall exit `0` on success, including when an included section has zero entries.
+
+---
+
 ## `modok diagnose`
 
 - [x] **CLI-DIAG-001** [U]: When `--feature <slug>` is not supplied, `modok diagnose` shall exit `1` with a usage error before any graph operation.

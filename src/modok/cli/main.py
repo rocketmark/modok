@@ -19,6 +19,7 @@ from modok.cli.commands.ingest_elements import ingest_elements_cmd
 from modok.cli.commands.retrieve import retrieve_cmd
 from modok.cli.commands.recall import recall_cmd
 from modok.cli.commands.search import search_cmd
+from modok.cli.commands.list import list_cmd
 from modok.cli.commands.diagnose import diagnose_cmd
 from modok.cli.commands.quine import quine_cmd
 from modok.cli.commands.serve import serve_command
@@ -85,6 +86,7 @@ cli.add_command(ingest_elements_cmd, name="ingest-elements")
 cli.add_command(retrieve_cmd, name="retrieve")
 cli.add_command(recall_cmd, name="recall")
 cli.add_command(search_cmd, name="search")
+cli.add_command(list_cmd, name="list")
 cli.add_command(diagnose_cmd, name="diagnose")
 cli.add_command(quine_cmd, name="quine")
 cli.add_command(serve_command, name="serve")

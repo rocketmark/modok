@@ -52,6 +52,12 @@ class Registry:
     def feature_descriptions(self) -> dict[str, str]:
         return {slug: entry.get("description", "") for slug, entry in self._features.items()}
 
+    def feature_names(self) -> dict[str, str]:
+        return {slug: entry.get("name", "") for slug, entry in self._features.items()}
+
+    def module_names(self) -> dict[str, str]:
+        return {slug: entry.get("name", "") for slug, entry in self._modules.items()}
+
     def module_slugs(self) -> list[str]:
         return list(self._modules.keys())
 
