@@ -1,0 +1,10 @@
+name: new-bug-report-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci) WHERE ci.node_type = 'CustomerIssue' AND ci.ticket_kind = 'bug'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, 'new-bug-report-pattern' AS standing_query_name
+output_name: investigation-trigger

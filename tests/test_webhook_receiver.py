@@ -74,6 +74,7 @@ def _make_issue_payload(
     body: str = "Some description",
     state: str = "open",
     action: str = "opened",
+    labels: list[str] | None = None,
 ) -> dict:
     return {
         "action": action,
@@ -82,6 +83,7 @@ def _make_issue_payload(
             "title": title,
             "body": body,
             "state": state,
+            "labels": [{"name": name} for name in (labels or [])],
         },
     }
 
@@ -712,6 +714,36 @@ def test_gh_issue_null_body_becomes_empty_string():
     assert event.data.raw_text == ""
 
 
+def test_gh_issue_ticket_kind_from_bug_label():
+    # @spec WH-GH-010
+    from modok.webhook.adapters.github import GitHubAdapter
+    adapter = GitHubAdapter()
+    payload = _make_issue_payload(labels=["bug"])
+    event = adapter.normalize_event(payload, "issues")
+    assert event is not None
+    assert event.data.ticket_kind == "bug"
+
+
+def test_gh_issue_ticket_kind_from_enhancement_label():
+    # @spec WH-GH-010
+    from modok.webhook.adapters.github import GitHubAdapter
+    adapter = GitHubAdapter()
+    payload = _make_issue_payload(labels=["enhancement"])
+    event = adapter.normalize_event(payload, "issues")
+    assert event is not None
+    assert event.data.ticket_kind == "feature_request"
+
+
+def test_gh_issue_ticket_kind_none_without_matching_label():
+    # @spec WH-GH-010
+    from modok.webhook.adapters.github import GitHubAdapter
+    adapter = GitHubAdapter()
+    payload = _make_issue_payload()
+    event = adapter.normalize_event(payload, "issues")
+    assert event is not None
+    assert event.data.ticket_kind is None
+
+
 def test_gh_pr_field_mapping():
     # @spec WH-GH-008
     from modok.webhook.adapters.github import GitHubAdapter
@@ -1030,6 +1062,39 @@ def test_ingest_event_no_adapter_branching_in_pipeline():
     # source_system differs but node type must not — no adapter-identity branching
     assert gh_node.source_system != tkt_node.source_system
     assert type(gh_node) is type(tkt_node)
+
+
+# ---------------------------------------------------------------------------
+# GHING-MODEL-002 — run_ingest_event passes ticket_kind through to the node
+# ---------------------------------------------------------------------------
+
+
+# @spec GHING-MODEL-002
+def test_customer_issue_branch_passes_ticket_kind_through():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="wifi is broken", status="open",
+            source_system="github", ticket_kind="bug",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ):
+        run_ingest_event(event, mock_client)
+
+    written_node = mock_client.upsert_node.call_args.args[0]
+    assert written_node.ticket_kind == "bug"
 
 
 # ---------------------------------------------------------------------------
@@ -1362,6 +1427,30 @@ def test_distinct_evidence_combinations_produce_distinct_investigations():
     assert len(set(written)) == 2
 
 
+# @spec SQ-INV-001
+def test_investigation_from_broader_pattern_without_known_issue_or_fix():
+    """new-bug-report-pattern / error-flagged-pattern fire on a CustomerIssue
+    alone and never populate known_issue_id/fix_id — the investigation branch
+    must still build a valid, distinct Investigation from just source_system,
+    ticket_id, and standing_query_name."""
+    from modok.webhook.server import run_ingest_event
+
+    mock_client = AsyncMock()
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
+    mock_client.upsert_node = AsyncMock(return_value=None)
+    mock_client.write_edge_by_parts = AsyncMock(return_value=None)
+
+    event = _investigation_event(
+        known_issue_id="", fix_id="", standing_query_name="new-bug-report-pattern"
+    )
+    with patch("modok.webhook.server._maybe_notify_github", new=AsyncMock(return_value=None)):
+        nodes_written = run_ingest_event(event, mock_client)
+
+    assert nodes_written == 1
+    written_node = mock_client.upsert_node.call_args.args[0]
+    assert written_node.investigation_id == "github-42------new-bug-report-pattern"
+
+
 # ---------------------------------------------------------------------------
 # SQ-ROUTE-001..005 — POST /standing-query/result
 # ---------------------------------------------------------------------------
@@ -1421,9 +1510,22 @@ def test_standing_query_result_accepts_any_project_when_slugs_unconfigured():
 # @spec SQ-ROUTE-003
 def test_standing_query_result_missing_field_returns_400(client):
     incomplete = _match_object()
-    del incomplete["fix_id"]
+    del incomplete["ticket_id"]
     resp = client.post("/standing-query/result", json=incomplete)
     assert resp.status_code == 400
+
+
+# @spec SQ-ROUTE-003
+def test_standing_query_result_missing_known_issue_and_fix_is_accepted(client):
+    """known_issue_id/fix_id are optional — new-bug-report-pattern and
+    error-flagged-pattern fire on a CustomerIssue alone and never populate
+    them (docs/specs/standing-queries.md § SQ-ROUTE-003)."""
+    match = _match_object()
+    del match["known_issue_id"]
+    del match["fix_id"]
+    with patch("modok.webhook.server.run_ingest_event", return_value=1):
+        resp = client.post("/standing-query/result", json=match)
+    assert resp.status_code == 200
 
 
 # @spec SQ-ROUTE-004

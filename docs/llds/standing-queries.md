@@ -54,9 +54,21 @@ Standing query definitions are YAML artifacts, one file per query, under `src/mo
 ```
 src/modok/quine/standing_queries/
     __init__.py
-    loader.py                      # load_definition(name) -> StandingQueryDefinition
-    actionable_issue_pattern.yaml  # the v1 standing query
+    loader.py                       # load_definition(name) -> StandingQueryDefinition
+    actionable_issue_pattern.yaml   # known, already-fixed defect rediscovered
+    new_bug_report_pattern.yaml     # any ticket_kind='bug' CustomerIssue
+    error_flagged_pattern.yaml      # any CustomerIssue with an error anchor
 ```
+
+Three patterns exist because they represent three genuinely different strengths of evidence, not three ways of saying the same thing:
+
+| Pattern | Fires when | Strength |
+|---|---|---|
+| `actionable-issue-pattern` | Full chain: error anchor traces to a `KnownIssue` that already has a `Fix` | Strongest — this is *definitely* the same defect as something already resolved |
+| `error-flagged-pattern` | `CustomerIssue` has any `HAS_ERROR` anchor at all | Medium — a real, identifiable error signature, but not (yet, or ever) matched to a known fix |
+| `new-bug-report-pattern` | `CustomerIssue.ticket_kind == 'bug'` | Broadest — the reporter said it's a bug (via GitHub label, `docs/llds/github-ingestion.md § Ticket Kind from Labels`); no anchor required at all |
+
+All three post a debug-packet comment via the same downstream machinery (`run_ingest_event`'s `investigation` branch, `_maybe_notify_github`) — they differ only in *when* they trigger it, not in what happens afterward. A single ticket can fire more than one of these over its lifetime (e.g. `new-bug-report-pattern` on arrival, then `actionable-issue-pattern` later if a matching `KnownIssue`+`Fix` is subsequently ingested) — each produces its own `Investigation` node and its own comment, which is intended: an immediate "we're looking into this" followed later by a stronger "this is the same thing we already fixed."
 
 ### `actionable_issue_pattern.yaml`
 
@@ -73,7 +85,8 @@ enrichment_query: |
   MATCH (ci)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(ki)-[:RESOLVED_BY]->(fix)
   WHERE e.node_type = 'ErrorSignature' AND ki.node_type = 'KnownIssue' AND fix.node_type = 'Fix'
   RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
-         ci.ticket_id AS ticket_id, ki.issue_id AS known_issue_id, fix.fix_id AS fix_id
+         ci.ticket_id AS ticket_id, ki.issue_id AS known_issue_id, fix.fix_id AS fix_id,
+         'actionable-issue-pattern' AS standing_query_name
 output_name: investigation-trigger
 ```
 
@@ -84,6 +97,44 @@ Notes on this specific pattern:
 - **`RETURN DISTINCT id(ci) AS id`** satisfies DistinctId mode's constraint (exactly one value, the `id`/`strId` of a node bound in the `MATCH`) — the explicit `AS id` alias is required, not optional (see § Live Verification Findings).
 - **Order independence is structural, not coded.** Nothing in the pattern assumes `CustomerIssue`, `KnownIssue`, or `Fix` arrives first — Quine's incremental evaluation fires on whichever write completes the pattern, regardless of order. Confirmed live: writing three of the four required edges produces no match; adding the fourth (tried both as the `CustomerIssue→ErrorSignature` edge and, separately, as the `KnownIssue→Fix` edge) fires it immediately.
 - **`enrichment_query`** is the `CypherQuery` `andThen` stage: it re-fetches the identifying fields Quine's own output pipeline needs to build the `PostToEndpoint` body — `$that.data.id` is the result-field key produced by the pattern's `AS id` alias. This is *not* the full debug packet; it is the minimum needed to identify the match. The full packet is assembled by the Diagnostic Retrieval Engine after MODOK receives the callback (see § Standing Query Result Route).
+- **`'actionable-issue-pattern' AS standing_query_name`** is a literal, not a graph read — found live to be necessary once a second and third standing query existed. The `/standing-query/result` route defaults a missing `standing_query_name` to `"actionable-issue-pattern"` for backward compatibility, but every enrichment query must now return its own name explicitly; relying on the default silently mislabels matches from any other pattern (confirmed live — see § Second Live Verification Pass).
+
+### `new_bug_report_pattern.yaml`
+
+```yaml
+name: new-bug-report-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci) WHERE ci.node_type = 'CustomerIssue' AND ci.ticket_kind = 'bug'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, 'new-bug-report-pattern' AS standing_query_name
+output_name: investigation-trigger
+```
+
+Fires on a single-node match — no relationship traversal at all, unlike `actionable-issue-pattern`. The enrichment query does not return `known_issue_id`/`fix_id`; `InvestigationData` defaults both to `""` (`docs/specs/webhook-receiver.md` model, `SQ-INV-001`), and the resulting `investigation_id` simply has empty segments where those would go — still unique per ticket per pattern, since `standing_query_name` is part of the composite string.
+
+**Why this isn't just `actionable-issue-pattern` with an added `OR` clause.** The first attempt was `MATCH (ci) OPTIONAL MATCH (ci)-[:HAS_ERROR]->(e) WHERE ci.node_type = 'CustomerIssue' AND (ci.ticket_kind = 'bug' OR e.node_type = 'ErrorSignature') RETURN DISTINCT id(ci) AS id`, tested directly against a live Quine 1.10.0 instance before being adopted anywhere. It returned 2774 rows on a graph with exactly 27 `CustomerIssue` nodes total — `OPTIONAL MATCH` combined with a `WHERE` clause referencing the *original* `MATCH` variable silently stopped filtering on `ci.node_type` at all. Removing the `OR ticket_kind` condition and leaving only `OPTIONAL MATCH (ci)-[:HAS_ERROR]->(e) WHERE ci.node_type = 'CustomerIssue'` reproduced the same 2774-row result, isolating the bug to `OPTIONAL MATCH` itself, not the `OR`. A `UNION` of two plain `MATCH...WHERE` queries returned the correct 3 rows when tested as an ad-hoc query, but whether Quine's `DistinctId` standing-query mode accepts a `UNION`ed pattern at all was untested and judged too risky to introduce without a live registration to confirm it — so this became two separate standing queries instead, each reusing the exact single-`MATCH`-clause shape `actionable-issue-pattern` already proves works in production.
+
+### `error_flagged_pattern.yaml`
+
+```yaml
+name: error-flagged-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci)-[:HAS_ERROR]->(e)
+  WHERE ci.node_type = 'CustomerIssue' AND e.node_type = 'ErrorSignature'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, 'error-flagged-pattern' AS standing_query_name
+output_name: investigation-trigger
+```
+
+Same two-hop shape `actionable-issue-pattern`'s first segment already uses, just without continuing on to `KnownIssue`/`Fix` — fires on *any* `HAS_ERROR` anchor, mechanical or LLM-derived (`docs/llds/standing-queries.md § LLM Fallback Anchor Classification`), whether or not that `ErrorSignature` happens to already be linked to a resolved `KnownIssue`.
 
 ### Live Verification Findings
 
@@ -107,6 +158,8 @@ Root cause, found by directly comparing values: `modok.quine.ids.idFrom("feature
 None of this was caught by the unit test suite, because every test mocks `node_exists`/`get_node`/`replace_edges` directly and supplies whatever ID the test author chose — the mismatch only exists between a *real* Quine-assigned ID and a *Python-computed* one, which a mock can't detect since it never talks to real Quine. It also wasn't caught by the first live-verification pass above, which seeded evidence via raw Cypher writes (bypassing `anchor_linking.py` entirely) and explicitly did not exercise the GitHub write-back path live.
 
 **Fix**: `QuineClient.node_exists_by_parts` and `.replace_edges_by_parts` (`docs/llds/quine-client.md § node_exists_by_parts`), mirroring `write_edge_by_parts`'s existing correct pattern — embed Quine's own `idFrom()` in the query text instead of requiring a precomputed ID. All three call sites above were switched to use them; `_maybe_notify_github` additionally now resolves the `CustomerIssue`'s real ID via a property-match query (the same pattern `modok retrieve`'s CLI command already used correctly) rather than any `idFrom()` variant, since there is no `idFrom()`-based approach that works for a node whose real ID must come from Quine itself.
+
+**A third live pass (testing `new-bug-report-pattern`, below) found the ID-type fix alone was insufficient.** A real bug-labeled `CustomerIssue` write produced a confirmed standing-query match and a `200 OK` `PostToEndpoint` delivery, but no `Investigation` node ever appeared. Root cause: `node_exists`/`node_exists_by_parts` still returned `True` for an address nothing had ever been written to — Quine's `MATCH (n) WHERE id(n) = <any address> RETURN n` always returns a row (an empty-property shell), even for a brand-new address, so `bool(results)` could never report "doesn't exist." `_process_investigation`'s dedup check hit exactly this, concluded the `Investigation` was "already recorded," and skipped the real upsert on the very first delivery. Fixed by requiring a `node_type` property on the returned node — the same discipline `collect_nodes()` already applies (`CLI-REC-009`). Full detail: `docs/llds/quine-client.md § node_exists_by_parts`.
 
 ### Loader and installer interface
 
@@ -249,7 +302,7 @@ Algorithm:
 5. If `parse_ticket` raises `LLMUnavailableError` or `LLMGatewayError`, log to stderr and return — write nothing. The `CustomerIssue` node write (which already completed before this function was ever called) is unaffected.
 6. **Feature validation and write**: keep only slugs that are (a) in `registry.feature_slugs()` specifically — not `module_slugs` — since `AFFECTS` targets are `Feature` nodes only, and (b) confirmed via `client.node_exists(idFrom('feature', ...))`. Call `replace_edges(ci_id, "AFFECTS", [...])` once with the full validated set (possibly empty), mirroring the mechanical linkers' reconciliation discipline.
 7. **Error validation and write**: keep only signatures that are (a) present in `registry.error_normalized_values()`, and (b) confirmed via `client.node_exists(idFrom('error', ...))`. Call `replace_edges(ci_id, "HAS_ERROR", [...])` once with the full validated set.
-8. `ticket_kind` (bug vs. feature-request classification) is explicitly **out of scope** for this increment — see Open Questions.
+8. `ticket_kind` (bug vs. feature-request classification) is out of scope for *this function* — it is never inferred from `raw_text`, mechanically or via LLM. It is instead derived from GitHub issue labels at ingestion time, a structured/explicit signal rather than a text classifier — see `docs/llds/github-ingestion.md § Ticket Kind from Labels`.
 
 **Call-site gating** — both call sites run this after both mechanical linkers, only if both returned empty:
 
@@ -282,6 +335,8 @@ investigation_id = f"{source_system}-{ticket_id}--{known_issue_id}--{fix_id}--{s
 ```
 
 This keeps the node schema to exactly the five fields the task's schema guidance specifies — no `known_issue_id`/`fix_id` fields on the node itself, since they're already encoded in `investigation_id` and traceable by re-running the same DRE traversal `INVESTIGATES` implies.
+
+`known_issue_id`/`fix_id` default to `""` (`InvestigationData`, `src/modok/webhook/models.py`) — only `actionable-issue-pattern`'s enrichment query returns them; `new-bug-report-pattern` and `error-flagged-pattern` fire on a `CustomerIssue` alone and leave both blank. The formula above still produces a valid, unique `investigation_id` with empty segments in that case (e.g. `"github-42------new-bug-report-pattern"`) — uniqueness per ticket per pattern comes from `standing_query_name`, not from `known_issue_id`/`fix_id` being non-empty.
 
 Edge: `Investigation -[:INVESTIGATES]-> CustomerIssue`.
 
@@ -429,7 +484,9 @@ No new exception hierarchy — this component is a consumer of `QuineClient` (ra
 | Known-issue evidence for the demo | Extend `_write_known_issue_block` (ingestion-pipeline segment) to write `HAS_ERROR`/`RESOLVED_BY` edges from new `error_signatures`/`fixes` block fields | Seed the edges directly for the demo only, leaving ingestion untouched | User-selected: makes the demo's pre-existing evidence side real doc-ingestion rather than scripted seed data, closing a pre-existing gap (these edges were schema-documented and DRE-consumed but never written by any production code path) |
 | Feature anchor matching mechanism | Token/keyword match (tokenize slug+name, check overlap with tokenized ticket text) — same tokenizer the DRE's `_pre_match_modules` already uses at read time | Exact substring match (mirroring the error linker exactly); LLM-only (no mechanical feature matching at all) | User-selected: exact substring match was rejected because organically-written tickets essentially never contain a feature's literal slug string (unlike error text, which is often copy-pasted verbatim from a stack trace) — token overlap catches the common case ("wifi" in prose matching `wifi-provisioning`) while staying fully mechanical |
 | LLM fallback trigger condition | Gate on **both** mechanical linkers (error, feature) returning empty | Always run the LLM classifier regardless of mechanical results; gate independently per anchor type | User-selected: mirrors the DRE's own existing read-time precedent (mechanical/graph evidence, when present, is always preferred over an LLM call) and keeps the LLM call reserved for tickets with no mechanical signal at all, rather than doubling ticket-level LLM cost |
-| `ticket_kind` (bug vs. feature-request) classification | Dropped from this increment entirely | LLM-classified as part of the same `parse_ticket` call; mechanical keyword heuristic (fixed word list) | User-selected: keyword heuristics for free-form sentence *shape* (unlike entity-name matching) would misfire often enough to not be worth adding yet; deferred as a distinct, separate increment |
+| `ticket_kind` (bug vs. feature-request) classification | Dropped from *this* increment entirely — later implemented via GitHub issue labels (`docs/llds/github-ingestion.md`), not text classification | LLM-classified as part of the same `parse_ticket` call; mechanical keyword heuristic (fixed word list) | User-selected: keyword heuristics for free-form sentence *shape* (unlike entity-name matching) would misfire often enough to not be worth adding; labels are explicit, structured metadata a reporter (or issue template) already assigns, sidestepping the classification problem entirely |
+| Broader trigger for the debug-packet workflow | Two new, separate standing queries (`new-bug-report-pattern` on `ticket_kind='bug'`; `error-flagged-pattern` on any `HAS_ERROR`), `actionable-issue-pattern` unchanged | Broaden `actionable-issue-pattern` itself with an `OR` condition; require `ticket_kind='bug'` AND some anchor as a single stricter combined condition | User-selected: keeps the strongest signal (`actionable-issue-pattern` — an exact match to something already fixed) undiluted as its own case, while still surfacing weaker-but-useful signals (a labeled bug, or any identified error) immediately. A combined single query was also ruled out on technical grounds — see `new_bug_report_pattern.yaml`'s live-verification note on why `OPTIONAL MATCH` couldn't be used |
+| `InvestigationData.known_issue_id`/`fix_id` | Made optional (default `""`) | A separate `InvestigationData` variant per pattern shape | The five-field `investigation_id` formula already produces valid, unique output with empty segments — no need for two dataclass shapes when one with defaults covers both cases cleanly |
 
 ## Open Questions & Future Decisions
 
@@ -451,7 +508,7 @@ No new exception hierarchy — this component is a consumer of `QuineClient` (ra
 
 ### Deferred
 
-1. **`ticket_kind` (bug vs. feature-request) classification** is out of scope for this increment — no field, mechanical or LLM-derived, records it. A future increment could add it as a `CustomerIssue` property, likely riding the same `parse_ticket` call the LLM fallback classifier already makes, once a reliable enough signal (LLM-based, since mechanical keyword heuristics for sentence *shape* were rejected as too unreliable) is designed.
+1. ~~`ticket_kind` (bug vs. feature-request) classification is out of scope~~ — **resolved**: implemented via GitHub issue labels rather than text classification. See `docs/llds/github-ingestion.md § Ticket Kind from Labels`.
 2. **A ticket that mechanically matches on one anchor type but not the other never gets the missing type filled in.** E.g. a ticket whose text happens to contain an exact registered error string, but also mentions an unrelated feature by name only loosely (no token overlap), gets `HAS_ERROR` from mechanical linking and no `AFFECTS` at all — the LLM fallback never runs because the gate is "both empty," not "either empty." Accepted trade-off (see Decisions & Alternatives) since exact mechanical matches are expected to be rare in the first place; revisit if this proves to matter in practice.
 3. **Multi-row `PostToEndpoint` semantics** — whether Quine batches multiple enrichment-query result rows into one POST or sends one POST per row was not exercised (only single-row matches were tested live). The route handles both shapes defensively (§ Standing Query Result Route), but which one actually happens for a multi-combination match (`SQ-INV-006`) is unconfirmed.
 4. **Poll interval tuning** — 30s default is a demo-friendly guess, not derived from GitHub rate-limit budgets at any particular scale. Fine for a single-repo local demo; revisit if this were ever used against a busy repo.

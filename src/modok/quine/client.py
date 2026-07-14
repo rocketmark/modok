@@ -20,6 +20,23 @@ _DEFAULT_TIMEOUT = 10.0
 _BACKOFF_BASE = 0.5  # seconds; doubles each retry
 
 
+# @spec QC-NR-003, QC-NR-004
+def _row_is_real_node(results: list) -> bool:
+    """`MATCH (n) WHERE id(n) = <any address> RETURN n` always returns a row
+    in Quine, even for an address nothing was ever written to — an
+    empty-property shell, not a real node (confirmed live: the same address
+    queried twice, never referenced before, returns identical empty
+    properties both times — this is Quine's addressing model, not
+    first-touch vivification). `bool(results)` alone can never distinguish a
+    real node from this shell. A node only "exists" in MODOK's sense once it
+    has a node_type property — the same discipline collect_nodes() already
+    applies (CLI-REC-009, src/modok/cli/commands/_output.py)."""
+    if not results or not results[0]:
+        return False
+    node = results[0][0]
+    return bool(isinstance(node, dict) and node.get("properties", {}).get("node_type"))
+
+
 class TraversalStep:
     def __init__(
         self,
@@ -128,7 +145,7 @@ class QuineClient:
             "MATCH (n) WHERE id(n) = $node_id RETURN n",
             {"node_id": node_id},
         )
-        return bool(results)
+        return _row_is_real_node(results)
 
     # @spec QC-NR-004
     async def node_exists_by_parts(self, parts: tuple[str, ...]) -> bool:
@@ -140,7 +157,7 @@ class QuineClient:
         args = ", ".join(f"$p{i}" for i in range(len(parts)))
         params = {f"p{i}": p for i, p in enumerate(parts)}
         results = await self._cypher(f"MATCH (n) WHERE id(n) = idFrom({args}) RETURN n", params)
-        return bool(results)
+        return _row_is_real_node(results)
 
     # @spec QC-EW-001, QC-EW-002, QC-EW-003
     async def write_edge(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> None:

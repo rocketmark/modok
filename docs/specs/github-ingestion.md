@@ -49,6 +49,7 @@ LLD: `docs/llds/github-ingestion.md`
   - `project_slug` = project slug from config
 
 - [x] **GHING-ISSUE-002** [U]: GitHub objects with a `pull_request` key SHALL be skipped during issue ingestion; they are handled in PR ingestion.
+- [x] **GHING-ISSUE-003** [U]: THE SYSTEM SHALL derive `ticket_kind` from `issue.labels` (a list of label objects, each with a `name` string) via `ticket_kind_from_labels`: a case-insensitive substring match of `"bug"` in any label name sets `ticket_kind = "bug"`; a case-insensitive substring match of `"feature"` or `"enhancement"` sets `ticket_kind = "feature_request"`; `"bug"` takes precedence if a label somehow matches both. If no label matches either, or `issue.labels` is absent/empty, `ticket_kind` SHALL be `None`. This is a mechanical, structured-input classification — the label is explicit metadata the reporter (or an issue template) already assigned, not inferred from free text.
 
 ---
 
@@ -102,3 +103,4 @@ LLD: `docs/llds/github-ingestion.md`
 ## Data Model
 
 - [x] **GHING-MODEL-001** [U]: The `Fix` model SHALL include a `pr_url: str | None = None` field.
+- [x] **GHING-MODEL-002** [U]: The `CustomerIssue` model SHALL include a `ticket_kind: str | None = None` field (GHING-ISSUE-003).

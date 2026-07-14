@@ -1,0 +1,11 @@
+name: error-flagged-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci)-[:HAS_ERROR]->(e)
+  WHERE ci.node_type = 'CustomerIssue' AND e.node_type = 'ErrorSignature'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, 'error-flagged-pattern' AS standing_query_name
+output_name: investigation-trigger

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 
+from modok.ingestion.github import ticket_kind_from_labels
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import CustomerIssueData, FixData, IngestEvent, WebhookConfig
 
@@ -11,7 +12,7 @@ _ISSUE_ACTIONS = {"opened", "edited", "labeled", "closed", "reopened"}
 
 class GitHubAdapter:
     # @spec WH-GH-001, WH-GH-002, WH-GH-003, WH-GH-004, WH-GH-005,
-    #        WH-GH-006, WH-GH-007, WH-GH-008, WH-GH-009
+    #        WH-GH-006, WH-GH-007, WH-GH-008, WH-GH-009, WH-GH-010
 
     def verify_request(self, request: object, config: WebhookConfig) -> None:
         # @spec WH-GH-001, WH-PUSH-009
@@ -45,6 +46,7 @@ class GitHubAdapter:
             if action not in _ISSUE_ACTIONS:
                 return IngestEvent(kind="skip", project_slug=project_slug, data=None)
             issue = payload.get("issue", {})
+            label_names = [label.get("name", "") for label in issue.get("labels", [])]
             return IngestEvent(
                 kind="customer_issue",
                 project_slug=project_slug,
@@ -54,6 +56,7 @@ class GitHubAdapter:
                     raw_text=issue.get("body") or "",
                     status=issue.get("state", "open"),
                     source_system="github",
+                    ticket_kind=ticket_kind_from_labels(label_names),
                 ),
             )
 

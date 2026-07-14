@@ -33,6 +33,7 @@ def make_issue(
     body: str = "",
     state: str = "open",
     login: str = "alice",
+    labels: list[str] | None = None,
 ) -> dict:
     return {
         "number": number,
@@ -40,6 +41,7 @@ def make_issue(
         "body": body,
         "state": state,
         "user": {"login": login},
+        "labels": [{"name": name} for name in (labels or [])],
         # No "pull_request" key — this is a plain issue
     }
 
@@ -266,6 +268,85 @@ async def test_ingest_issue_skips_prs(ingester, mock_client):
     pr_as_issue = make_pr_issue(number=10)
     await ingester.ingest_issue(pr_as_issue)
     mock_client.upsert_node.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# GHING-ISSUE-003 / GHING-MODEL-002 — ticket_kind derived from issue labels
+# ---------------------------------------------------------------------------
+
+
+# @spec GHING-ISSUE-003
+@pytest.mark.asyncio
+async def test_ingest_issue_sets_ticket_kind_bug_from_label(ingester, mock_client):
+    issue = make_issue(number=20, labels=["bug"])
+    await ingester.ingest_issue(issue)
+    node: CustomerIssue = mock_client.upsert_node.call_args[0][0]
+    assert node.ticket_kind == "bug"
+
+
+# @spec GHING-ISSUE-003
+@pytest.mark.asyncio
+async def test_ingest_issue_sets_ticket_kind_feature_request_from_enhancement_label(
+    ingester, mock_client
+):
+    issue = make_issue(number=21, labels=["enhancement"])
+    await ingester.ingest_issue(issue)
+    node: CustomerIssue = mock_client.upsert_node.call_args[0][0]
+    assert node.ticket_kind == "feature_request"
+
+
+# @spec GHING-ISSUE-003
+@pytest.mark.asyncio
+async def test_ingest_issue_ticket_kind_none_when_no_matching_label(ingester, mock_client):
+    issue = make_issue(number=22, labels=["needs-triage"])
+    await ingester.ingest_issue(issue)
+    node: CustomerIssue = mock_client.upsert_node.call_args[0][0]
+    assert node.ticket_kind is None
+
+
+# @spec GHING-ISSUE-003
+@pytest.mark.asyncio
+async def test_ingest_issue_ticket_kind_none_when_no_labels(ingester, mock_client):
+    issue = make_issue(number=23)
+    await ingester.ingest_issue(issue)
+    node: CustomerIssue = mock_client.upsert_node.call_args[0][0]
+    assert node.ticket_kind is None
+
+
+# ---------------------------------------------------------------------------
+# GHING-ISSUE-003 — ticket_kind_from_labels pure function
+# ---------------------------------------------------------------------------
+
+
+# @spec GHING-ISSUE-003
+def test_ticket_kind_from_labels_bug():
+    from modok.ingestion.github import ticket_kind_from_labels
+
+    assert ticket_kind_from_labels(["bug"]) == "bug"
+    assert ticket_kind_from_labels(["Bug"]) == "bug"
+
+
+# @spec GHING-ISSUE-003
+def test_ticket_kind_from_labels_feature_request():
+    from modok.ingestion.github import ticket_kind_from_labels
+
+    assert ticket_kind_from_labels(["enhancement"]) == "feature_request"
+    assert ticket_kind_from_labels(["Feature Request"]) == "feature_request"
+
+
+# @spec GHING-ISSUE-003
+def test_ticket_kind_from_labels_no_match():
+    from modok.ingestion.github import ticket_kind_from_labels
+
+    assert ticket_kind_from_labels(["needs-triage"]) is None
+    assert ticket_kind_from_labels([]) is None
+
+
+# @spec GHING-ISSUE-003
+def test_ticket_kind_from_labels_bug_takes_precedence():
+    from modok.ingestion.github import ticket_kind_from_labels
+
+    assert ticket_kind_from_labels(["enhancement", "bug"]) == "bug"
 
 
 # ---------------------------------------------------------------------------

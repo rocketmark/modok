@@ -379,6 +379,18 @@ async def test_node_exists_returns_false_when_absent():
     assert await client.node_exists(999999) is False
 
 
+# @spec QC-NR-003
+@pytest.mark.asyncio
+async def test_node_exists_returns_false_for_empty_property_shell():
+    """MATCH (n) WHERE id(n) = X RETURN n always returns a row in Quine, even
+    for an address nothing was ever written to — an empty-property shell,
+    not a real node (found live). bool(results) alone would incorrectly
+    report True here; only a present node_type property counts as real."""
+    transport = httpx.MockTransport(lambda r: quine_node_response("some-uuid", {}))
+    client = make_client(transport)
+    assert await client.node_exists("some-uuid") is False
+
+
 # ---------------------------------------------------------------------------
 # QC-EW-001 — write_edge creates edge when missing
 # ---------------------------------------------------------------------------
@@ -607,6 +619,17 @@ async def test_node_exists_by_parts_returns_false_when_absent():
     transport = httpx.MockTransport(lambda r: quine_empty_response())
     client = make_client(transport)
     assert await client.node_exists_by_parts(("feature", "proj-a", "does-not-exist")) is False
+
+
+# @spec QC-NR-004
+@pytest.mark.asyncio
+async def test_node_exists_by_parts_returns_false_for_empty_property_shell():
+    """Same shell-node finding as node_exists (found live against a real
+    Quine instance): id(n) = idFrom(...) always returns a row, even for an
+    address never written to. Must not be mistaken for a real node."""
+    transport = httpx.MockTransport(lambda r: quine_node_response("some-uuid", {}))
+    client = make_client(transport)
+    assert await client.node_exists_by_parts(("feature", "proj-a", "totally-made-up")) is False
 
 
 # @spec QC-NR-004

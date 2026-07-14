@@ -31,6 +31,22 @@ No LLM is involved. All data is mechanical: GitHub's API returns structured fiel
 | `summary` | `issue.title` |
 | `raw_text` | `issue.body` (may be null → empty string) |
 | `status` | `"open"` or `"closed"` |
+| `ticket_kind` | Derived from `issue.labels` — see § Ticket Kind from Labels |
+
+## Ticket Kind from Labels
+
+`ticket_kind_from_labels(label_names: list[str]) -> str | None` (`src/modok/ingestion/github.py`) derives whether a ticket is a bug report or a feature request from the reporter's own GitHub labels — explicit, structured metadata, not a text classifier. Case-insensitive substring match: any label containing `"bug"` → `"bug"`; any label containing `"feature"` or `"enhancement"` → `"feature_request"` (covers GitHub's own default `"enhancement"` label with no configuration needed); `"bug"` wins if a label somehow matches both; no match (or no labels at all) → `None`.
+
+This is deliberately **not** the mechanical/LLM anchor classification path (`docs/llds/standing-queries.md § LLM Fallback Anchor Classification`), which was scoped to error/feature anchors only and explicitly dropped a text-based `ticket_kind` classifier as too unreliable (sentence-*shape* heuristics misfire far more than the entity-name matching anchor linking does). Labels sidestep that problem entirely: the classification is made once, explicitly, by whoever files the ticket — commonly enforced via a GitHub issue template (`.github/ISSUE_TEMPLATE/*.yml`) that requires selecting "Bug" or "Feature request" and auto-applies the corresponding label, so `ticket_kind` is populated for every new ticket without relying on wording at all.
+
+Called from both `CustomerIssue`-writing paths so a ticket's `ticket_kind` is identical regardless of arrival path:
+
+- `GithubIngester.ingest_issue` (batch `ingest-github` and the poll adapter) — reads `issue.get("labels", [])`, each a `{"name": str, ...}` object per GitHub's REST/webhook schema.
+- `GitHubAdapter.normalize_event` (webhook push, `docs/llds/webhook-receiver.md § GitHub Adapter`) — same extraction from the webhook payload's `issue.labels`.
+
+`run_ingest_event`'s `customer_issue` branch (`src/modok/webhook/server.py`) passes `event.data.ticket_kind` straight through to the `CustomerIssue` node — no additional logic there.
+
+Because GitHub bumps an issue's `updated_at` when its labels change (the `"labeled"` webhook action is already in `_ISSUE_ACTIONS`, and the poll adapter's `since` incremental fetch keys off `updated_at`), labeling an issue after creation — not just via a template at creation time — re-triggers ingestion and populates `ticket_kind` on the next webhook delivery or poll cycle either way.
 
 ### Field mapping — Fix
 

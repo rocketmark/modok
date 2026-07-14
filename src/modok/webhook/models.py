@@ -33,6 +33,7 @@ class CustomerIssueData:
     raw_text: str
     status: str
     source_system: str
+    ticket_kind: str | None = None
 
 
 @dataclass(frozen=True, eq=True)
@@ -46,9 +47,12 @@ class FixData:
 class InvestigationData:
     source_system: str
     ticket_id: str
-    known_issue_id: str
-    fix_id: str
     standing_query_name: str
+    # Optional: only the actionable-issue-pattern match (a known, already-fixed
+    # defect) populates these. Broader patterns (new-bug-report-pattern,
+    # error-flagged-pattern) fire on a CustomerIssue alone and leave them "".
+    known_issue_id: str = ""
+    fix_id: str = ""
 
 
 @dataclass(frozen=True, eq=True)

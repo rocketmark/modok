@@ -83,6 +83,7 @@ class CustomerIssue(QuineNode):
     summary: str
     raw_text: str | None = None
     status: str
+    ticket_kind: str | None = None
 
 
 class SimilarityMatch(QuineNode):

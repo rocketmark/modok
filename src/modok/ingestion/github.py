@@ -1,6 +1,6 @@
 """GitHub ingestion — pulls issues and merged PRs into the graph as CustomerIssue and Fix nodes."""
-# @spec GHING-ISSUE-001, GHING-ISSUE-002, GHING-PR-001, GHING-PR-002, GHING-PR-003,
-#       GHING-PR-004, GHING-RES-001, GHING-RES-002, GHING-RES-003, GHING-RES-004,
+# @spec GHING-ISSUE-001, GHING-ISSUE-002, GHING-ISSUE-003, GHING-PR-001, GHING-PR-002,
+#       GHING-PR-003, GHING-PR-004, GHING-RES-001, GHING-RES-002, GHING-RES-003, GHING-RES-004,
 #       GHING-SYNC-001, GHING-SYNC-002, GHING-SYNC-003,
 #       GHING-RATE-001, GHING-RATE-002, GHING-AUTH-001, GHING-AUTH-002, GHING-ERR-002
 
@@ -25,6 +25,21 @@ from modok.quine.models import CustomerIssue, Fix
 
 _CLOSING_RE = re.compile(r"(?:closes?|fix(?:es)?|resolves?)\s+#(\d+)", re.IGNORECASE)
 _API_BASE = "https://api.github.com"
+
+
+# @spec GHING-ISSUE-003
+def ticket_kind_from_labels(label_names: list[str]) -> str | None:
+    """Derive ticket_kind from GitHub issue label names — mechanical,
+    structured-input classification: the label is explicit metadata the
+    reporter (or an issue template) already assigned, not inferred from free
+    text. Case-insensitive substring match; "bug" takes precedence over
+    "feature"/"enhancement" if a label somehow matches both."""
+    lowered = [name.lower() for name in label_names]
+    if any("bug" in name for name in lowered):
+        return "bug"
+    if any("feature" in name or "enhancement" in name for name in lowered):
+        return "feature_request"
+    return None
 
 
 @dataclass
@@ -124,10 +139,11 @@ class GithubIngester:
     # Issue ingestion
     # ------------------------------------------------------------------
 
-    # @spec GHING-ISSUE-001, GHING-ISSUE-002
+    # @spec GHING-ISSUE-001, GHING-ISSUE-002, GHING-ISSUE-003
     async def ingest_issue(self, issue: dict[str, Any]) -> bool:
         if "pull_request" in issue:
             return False
+        label_names = [label.get("name", "") for label in issue.get("labels", [])]
         node = CustomerIssue(
             node_type="CustomerIssue",
             project_slug=self._project_slug,
@@ -136,6 +152,7 @@ class GithubIngester:
             summary=issue["title"],
             raw_text=issue.get("body") or "",
             status="open" if issue["state"] == "open" else "closed",
+            ticket_kind=ticket_kind_from_labels(label_names),
         )
         await self._quine.upsert_node(node)
         await self._link_anchors(node)

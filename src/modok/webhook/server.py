@@ -36,8 +36,6 @@ _REQUIRED_MATCH_FIELDS = (
     "project_slug",
     "source_system",
     "ticket_id",
-    "known_issue_id",
-    "fix_id",
 )
 
 
@@ -65,6 +63,7 @@ def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
             summary=event.data.summary,
             raw_text=event.data.raw_text,
             status=event.data.status,
+            ticket_kind=event.data.ticket_kind,
         )
         asyncio.run(quine_client.upsert_node(node))
         asyncio.run(_link_anchors_resilient(quine_client, event.project_slug, node))
@@ -428,8 +427,8 @@ def build_app(
                 data=InvestigationData(
                     source_system=match["source_system"],
                     ticket_id=match["ticket_id"],
-                    known_issue_id=match["known_issue_id"],
-                    fix_id=match["fix_id"],
+                    known_issue_id=match.get("known_issue_id", ""),
+                    fix_id=match.get("fix_id", ""),
                     standing_query_name=match.get("standing_query_name", "actionable-issue-pattern"),
                 ),
             )

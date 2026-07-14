@@ -72,6 +72,7 @@ See `docs/testing-standard.md` for full definitions.
 - [ ] **WH-GH-007** [U]: The GitHub adapter shall map `issue.number` to `ticket_id` (as a string), `issue.title` to `summary`, `issue.body` (or empty string if null) to `raw_text`, and `"open"`/`"closed"` to `status`.
 - [ ] **WH-GH-008** [U]: The GitHub adapter shall map `"gh-" + str(pr.number)` to `fix_id` and `pr.title` to `summary` for `Fix` events.
 - [ ] **WH-GH-009** [P]: For any valid GitHub `issues` or `pull_request` webhook payload, running the GitHub adapter twice shall produce the same `IngestEvent` (normalization is deterministic).
+- [x] **WH-GH-010** [U]: The GitHub adapter shall derive `ticket_kind` from `issue.labels` using the same `ticket_kind_from_labels` function `GithubIngester` uses (`docs/specs/github-ingestion.md § GHING-ISSUE-003`), so a ticket's `ticket_kind` is identical regardless of whether it arrived via webhook push or GitHub poll.
 
 ---
 

@@ -47,6 +47,111 @@ def test_all_definitions_includes_actionable_issue_pattern():
 
 
 # ---------------------------------------------------------------------------
+# SQ-DEF-005 — new-bug-report-pattern: fires on ticket_kind='bug' alone
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-DEF-005
+def test_all_definitions_includes_new_bug_report_pattern():
+    names = [d.name for d in all_definitions()]
+    assert "new-bug-report-pattern" in names
+
+
+# @spec SQ-DEF-005
+def test_new_bug_report_pattern_uses_distinct_id_mode():
+    definition = load_definition("new-bug-report-pattern")
+    assert definition.mode == "DistinctId"
+
+
+# @spec SQ-DEF-005
+def test_new_bug_report_pattern_matches_ticket_kind_bug():
+    definition = load_definition("new-bug-report-pattern")
+    pattern = definition.pattern
+    assert "ticket_kind = 'bug'" in pattern
+    assert "ci.node_type = 'CustomerIssue'" in pattern
+    assert "RETURN DISTINCT id(ci) AS id" in pattern
+
+
+# @spec SQ-DEF-005
+def test_new_bug_report_pattern_does_not_require_error_or_known_issue():
+    # This pattern must fire on ticket_kind alone — no HAS_ERROR/KnownIssue/Fix
+    # requirement (that's actionable-issue-pattern's job, unchanged).
+    definition = load_definition("new-bug-report-pattern")
+    pattern = definition.pattern
+    assert "HAS_ERROR" not in pattern
+    assert "KnownIssue" not in pattern
+    assert "RESOLVED_BY" not in pattern
+
+
+# ---------------------------------------------------------------------------
+# SQ-DEF-006 — error-flagged-pattern: fires on any HAS_ERROR match alone
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-DEF-006
+def test_all_definitions_includes_error_flagged_pattern():
+    names = [d.name for d in all_definitions()]
+    assert "error-flagged-pattern" in names
+
+
+# @spec SQ-DEF-006
+def test_error_flagged_pattern_uses_distinct_id_mode():
+    definition = load_definition("error-flagged-pattern")
+    assert definition.mode == "DistinctId"
+
+
+# @spec SQ-DEF-006
+def test_error_flagged_pattern_matches_any_error_signature():
+    definition = load_definition("error-flagged-pattern")
+    pattern = definition.pattern
+    assert "HAS_ERROR" in pattern
+    assert "ci.node_type = 'CustomerIssue'" in pattern
+    assert "e.node_type = 'ErrorSignature'" in pattern
+    assert "RETURN DISTINCT id(ci) AS id" in pattern
+
+
+# @spec SQ-DEF-006
+def test_error_flagged_pattern_does_not_require_known_issue_or_fix():
+    # Unlike actionable-issue-pattern, this must fire on ANY HAS_ERROR match,
+    # not only ones already linked to a KnownIssue+Fix.
+    definition = load_definition("error-flagged-pattern")
+    pattern = definition.pattern
+    assert "KnownIssue" not in pattern
+    assert "RESOLVED_BY" not in pattern
+
+
+# ---------------------------------------------------------------------------
+# SQ-DEF-007 — every enrichment query returns its own standing_query_name
+# literal; found live that the route's fallback default silently mislabels
+# any pattern other than actionable-issue-pattern if this is omitted.
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-DEF-007
+def test_actionable_issue_pattern_enrichment_returns_own_name():
+    definition = load_definition("actionable-issue-pattern")
+    assert "'actionable-issue-pattern' AS standing_query_name" in definition.enrichment_query
+
+
+# @spec SQ-DEF-007
+def test_new_bug_report_pattern_enrichment_returns_own_name():
+    definition = load_definition("new-bug-report-pattern")
+    assert "'new-bug-report-pattern' AS standing_query_name" in definition.enrichment_query
+
+
+# @spec SQ-DEF-007
+def test_error_flagged_pattern_enrichment_returns_own_name():
+    definition = load_definition("error-flagged-pattern")
+    assert "'error-flagged-pattern' AS standing_query_name" in definition.enrichment_query
+
+
+# @spec SQ-DEF-007
+def test_all_definitions_enrichment_queries_return_own_standing_query_name():
+    for definition in all_definitions():
+        assert f"'{definition.name}' AS standing_query_name" in definition.enrichment_query
+
+
+# ---------------------------------------------------------------------------
 # SQ-DEF-002 — DistinctId mode, RETURN DISTINCT id(ci)
 # ---------------------------------------------------------------------------
 
