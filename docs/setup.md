@@ -423,6 +423,16 @@ Re-run this any time module source files are added, removed, or substantially re
 
 ## Step 13 — Verify the graph
 
+`recall`/`diagnose` need an exact feature or module slug — if you don't already know one, list what's registered first:
+
+```bash
+modok list --project modok
+```
+
+Prints every registered feature and module slug (alphabetically, with names). Reads the registries directly — no Quine query, so it works even before `modok quine start`.
+
+Then verify the graph with a real slug from that list, e.g.:
+
 ```bash
 modok recall --project modok --module retrieval
 ```
