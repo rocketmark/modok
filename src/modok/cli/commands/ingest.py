@@ -21,6 +21,7 @@ from modok.quine.models import CustomerIssue
 @click.option("--project", required=True, help="Project slug.")
 @click.argument("ticket_file", required=False, default=None)
 def ingest_cmd(project: str, ticket_file: str | None) -> None:
+    """Ingest docs and registries into Quine, or a single ticket file if given."""
     config = ModokConfig.load()
     proj = config.project(project)
 

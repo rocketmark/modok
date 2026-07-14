@@ -33,6 +33,7 @@ _REQUIRED_FIELDS = ("id", "description", "arrow_doc", "specs")
 )
 @click.option("--no-llm", is_flag=True, default=False, help="Skip both LLM passes.")
 def import_arrow_cmd(project: str, repo: str | None, dry_run: bool, no_llm: bool) -> None:
+    """Extract features.yml and modules.yml from docs/arrows/index.yaml."""
     if repo is None:
         from modok.cli.config import ModokConfig
 

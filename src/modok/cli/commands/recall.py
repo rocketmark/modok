@@ -38,6 +38,7 @@ def recall_cmd(
     module_slug: str | None,
     as_json: bool,
 ) -> None:
+    """Return everything MODOK knows about a known feature or module slug."""
     if not any([feature, module_slug]):
         raise click.ClickException("Supply at least one of --feature or --module.")
 

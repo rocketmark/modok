@@ -27,6 +27,7 @@ def _modok_covered_by_gitignore(gitignore: Path) -> bool:
 @click.option("--repo", default=None, help="Repo root path (overrides config).")
 @click.option("--output", default=None, help="Output path (default: <repo>/.modok/code-map.yml).")
 def extract_code_map_cmd(project: str, repo: str | None, output: str | None) -> None:
+    """Scan the repo and write .modok/code-map.yml: file paths, hashes, roles, symbols."""
     if repo is None:
         from modok.cli.config import ModokConfig
 

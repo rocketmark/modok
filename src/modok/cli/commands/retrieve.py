@@ -35,6 +35,7 @@ from modok.retrieval.errors import (
     help="Emit NDJSON progress lines before the final result.",
 )
 def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_mode: bool) -> None:
+    """Assemble a debug packet for a CustomerIssue by ticket ID or node ID."""
     has_ticket = ticket is not None
     has_node_id = node_id is not None
 

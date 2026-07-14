@@ -29,6 +29,7 @@ _REGISTRY_STUBS = {
     "--assisted", is_flag=True, default=False, help="Use LLM to propose registry contents."
 )
 def init_cmd(project: str, repo: str, assisted: bool) -> None:
+    """Register a project with MODOK: stub registries, install the git hook, update config."""
     repo_path = Path(repo).expanduser().resolve()
 
     if not (repo_path / ".git").is_dir():
