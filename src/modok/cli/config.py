@@ -9,6 +9,8 @@ from pathlib import Path
 import click
 from pydantic import BaseModel, field_validator
 
+from modok.webhook.models import WebhookConfig
+
 CONFIG_PATH = Path.home() / ".modok" / "config.toml"
 
 _MINIMAL_TOML = """\
@@ -119,6 +121,7 @@ class ModokConfig(BaseModel):
     quine: QuineConfig = QuineConfig()
     llm: LLMConfig = LLMConfig()
     projects: list[ProjectConfig] = []
+    webhook: WebhookConfig = WebhookConfig()
 
     @classmethod
     def load(cls) -> "ModokConfig":

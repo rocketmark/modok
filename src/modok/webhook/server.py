@@ -484,11 +484,9 @@ def build_app(
 
 
 def load_config() -> WebhookConfig:
+    # @spec WH-SERVE-002, WH-SERVE-003, WH-SERVE-007
     from modok.cli.config import ModokConfig
-    modok_cfg = ModokConfig.load()
-    raw = getattr(modok_cfg, "_raw", {})
-    webhook_raw = raw.get("webhook", {})
-    return WebhookConfig.model_validate(webhook_raw)
+    return ModokConfig.load().webhook
 
 
 # ---------------------------------------------------------------------------

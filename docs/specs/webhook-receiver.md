@@ -18,13 +18,13 @@ See `docs/testing-standard.md` for full definitions.
 
 ## `modok serve` Startup
 
-- [ ] **WH-SERVE-001** [U]: When `modok serve` is invoked, the system shall load `~/.modok/config.toml` and exit `1` with a config error message if the file is missing or invalid.
-- [ ] **WH-SERVE-002** [U]: When `modok serve` is invoked and `github` is in `enabled_sources` but `github_secret` is not set in `[webhook]` config, the system shall exit `1` with the message "github_secret not configured — set [webhook] github_secret in config".
-- [ ] **WH-SERVE-003** [U]: When `modok serve` is invoked and `ticket` is in `enabled_sources` but `bearer_token` is not set in `[webhook]` config, the system shall exit `1` with the message "bearer_token not configured — set [webhook] bearer_token in config".
-- [ ] **WH-SERVE-007** [U]: The `[webhook]` config shall accept an `enabled_sources` list (e.g. `["github", "ticket"]`). When `enabled_sources` is absent, all implemented push adapters are enabled. When present, only listed sources are active; requests to unlisted source paths shall return HTTP 404 and their secrets shall not be required at startup.
-- [ ] **WH-SERVE-004** [U]: When `modok serve` is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config".
-- [ ] **WH-SERVE-005** [U]: When `modok serve` starts successfully, the system shall log the bound address and port to stderr.
-- [ ] **WH-SERVE-006** [U]: `modok serve` shall bind to `127.0.0.1` by default. The `--host` flag shall override the bind address and the `--port` flag shall override the port (default `4242`).
+- [x] **WH-SERVE-001** [U]: When `modok serve` is invoked, the system shall load `~/.modok/config.toml` and exit `1` with a config error message if the file is missing or invalid.
+- [x] **WH-SERVE-002** [U]: When `modok serve` is invoked and `github` is in `enabled_sources` but `github_secret` is not set in `[webhook]` config, the system shall exit `1` with the message "github_secret not configured — set [webhook] github_secret in config".
+- [x] **WH-SERVE-003** [U]: When `modok serve` is invoked and `ticket` is in `enabled_sources` but `bearer_token` is not set in `[webhook]` config, the system shall exit `1` with the message "bearer_token not configured — set [webhook] bearer_token in config".
+- [x] **WH-SERVE-007** [U]: The `[webhook]` config shall accept an `enabled_sources` list (e.g. `["github", "ticket"]`). When `enabled_sources` is absent, all implemented push adapters are enabled. When present, only listed sources are active; requests to unlisted source paths shall return HTTP 404 and their secrets shall not be required at startup.
+- [x] **WH-SERVE-004** [U]: When `modok serve` is invoked and `QuineClient.ping()` returns `False`, the system shall exit `2` with the message "Quine is not reachable at `<url>` — run `modok quine start` or check your config".
+- [x] **WH-SERVE-005** [U]: When `modok serve` starts successfully, the system shall log the bound address and port to stderr.
+- [x] **WH-SERVE-006** [U]: `modok serve` shall bind to `127.0.0.1` by default. The `--host` flag shall override the bind address and the `--port` flag shall override the port (default `4242`).
 
 ---
 

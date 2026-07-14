@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -145,6 +146,76 @@ def test_serve_config_missing_exits_1():
             from modok.webhook.server import serve_main
             serve_main([])
     assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# load_config() must actually read [webhook] from the real config file —
+# every test above/below mocks load_config itself, which is exactly why this
+# went untested: ModokConfig had no `webhook` field, so `_raw` (referenced
+# via getattr(modok_cfg, "_raw", {})) never existed and load_config() always
+# silently returned WebhookConfig() defaults regardless of the file on disk.
+# ---------------------------------------------------------------------------
+
+
+def _write_real_config(tmp_path, webhook_toml: str) -> Path:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[quine]\n"
+        'url = "http://127.0.0.1:8080"\n'
+        'jar = "/fake/quine.jar"\n'
+        "\n"
+        f"{webhook_toml}\n"
+    )
+    return path
+
+
+# @spec WH-SERVE-007
+def test_load_config_reads_enabled_sources_from_real_file(tmp_path):
+    from modok.webhook.server import load_config
+
+    config_path = _write_real_config(tmp_path, '[webhook]\nenabled_sources = []\n')
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        cfg = load_config()
+    assert cfg.enabled_sources == []
+
+
+# @spec WH-SERVE-002, WH-SERVE-003
+def test_load_config_reads_secrets_from_real_file(tmp_path):
+    from modok.webhook.server import load_config
+
+    config_path = _write_real_config(
+        tmp_path,
+        '[webhook]\ngithub_secret = "shh"\nbearer_token = "tok"\n',
+    )
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        cfg = load_config()
+    assert cfg.github_secret == "shh"
+    assert cfg.bearer_token == "tok"
+
+
+# @spec WH-SERVE-002
+def test_load_config_defaults_when_no_webhook_section(tmp_path):
+    from modok.webhook.server import load_config
+
+    config_path = _write_real_config(tmp_path, "")
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        cfg = load_config()
+    assert cfg.github_secret == ""
+    assert cfg.enabled_sources is None
+
+
+# @spec WH-SERVE-007
+def test_load_config_reads_github_poll_settings_from_real_file(tmp_path):
+    from modok.webhook.server import load_config
+
+    config_path = _write_real_config(
+        tmp_path,
+        "[webhook]\ngithub_poll_enabled = true\ngithub_poll_interval_seconds = 45\n",
+    )
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        cfg = load_config()
+    assert cfg.github_poll_enabled is True
+    assert cfg.github_poll_interval_seconds == 45
 
 
 def test_serve_github_secret_missing_exits_1():
