@@ -21,7 +21,6 @@ from modok.ingestion.anchor_linking import (
     link_customer_issue_feature_anchors,
 )
 from modok.ingestion.git_history import _update_project_config_field
-from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix
 
 _CLOSING_RE = re.compile(r"(?:closes?|fix(?:es)?|resolves?)\s+#(\d+)", re.IGNORECASE)
@@ -235,8 +234,7 @@ class GithubIngester:
         # IMPLEMENTED_IN edge
         merge_sha = pr.get("merge_commit_sha")
         if merge_sha:
-            commit_id = _idFrom("commit", self._project_slug, merge_sha)
-            if await self._quine.node_exists(commit_id):
+            if await self._quine.node_exists_by_parts(("commit", self._project_slug, merge_sha)):
                 await self._quine.write_edge_by_parts(
                     ("fix", self._project_slug, f"gh-{pr['number']}"),
                     "IMPLEMENTED_IN",
@@ -245,10 +243,10 @@ class GithubIngester:
 
         # RESOLVED_BY edges from closing references
         for issue_num in _parse_closing_refs(pr.get("body")):
-            ci_id = _idFrom("customer-issue", self._project_slug, "github", str(issue_num))
-            if await self._quine.node_exists(ci_id):
+            ci_parts = ("customer-issue", self._project_slug, "github", str(issue_num))
+            if await self._quine.node_exists_by_parts(ci_parts):
                 await self._quine.write_edge_by_parts(
-                    ("customer-issue", self._project_slug, "github", str(issue_num)),
+                    ci_parts,
                     "RESOLVED_BY",
                     ("fix", self._project_slug, f"gh-{pr['number']}"),
                 )

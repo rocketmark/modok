@@ -207,7 +207,9 @@ def mock_client():
     client.upsert_node = AsyncMock()
     client.write_edge_by_parts = AsyncMock()
     client.node_exists = AsyncMock(return_value=True)
+    client.node_exists_by_parts = AsyncMock(return_value=True)
     client.replace_edges = AsyncMock()
+    client.replace_edges_by_parts = AsyncMock()
     return client
 
 
@@ -460,7 +462,7 @@ async def test_dependabot_pr_no_customer_issue(ingester, mock_client):
 # @spec GHING-RES-001
 @pytest.mark.asyncio
 async def test_implemented_in_edge_written(ingester, mock_client):
-    mock_client.node_exists = AsyncMock(return_value=True)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=True)
     pr = make_pr(number=42, merge_commit_sha="deadbeef")
     await ingester.ingest_pr(pr)
     mock_client.write_edge_by_parts.assert_awaited()
@@ -471,7 +473,7 @@ async def test_implemented_in_edge_written(ingester, mock_client):
 # @spec GHING-RES-001
 @pytest.mark.asyncio
 async def test_implemented_in_edge_skipped_when_commit_absent(ingester, mock_client):
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     pr = make_pr(number=42, merge_commit_sha="deadbeef")
     await ingester.ingest_pr(pr)
     calls = [str(c) for c in mock_client.write_edge_by_parts.call_args_list]
@@ -481,7 +483,7 @@ async def test_implemented_in_edge_skipped_when_commit_absent(ingester, mock_cli
 # @spec GHING-RES-003
 @pytest.mark.asyncio
 async def test_resolved_by_edge_written(ingester, mock_client):
-    mock_client.node_exists = AsyncMock(return_value=True)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=True)
     pr = make_pr(number=42, body="closes #7")
     await ingester.ingest_pr(pr)
     calls = [str(c) for c in mock_client.write_edge_by_parts.call_args_list]
@@ -491,12 +493,12 @@ async def test_resolved_by_edge_written(ingester, mock_client):
 # @spec GHING-RES-003
 @pytest.mark.asyncio
 async def test_resolved_by_edge_skipped_when_issue_absent(ingester, mock_client):
-    # node_exists returns False for CustomerIssue, True for Commit
-    async def node_exists_side_effect(node_id):
+    # node_exists_by_parts returns False for CustomerIssue, True for Commit
+    async def node_exists_side_effect(parts):
         # Commit nodes exist, CustomerIssue nodes don't
         return False
 
-    mock_client.node_exists = AsyncMock(side_effect=node_exists_side_effect)
+    mock_client.node_exists_by_parts = AsyncMock(side_effect=node_exists_side_effect)
     pr = make_pr(number=42, body="closes #7", merge_commit_sha=None)
     await ingester.ingest_pr(pr)
     calls = [str(c) for c in mock_client.write_edge_by_parts.call_args_list]

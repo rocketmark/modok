@@ -245,6 +245,17 @@ class QuineClient:
         to_parts: tuple[str, ...],
     ) -> None: ...
 
+    # By-parts counterparts to node_exists/replace_edges — same rationale as
+    # write_edge_by_parts: embed idFrom() in the query text so Quine computes
+    # the real UUID, rather than requiring the caller to already have one.
+    async def node_exists_by_parts(self, parts: tuple[str, ...]) -> bool: ...
+    async def replace_edges_by_parts(
+        self,
+        from_parts: tuple[str, ...],
+        edge_type: str,
+        to_parts_list: list[tuple[str, ...]],
+    ) -> None: ...
+
     # Health
     async def ping(self) -> bool: ...
 ```
@@ -252,6 +263,12 @@ class QuineClient:
 `upsert_node` writes the node if it doesn't exist and sets all current model properties if it does — using Cypher `SET n.field = $value` for each field in the pydantic model. Properties that were present on a prior write and have since been removed from the schema are **not** deleted; they persist as ghost properties until the node is explicitly replaced. This is accepted in v1 — MODOK schemas are stable and property removal is rare. If ghost properties become a problem, the fix is a fetch-then-replace pattern (MATCH, SET all current fields, REMOVE all others). `upsert_node` never touches edges; edges are written separately via `write_edge` and are never deleted by `upsert_node`.
 
 `traverse` is a structured alternative to raw Cypher for common multi-hop patterns. A `TraversalStep` is `(edge_type, direction)`. There is no `node_type_filter` parameter — callers that need type-filtered traversals use the `query()` escape hatch with an explicit Cypher WHERE clause.
+
+**`node_exists_by_parts` / `replace_edges_by_parts`.** `node_exists`, `get_node`, `write_edge`, and `replace_edges` all take a `QuineNodeId` — a real Quine-assigned UUID, obtained either from a prior query result or from Quine's own `idFrom()` Cypher function embedded in a query the caller issued. They were never meant to accept a Python-computed value. `modok.quine.ids.idFrom()` exists only for the HiFi test harness (its own docstring says so) and returns a SHA-256-truncated 64-bit **integer** — not a UUID, and not anything Quine ever assigns to a real node. A caller that computes an ID this way and passes it to `node_exists`/`replace_edges` gets a query that is well-formed but can never match: `WHERE id(n) = $node_id` compares a real Quine UUID against a value Quine never produced, so the check silently and permanently returns "not found" / "no matching edges" regardless of the node's actual existence.
+
+This was found live (`docs/llds/standing-queries.md § Live Verification Findings`): mechanical anchor linking's `node_exists()` gate — meant to confirm a `Feature`/`ErrorSignature` node already exists before linking to it — was checking for the wrong kind of ID entirely, so it never matched a real node, ever, in production. The same broken pattern had also spread into `GithubIngester.ingest_pr`'s `IMPLEMENTED_IN`/`RESOLVED_BY` gates and the standing-query write-back's `Investigation` dedup check and `retrieve()` call — none of it caught by the unit test suite, since every test mocks `node_exists`/`get_node` directly and never exercises the actual ID computation against a real Quine instance.
+
+`node_exists_by_parts` and `replace_edges_by_parts` are the fix: like `write_edge_by_parts`, they embed Quine's own `idFrom()` function directly in the Cypher text and let Quine compute the real address, so the caller never needs a UUID it doesn't have. Any caller that only knows a node's logical `idFrom()` parts — not a UUID from a prior query — must use the `_by_parts` methods, never the Python `idFrom()` function from `modok.quine.ids`.
 
 The raw `query` escape hatch is available for the retrieval engine's complex traversals. It is not exposed via MCP to agents.
 

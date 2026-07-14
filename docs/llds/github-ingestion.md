@@ -120,6 +120,8 @@ src/modok/cli/commands/
 | Quine unreachable | Exit `2` (standard ping check on startup) |
 | Commit node absent for IMPLEMENTED_IN | Silently skip edge (matches TOUCHES behavior in ingest-git) |
 
+**Node existence checks use `node_exists_by_parts`, never a Python-computed `idFrom()`.** Both the `IMPLEMENTED_IN` (Commit) and `RESOLVED_BY` (CustomerIssue) existence gates were found live to be silently broken: they computed an ID via `modok.quine.ids.idFrom()` (a SHA-256 int64, test-harness-only) and passed it to `node_exists()`, which always returned `False` against real Quine — Quine's real node IDs are UUIDs computed by its own `idFrom()` Cypher function, not this Python value. This meant `IMPLEMENTED_IN`/`RESOLVED_BY` edges never actually got written against a real Quine instance, despite passing every mocked unit test. Fixed by switching both gates to `node_exists_by_parts` (`docs/llds/quine-client.md § node_exists_by_parts`), which embeds `idFrom()` in the query text and lets Quine compute the real address.
+
 ## Decisions and Alternatives
 
 | Decision | Chosen | Alternative | Rationale |

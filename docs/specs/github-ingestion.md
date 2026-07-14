@@ -73,11 +73,11 @@ LLD: `docs/llds/github-ingestion.md`
 
 ## Resolution Edges
 
-- [x] **GHING-RES-001** [U]: FOR EACH merged PR, THE SYSTEM SHALL write a `Fix -[:IMPLEMENTED_IN]-> Commit` edge using `pr.merge_commit_sha`. IF no Commit node with that SHA exists in the graph, the edge SHALL be silently skipped.
+- [x] **GHING-RES-001** [U]: FOR EACH merged PR, THE SYSTEM SHALL write a `Fix -[:IMPLEMENTED_IN]-> Commit` edge using `pr.merge_commit_sha`. IF no Commit node with that SHA exists in the graph, the edge SHALL be silently skipped. This existence check SHALL use `node_exists_by_parts` (`docs/specs/quine-client.md § QC-NR-004`), never a Python-computed `idFrom()` value — found live to otherwise always report "absent" regardless of whether the Commit node actually exists.
 
 - [x] **GHING-RES-002** [U]: THE SYSTEM SHALL detect closing references by scanning the PR body for the pattern `(closes?|fixes?|resolves?)\s+#(\d+)` (case-insensitive, all matches).
 
-- [x] **GHING-RES-003** [U]: FOR EACH closing issue number detected, IF the corresponding `CustomerIssue` node exists in the graph, THE SYSTEM SHALL write a `CustomerIssue -[:RESOLVED_BY]-> Fix` edge. IF the `CustomerIssue` node does not exist, the edge SHALL be silently skipped.
+- [x] **GHING-RES-003** [U]: FOR EACH closing issue number detected, IF the corresponding `CustomerIssue` node exists in the graph, THE SYSTEM SHALL write a `CustomerIssue -[:RESOLVED_BY]-> Fix` edge. IF the `CustomerIssue` node does not exist, the edge SHALL be silently skipped. Same `node_exists_by_parts` requirement as GHING-RES-001.
 
 - [x] **GHING-RES-004** [U]: Cross-repo closing references (e.g. `owner/repo#N`) SHALL be ignored; only bare `#N` references are followed.
 

@@ -43,6 +43,7 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 - [x] **QC-NR-001** [U, C]: When `get_node` is called for a node ID that exists in Quine, the system shall return the node deserialized into the requested pydantic model type.
 - [x] **QC-NR-002** [U, C]: When `get_node` is called for a node ID that does not exist in Quine, the system shall raise `QuineNodeNotFoundError`.
 - [x] **QC-NR-003** [U]: The system shall provide `node_exists(node_id)` as the opt-in check for callers that need to test node presence without triggering an exception.
+- [x] **QC-NR-004** [U, C]: The system shall provide `node_exists_by_parts(parts)`, which embeds Quine's built-in `idFrom()` Cypher function directly in the query text (the same pattern `write_edge_by_parts` already uses) rather than requiring the caller to have already resolved a real Quine node ID. Callers that only know a node's logical `idFrom()` parts — not a UUID obtained from a prior query result — must use this instead of `node_exists`, since `modok.quine.ids.idFrom()` (a Python-side SHA-256 int64) is not a valid Quine node ID and a `node_exists` call given one will always return `False` regardless of whether the node exists (see § ID Scheme; this was found live — `docs/llds/standing-queries.md § Live Verification Findings` — as the root cause of mechanical anchor linking never actually matching against real Quine data).
 
 ---
 
@@ -52,6 +53,8 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`. A spec marked `
 - [x] **QC-EW-002** [P, C]: When `write_edge` is called for an edge that already exists, the system shall treat the call as a no-op without raising an error.
 - [x] **QC-EW-003** [U]: write_edge is permitted to reference node IDs that have not yet been upserted. The ingestion pipeline validates all node references before writing edges; shell nodes are not part of the intended ingestion state.
 - [x] **QC-EW-004** [U]: The system shall provide a replace_edges(from_id, edge_type, to_ids) operation that deletes all edges of the given type from from_id before recreating the specified set. This is used on re-ingest to eliminate stale edges from removed metadata.
+- [x] **QC-EW-005** [U, C]: The system shall provide `write_edge_by_parts(from_parts, edge_type, to_parts, properties=None)`, which embeds Quine's built-in `idFrom()` Cypher function for both endpoints directly in the query text, for callers that know only the logical `idFrom()` parts of both nodes and have no prior query result carrying a real Quine ID for either one.
+- [x] **QC-EW-006** [U, C]: The system shall provide `replace_edges_by_parts(from_parts, edge_type, to_parts_list)`, the by-parts equivalent of `replace_edges` (QC-EW-004): it deletes all edges of the given type from the node addressed by `from_parts`, then writes one edge (via `write_edge_by_parts`) to each address in `to_parts_list`. Used by callers — mechanical anchor linking chief among them — that only ever have logical parts for both the source and target nodes, never a previously-resolved Quine ID.
 
 ---
 

@@ -201,6 +201,76 @@ async def test_maybe_notify_github_skips_for_non_github_source():
     mock_post.assert_not_called()
 
 
+# @spec SQ-GH-001
+@pytest.mark.asyncio
+async def test_maybe_notify_github_resolves_customer_issue_by_property_lookup():
+    """The CustomerIssue was written via Quine's own idFrom() embedded in
+    Cypher (upsert_node) — there is no Python-computable ID for it. This
+    verifies _maybe_notify_github resolves the real Quine node ID via a
+    property-match query rather than a synthetic Python-side ID, and passes
+    that real ID into retrieve() (the exact bug found live: a synthetic ID
+    made retrieve() always fail with DRENotFoundError, silently swallowed by
+    SQ-GH-004, so the comment was never posted for any GitHub issue)."""
+    from modok.webhook.server import _maybe_notify_github
+
+    fake_project = type("P", (), {"slug": "stagehand", "github_repo": "acme/stagehand"})()
+    fake_config = type("C", (), {"projects": [fake_project]})()
+
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock(return_value=[["real-quine-uuid-123"]])
+
+    captured_ids = []
+
+    async def fake_retrieve(issue_id, project_slug, client):
+        captured_ids.append(issue_id)
+        return make_packet()
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
+         patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.retrieval.engine.retrieve", new=fake_retrieve), \
+         patch("modok.ingestion.github.post_issue_comment", new=AsyncMock()) as mock_post:
+        await _maybe_notify_github(
+            client=mock_client,
+            project_slug="stagehand",
+            source_system="github",
+            ticket_id="42",
+            investigation_id="inv-42",
+            standing_query_name="actionable-issue-pattern",
+        )
+
+    query_call = mock_client.query.call_args
+    params = query_call.args[1]
+    assert params == {"p": "stagehand", "s": "github", "t": "42"}
+    assert captured_ids == ["real-quine-uuid-123"]
+    mock_post.assert_called_once()
+
+
+# @spec SQ-GH-004
+@pytest.mark.asyncio
+async def test_maybe_notify_github_skips_when_customer_issue_not_found():
+    from modok.webhook.server import _maybe_notify_github
+
+    fake_project = type("P", (), {"slug": "stagehand", "github_repo": "acme/stagehand"})()
+    fake_config = type("C", (), {"projects": [fake_project]})()
+
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock(return_value=[])
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
+         patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.ingestion.github.post_issue_comment", new=AsyncMock()) as mock_post:
+        await _maybe_notify_github(
+            client=mock_client,
+            project_slug="stagehand",
+            source_system="github",
+            ticket_id="42",
+            investigation_id="inv-42",
+            standing_query_name="actionable-issue-pattern",
+        )  # must not raise
+
+    mock_post.assert_not_called()
+
+
 # @spec SQ-GH-004
 @pytest.mark.asyncio
 async def test_maybe_notify_github_swallows_dre_failure():

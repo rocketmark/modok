@@ -584,6 +584,106 @@ async def test_write_edge_by_parts_with_empty_properties_omits_set_clause():
 
 
 # ---------------------------------------------------------------------------
+# QC-NR-004 — node_exists_by_parts embeds idFrom() in the query text
+# ---------------------------------------------------------------------------
+
+
+# @spec QC-NR-004
+@pytest.mark.asyncio
+async def test_node_exists_by_parts_returns_true_when_present():
+    transport = httpx.MockTransport(
+        lambda r: quine_node_response(
+            "1b26161f-898a-3aa0-aa63-fc1489ed339d",
+            {"node_type": "Feature", "project_slug": "proj-a", "feature_slug": "feat-x"},
+        )
+    )
+    client = make_client(transport)
+    assert await client.node_exists_by_parts(("feature", "proj-a", "feat-x")) is True
+
+
+# @spec QC-NR-004
+@pytest.mark.asyncio
+async def test_node_exists_by_parts_returns_false_when_absent():
+    transport = httpx.MockTransport(lambda r: quine_empty_response())
+    client = make_client(transport)
+    assert await client.node_exists_by_parts(("feature", "proj-a", "does-not-exist")) is False
+
+
+# @spec QC-NR-004
+@pytest.mark.asyncio
+async def test_node_exists_by_parts_embeds_idfrom_and_never_sends_precomputed_id():
+    """The whole point of this method: it must let Quine's idFrom() Cypher
+    function compute the address from raw string parts, never pre-compute
+    an ID in Python and send it as a literal $node_id (the bug this method
+    exists to fix — see docs/llds/quine-client.md)."""
+    import json
+
+    queries_seen = []
+    params_seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        queries_seen.append(body["text"])
+        params_seen.append(body.get("parameters", {}))
+        return quine_empty_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.node_exists_by_parts(("feature", "proj-a", "feat-x"))
+
+    assert "idFrom(" in queries_seen[0]
+    assert "feat-x" in params_seen[0].values()
+
+
+# ---------------------------------------------------------------------------
+# QC-EW-006 — replace_edges_by_parts deletes stale edges then recreates,
+# addressing both endpoints via idFrom() rather than a precomputed ID
+# ---------------------------------------------------------------------------
+
+
+# @spec QC-EW-006
+@pytest.mark.asyncio
+async def test_replace_edges_by_parts_deletes_then_recreates():
+    import json
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body["text"])
+        return quine_upsert_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.replace_edges_by_parts(
+        ("customer-issue", "proj-a", "github", "1"),
+        "AFFECTS",
+        [("feature", "proj-a", "feat-x")],
+    )
+
+    assert any("DELETE" in q and "idFrom(" in q for q in calls)
+    assert any("MERGE" in q and "idFrom(" in q for q in calls)
+
+
+# @spec QC-EW-006
+@pytest.mark.asyncio
+async def test_replace_edges_by_parts_with_empty_list_only_deletes():
+    import json
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body["text"])
+        return quine_upsert_response()
+
+    client = make_client(httpx.MockTransport(handler))
+    await client.replace_edges_by_parts(("customer-issue", "proj-a", "github", "1"), "AFFECTS", [])
+
+    assert len(calls) == 1
+    assert "DELETE" in calls[0]
+    assert "idFrom(" in calls[0]
+
+
+# ---------------------------------------------------------------------------
 # QC-TR-001 — traverse returns hydrated nodes in one round-trip
 # ---------------------------------------------------------------------------
 

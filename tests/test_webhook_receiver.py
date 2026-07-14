@@ -1226,7 +1226,7 @@ def test_investigation_kind_accepted_by_run_ingest_event():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1242,7 +1242,7 @@ def test_investigation_node_address_uses_composite_investigation_id():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1263,7 +1263,7 @@ def test_investigation_writes_investigates_edge_to_customer_issue():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1280,7 +1280,7 @@ def test_investigation_status_and_trigger_type():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1303,7 +1303,7 @@ def test_investigation_skips_everything_when_already_recorded():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=True)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=True)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1321,16 +1321,15 @@ def test_investigation_dedup_is_order_and_repetition_independent():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    seen_ids: set = set()
+    seen_parts: set = set()
 
-    async def fake_node_exists(node_id):
-        exists = node_id in seen_ids
-        return exists
+    async def fake_node_exists_by_parts(parts):
+        return parts in seen_parts
 
     async def fake_upsert(node):
-        seen_ids.add(_investigation_address(node))
+        seen_parts.add(_investigation_address(node))
 
-    mock_client.node_exists = fake_node_exists
+    mock_client.node_exists_by_parts = fake_node_exists_by_parts
     mock_client.upsert_node = fake_upsert
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 
@@ -1342,10 +1341,8 @@ def test_investigation_dedup_is_order_and_repetition_independent():
     assert second == 0
 
 
-def _investigation_address(node) -> int:
-    from modok.quine.ids import idFrom as _idFrom
-
-    return _idFrom("investigation", node.project_slug, node.investigation_id)
+def _investigation_address(node) -> tuple:
+    return ("investigation", node.project_slug, node.investigation_id)
 
 
 # @spec SQ-INV-006
@@ -1353,7 +1350,7 @@ def test_distinct_evidence_combinations_produce_distinct_investigations():
     from modok.webhook.server import run_ingest_event
 
     mock_client = AsyncMock()
-    mock_client.node_exists = AsyncMock(return_value=False)
+    mock_client.node_exists_by_parts = AsyncMock(return_value=False)
     mock_client.upsert_node = AsyncMock(return_value=None)
     mock_client.write_edge_by_parts = AsyncMock(return_value=None)
 

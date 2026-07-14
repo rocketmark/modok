@@ -31,7 +31,6 @@ from modok.ingestion.anchor_linking import (
 )
 from modok.llm.errors import LLMGatewayError, LLMUnavailableError
 from modok.llm.models import TicketParseResult
-from modok.quine.ids import idFrom
 
 
 def make_registries(
@@ -86,8 +85,8 @@ def make_ticket_parse_result(
 async def test_links_error_mentioned_in_raw_text(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -101,8 +100,8 @@ async def test_links_error_mentioned_in_raw_text(tmp_path):
 async def test_links_error_case_insensitively(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -116,8 +115,8 @@ async def test_links_error_case_insensitively(tmp_path):
 async def test_does_not_match_substring_inside_larger_word(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss": "GSS"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -136,8 +135,8 @@ async def test_does_not_match_substring_inside_larger_word(tmp_path):
 async def test_does_not_link_when_error_signature_node_absent(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=False)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=False)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -147,8 +146,8 @@ async def test_does_not_link_when_error_signature_node_absent(tmp_path):
     # Reconciliation still runs (SQ-ANCH-003) even when the final matched set
     # is empty — consistent with test_replace_edges_reconciles_stale_anchor_on_edited_text,
     # which expects the same call shape when nothing textually matches at all.
-    client.replace_edges.assert_awaited_once()
-    call = client.replace_edges.await_args
+    client.replace_edges_by_parts.assert_awaited_once()
+    call = client.replace_edges_by_parts.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert to_ids == []
 
@@ -178,16 +177,16 @@ async def test_calls_replace_edges_once_with_full_matched_set(tmp_path):
         tmp_path, errors={"gss-failure": "GSS_FAILURE", "no-pose": "NO_POSE"}
     )
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42",
         "Saw both GSS_FAILURE and NO_POSE in the same session.",
     )
 
-    assert client.replace_edges.await_count == 1
-    call = client.replace_edges.await_args
+    assert client.replace_edges_by_parts.await_count == 1
+    call = client.replace_edges_by_parts.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert len(to_ids) == 2
 
@@ -197,8 +196,8 @@ async def test_calls_replace_edges_once_with_full_matched_set(tmp_path):
 async def test_replace_edges_reconciles_stale_anchor_on_edited_text(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     # Second call with text that no longer mentions the error must still call
     # replace_edges (with an empty target list) so the stale edge is cleared,
@@ -206,8 +205,8 @@ async def test_replace_edges_reconciles_stale_anchor_on_edited_text(tmp_path):
     await link_customer_issue_error_anchors(
         client, "stagehand", repo_root, "github", "42", "Totally unrelated text now.",
     )
-    assert client.replace_edges.await_count == 1
-    call = client.replace_edges.await_args
+    assert client.replace_edges_by_parts.await_count == 1
+    call = client.replace_edges_by_parts.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert to_ids == []
 
@@ -227,8 +226,8 @@ async def test_none_raw_text_performs_no_matching(tmp_path):
         client, "stagehand", repo_root, "github", "42", None,
     )
     assert linked == []
-    client.replace_edges.assert_not_called()
-    client.node_exists.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
+    client.node_exists_by_parts.assert_not_called()
 
 
 # @spec SQ-ANCH-004
@@ -241,7 +240,7 @@ async def test_empty_raw_text_performs_no_matching(tmp_path):
         client, "stagehand", repo_root, "github", "42", "",
     )
     assert linked == []
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +259,7 @@ async def test_missing_registries_returns_empty_without_raising(tmp_path):
         client, "stagehand", empty_root, "github", "42", "GSS_FAILURE happened",
     )
     assert linked == []
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +272,8 @@ async def test_missing_registries_returns_empty_without_raising(tmp_path):
 async def test_links_feature_mentioned_via_token_overlap(tmp_path):
     repo_root = make_registries(tmp_path, features={"wifi-provisioning": "WiFi Provisioning"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_feature_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -288,8 +287,8 @@ async def test_links_feature_mentioned_via_token_overlap(tmp_path):
 async def test_does_not_link_feature_without_token_overlap(tmp_path):
     repo_root = make_registries(tmp_path, features={"wifi-provisioning": "WiFi Provisioning"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_feature_anchors(
         client, "stagehand", repo_root, "github", "42",
@@ -308,16 +307,16 @@ async def test_does_not_link_feature_without_token_overlap(tmp_path):
 async def test_does_not_link_feature_when_node_absent(tmp_path):
     repo_root = make_registries(tmp_path, features={"wifi-provisioning": "WiFi Provisioning"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=False)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=False)
+    client.replace_edges_by_parts = AsyncMock()
 
     linked = await link_customer_issue_feature_anchors(
         client, "stagehand", repo_root, "github", "42",
         "My wifi keeps dropping during setup.",
     )
     assert linked == []
-    client.replace_edges.assert_awaited_once()
-    call = client.replace_edges.await_args
+    client.replace_edges_by_parts.assert_awaited_once()
+    call = client.replace_edges_by_parts.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert to_ids == []
 
@@ -335,16 +334,16 @@ async def test_calls_replace_edges_once_with_full_matched_feature_set(tmp_path):
         features={"wifi-provisioning": "WiFi Provisioning", "camera-calibration": "Camera Calibration"},
     )
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     await link_customer_issue_feature_anchors(
         client, "stagehand", repo_root, "github", "42",
         "Both wifi and camera calibration are broken after the update.",
     )
 
-    assert client.replace_edges.await_count == 1
-    call = client.replace_edges.await_args
+    assert client.replace_edges_by_parts.await_count == 1
+    call = client.replace_edges_by_parts.await_args
     to_ids = call.args[2] if len(call.args) > 2 else call.kwargs.get("to_ids")
     assert len(to_ids) == 2
 
@@ -359,8 +358,8 @@ async def test_none_raw_text_performs_no_feature_matching(tmp_path):
         client, "stagehand", repo_root, "github", "42", None,
     )
     assert linked == []
-    client.replace_edges.assert_not_called()
-    client.node_exists.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
+    client.node_exists_by_parts.assert_not_called()
 
 
 # @spec SQ-ANCH-008
@@ -374,7 +373,7 @@ async def test_missing_registries_returns_empty_feature_list_without_raising(tmp
         client, "stagehand", empty_root, "github", "42", "wifi is broken",
     )
     assert linked == []
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +390,8 @@ async def test_classify_writes_affects_only_for_registered_existing_feature(tmp_
         errors={},
     )
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     result = make_ticket_parse_result(feature_slugs=["wifi-provisioning", "bogus-slug", "shtp"])
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock(return_value=result)):
@@ -400,10 +399,10 @@ async def test_classify_writes_affects_only_for_registered_existing_feature(tmp_
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    affects_calls = [c for c in client.replace_edges.await_args_list if c.args[1] == "AFFECTS"]
+    affects_calls = [c for c in client.replace_edges_by_parts.await_args_list if c.args[1] == "AFFECTS"]
     assert len(affects_calls) == 1
-    to_ids = affects_calls[0].args[2]
-    assert to_ids == [idFrom("feature", "stagehand", "wifi-provisioning")]
+    to_parts = affects_calls[0].args[2]
+    assert to_parts == [("feature", "stagehand", "wifi-provisioning")]
 
 
 # @spec SQ-LLMANCH-003
@@ -411,8 +410,8 @@ async def test_classify_writes_affects_only_for_registered_existing_feature(tmp_
 async def test_classify_does_not_write_affects_when_feature_node_absent(tmp_path):
     repo_root = make_registries(tmp_path, features={"wifi-provisioning": "WiFi Provisioning"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=False)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=False)
+    client.replace_edges_by_parts = AsyncMock()
 
     result = make_ticket_parse_result(feature_slugs=["wifi-provisioning"])
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock(return_value=result)):
@@ -420,7 +419,7 @@ async def test_classify_does_not_write_affects_when_feature_node_absent(tmp_path
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    affects_calls = [c for c in client.replace_edges.await_args_list if c.args[1] == "AFFECTS"]
+    affects_calls = [c for c in client.replace_edges_by_parts.await_args_list if c.args[1] == "AFFECTS"]
     assert affects_calls[0].args[2] == []
 
 
@@ -434,8 +433,8 @@ async def test_classify_does_not_write_affects_when_feature_node_absent(tmp_path
 async def test_classify_writes_has_error_only_for_registered_existing_error(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     result = make_ticket_parse_result(error_signatures=["GSS_FAILURE", "MADE_UP_ERROR"])
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock(return_value=result)):
@@ -443,10 +442,10 @@ async def test_classify_writes_has_error_only_for_registered_existing_error(tmp_
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    error_calls = [c for c in client.replace_edges.await_args_list if c.args[1] == "HAS_ERROR"]
+    error_calls = [c for c in client.replace_edges_by_parts.await_args_list if c.args[1] == "HAS_ERROR"]
     assert len(error_calls) == 1
-    to_ids = error_calls[0].args[2]
-    assert to_ids == [idFrom("error", "stagehand", "GSS_FAILURE")]
+    to_parts = error_calls[0].args[2]
+    assert to_parts == [("error", "stagehand", "GSS_FAILURE")]
 
 
 # @spec SQ-LLMANCH-004
@@ -454,8 +453,8 @@ async def test_classify_writes_has_error_only_for_registered_existing_error(tmp_
 async def test_classify_does_not_write_has_error_when_node_absent(tmp_path):
     repo_root = make_registries(tmp_path, errors={"gss-failure": "GSS_FAILURE"})
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=False)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=False)
+    client.replace_edges_by_parts = AsyncMock()
 
     result = make_ticket_parse_result(error_signatures=["GSS_FAILURE"])
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock(return_value=result)):
@@ -463,7 +462,7 @@ async def test_classify_does_not_write_has_error_when_node_absent(tmp_path):
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    error_calls = [c for c in client.replace_edges.await_args_list if c.args[1] == "HAS_ERROR"]
+    error_calls = [c for c in client.replace_edges_by_parts.await_args_list if c.args[1] == "HAS_ERROR"]
     assert error_calls[0].args[2] == []
 
 
@@ -477,8 +476,8 @@ async def test_classify_does_not_write_has_error_when_node_absent(tmp_path):
 async def test_classify_calls_replace_edges_once_per_type_even_when_empty(tmp_path):
     repo_root = make_registries(tmp_path)
     client = AsyncMock()
-    client.node_exists = AsyncMock(return_value=True)
-    client.replace_edges = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
 
     result = make_ticket_parse_result()
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock(return_value=result)):
@@ -486,8 +485,8 @@ async def test_classify_calls_replace_edges_once_per_type_even_when_empty(tmp_pa
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    assert client.replace_edges.await_count == 2
-    edge_types = {c.args[1] for c in client.replace_edges.await_args_list}
+    assert client.replace_edges_by_parts.await_count == 2
+    edge_types = {c.args[1] for c in client.replace_edges_by_parts.await_args_list}
     assert edge_types == {"AFFECTS", "HAS_ERROR"}
 
 
@@ -501,7 +500,7 @@ async def test_classify_calls_replace_edges_once_per_type_even_when_empty(tmp_pa
 async def test_classify_llm_unavailable_writes_nothing(tmp_path):
     repo_root = make_registries(tmp_path)
     client = AsyncMock()
-    client.replace_edges = AsyncMock()
+    client.replace_edges_by_parts = AsyncMock()
 
     with patch(
         "modok.llm.gateway.parse_ticket",
@@ -511,7 +510,7 @@ async def test_classify_llm_unavailable_writes_nothing(tmp_path):
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # @spec SQ-LLMANCH-006
@@ -519,7 +518,7 @@ async def test_classify_llm_unavailable_writes_nothing(tmp_path):
 async def test_classify_llm_gateway_error_writes_nothing(tmp_path):
     repo_root = make_registries(tmp_path)
     client = AsyncMock()
-    client.replace_edges = AsyncMock()
+    client.replace_edges_by_parts = AsyncMock()
 
     with patch(
         "modok.llm.gateway.parse_ticket",
@@ -529,7 +528,7 @@ async def test_classify_llm_gateway_error_writes_nothing(tmp_path):
             client, "stagehand", repo_root, "github", "42", "some free-form ticket text",
         )
 
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +542,7 @@ async def test_classify_missing_registries_skips_llm_call(tmp_path):
     empty_root = tmp_path / "no-registries-here"
     empty_root.mkdir()
     client = AsyncMock()
-    client.replace_edges = AsyncMock()
+    client.replace_edges_by_parts = AsyncMock()
 
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock()) as mock_parse:
         await classify_customer_issue_anchors(
@@ -551,7 +550,7 @@ async def test_classify_missing_registries_skips_llm_call(tmp_path):
         )
 
     mock_parse.assert_not_called()
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()
 
 
 # @spec SQ-LLMANCH-001
@@ -559,7 +558,7 @@ async def test_classify_missing_registries_skips_llm_call(tmp_path):
 async def test_classify_none_raw_text_skips_llm_call(tmp_path):
     repo_root = make_registries(tmp_path)
     client = AsyncMock()
-    client.replace_edges = AsyncMock()
+    client.replace_edges_by_parts = AsyncMock()
 
     with patch("modok.llm.gateway.parse_ticket", new=AsyncMock()) as mock_parse:
         await classify_customer_issue_anchors(
@@ -567,4 +566,4 @@ async def test_classify_none_raw_text_skips_llm_call(tmp_path):
         )
 
     mock_parse.assert_not_called()
-    client.replace_edges.assert_not_called()
+    client.replace_edges_by_parts.assert_not_called()

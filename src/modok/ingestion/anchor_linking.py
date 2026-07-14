@@ -19,7 +19,6 @@ from modok.ingestion.errors import RegistryNotFoundError
 from modok.ingestion.registry import Registry
 from modok.llm import gateway
 from modok.llm.errors import LLMGatewayError, LLMUnavailableError
-from modok.quine.ids import idFrom as _idFrom
 from modok.text_utils import extract_text_tokens, tokenize
 
 
@@ -53,14 +52,13 @@ async def link_customer_issue_error_anchors(
         if not re.search(rf"\b{re.escape(normalized_error)}\b", raw_text, re.IGNORECASE):
             continue
         # @spec SQ-ANCH-002 — only link to nodes that already exist
-        error_id = _idFrom("error", project_slug, normalized_error)
-        if await client.node_exists(error_id):
+        if await client.node_exists_by_parts(("error", project_slug, normalized_error)):
             matched.append(normalized_error)
 
     # @spec SQ-ANCH-003 — reconcile the full current set in one call
-    ci_id = _idFrom("customer-issue", project_slug, source_system, ticket_id)
-    to_ids = [_idFrom("error", project_slug, e) for e in matched]
-    await client.replace_edges(ci_id, "HAS_ERROR", to_ids)
+    ci_parts = ("customer-issue", project_slug, source_system, ticket_id)
+    to_parts = [("error", project_slug, e) for e in matched]
+    await client.replace_edges_by_parts(ci_parts, "HAS_ERROR", to_parts)
 
     return matched
 
@@ -98,14 +96,13 @@ async def link_customer_issue_feature_anchors(
         if not slug_tokens or not (slug_tokens & text_tokens):
             continue
         # @spec SQ-ANCH-009 — only link to nodes that already exist
-        feature_id = _idFrom("feature", project_slug, slug)
-        if await client.node_exists(feature_id):
+        if await client.node_exists_by_parts(("feature", project_slug, slug)):
             matched.append(slug)
 
     # @spec SQ-ANCH-010 — reconcile the full current set in one call
-    ci_id = _idFrom("customer-issue", project_slug, source_system, ticket_id)
-    to_ids = [_idFrom("feature", project_slug, s) for s in matched]
-    await client.replace_edges(ci_id, "AFFECTS", to_ids)
+    ci_parts = ("customer-issue", project_slug, source_system, ticket_id)
+    to_parts = [("feature", project_slug, s) for s in matched]
+    await client.replace_edges_by_parts(ci_parts, "AFFECTS", to_parts)
 
     return matched
 
@@ -171,19 +168,18 @@ async def classify_customer_issue_anchors(
         print(f"anchor linking (llm fallback): LLM rejected response: {exc}", file=sys.stderr)
         return
 
-    ci_id = _idFrom("customer-issue", project_slug, source_system, ticket_id)
+    ci_parts = ("customer-issue", project_slug, source_system, ticket_id)
 
     # @spec SQ-LLMANCH-003 — AFFECTS targets are Feature nodes only, never Module
     matched_features: list[str] = []
     for slug in result.feature_slugs:
         if slug not in feature_slugs:
             continue
-        feature_id = _idFrom("feature", project_slug, slug)
-        if await client.node_exists(feature_id):
+        if await client.node_exists_by_parts(("feature", project_slug, slug)):
             matched_features.append(slug)
     # @spec SQ-LLMANCH-005 — reconcile once, even when the matched set is empty
-    await client.replace_edges(
-        ci_id, "AFFECTS", [_idFrom("feature", project_slug, s) for s in matched_features]
+    await client.replace_edges_by_parts(
+        ci_parts, "AFFECTS", [("feature", project_slug, s) for s in matched_features]
     )
 
     # @spec SQ-LLMANCH-004 — validate against the registry; parse_ticket does
@@ -193,10 +189,9 @@ async def classify_customer_issue_anchors(
     for normalized_error in result.error_signatures:
         if normalized_error not in registered_errors:
             continue
-        error_id = _idFrom("error", project_slug, normalized_error)
-        if await client.node_exists(error_id):
+        if await client.node_exists_by_parts(("error", project_slug, normalized_error)):
             matched_errors.append(normalized_error)
     # @spec SQ-LLMANCH-005
-    await client.replace_edges(
-        ci_id, "HAS_ERROR", [_idFrom("error", project_slug, e) for e in matched_errors]
+    await client.replace_edges_by_parts(
+        ci_parts, "HAS_ERROR", [("error", project_slug, e) for e in matched_errors]
     )

@@ -2,7 +2,7 @@
 live demo needs no public webhook tunnel. Implements the existing
 PullAdapter protocol unchanged. See docs/llds/standing-queries.md § GitHub
 Poll Adapter."""
-# @spec SQ-POLL-001, SQ-POLL-002, SQ-POLL-003, SQ-POLL-004, SQ-POLL-005
+# @spec SQ-POLL-001, SQ-POLL-002, SQ-POLL-003, SQ-POLL-004, SQ-POLL-005, SQ-POLL-006
 
 from __future__ import annotations
 
@@ -58,7 +58,15 @@ class GitHubPollAdapter:
         token = os.environ.get("GITHUB_TOKEN")
 
         for project in modok_config.projects:
-            if not project.github_repo or not token:
+            # @spec SQ-POLL-004 — no github_repo: silent, expected common case
+            if not project.github_repo:
+                continue
+            # @spec SQ-POLL-004 — github_repo set but no token: likely misconfiguration, log it
+            if not token:
+                print(
+                    f"github-poll: {project.slug} — skipped (GITHUB_TOKEN not set)",
+                    file=sys.stderr,
+                )
                 continue
 
             quine_client = QuineClient(base_url=modok_config.quine.url)
@@ -72,9 +80,14 @@ class GitHubPollAdapter:
             since = project.last_github_sync or None
 
             try:
-                await ingester.run(since=since)
+                report = await ingester.run(since=since)
             except Exception as exc:
                 print(f"github-poll: sync failed for {project.slug}: {exc}", file=sys.stderr)
                 continue
 
             save_last_github_sync(CONFIG_PATH, project.slug, sync_start)
+            # @spec SQ-POLL-006
+            print(
+                f"github-poll: {project.slug} — synced {report.issues_written} issue(s), "
+                f"{report.prs_written} PR(s)"
+            )

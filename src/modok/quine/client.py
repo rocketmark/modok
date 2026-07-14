@@ -130,6 +130,18 @@ class QuineClient:
         )
         return bool(results)
 
+    # @spec QC-NR-004
+    async def node_exists_by_parts(self, parts: tuple[str, ...]) -> bool:
+        """Like node_exists, but embeds Quine's idFrom() in the query text
+        instead of requiring the caller to already have a real Quine node ID.
+        Use this whenever only the logical idFrom() parts are known — never
+        pass a modok.quine.ids.idFrom() Python value to node_exists(); it is
+        not a valid Quine ID (see docs/llds/quine-client.md)."""
+        args = ", ".join(f"$p{i}" for i in range(len(parts)))
+        params = {f"p{i}": p for i, p in enumerate(parts)}
+        results = await self._cypher(f"MATCH (n) WHERE id(n) = idFrom({args}) RETURN n", params)
+        return bool(results)
+
     # @spec QC-EW-001, QC-EW-002, QC-EW-003
     async def write_edge(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> None:
         # MERGE on both endpoints and the relationship — idempotent by construction.
@@ -182,6 +194,27 @@ class QuineClient:
         )
         for to_id in to_ids:
             await self.write_edge(from_id, edge_type, to_id)
+
+    # @spec QC-EW-006
+    async def replace_edges_by_parts(
+        self,
+        from_parts: tuple[str, ...],
+        edge_type: str,
+        to_parts_list: list[tuple[str, ...]],
+    ) -> None:
+        """By-parts equivalent of replace_edges — addresses the source node via
+        idFrom() embedded in the query text rather than a precomputed ID (see
+        node_exists_by_parts). Deletes all edges of edge_type from the node
+        addressed by from_parts, then writes one edge per address in
+        to_parts_list via write_edge_by_parts."""
+        from_args = ", ".join(f"$fp{i}" for i in range(len(from_parts)))
+        from_params = {f"fp{i}": p for i, p in enumerate(from_parts)}
+        await self._cypher(
+            f"MATCH (a)-[r:{edge_type}]->() WHERE id(a) = idFrom({from_args}) DELETE r",
+            from_params,
+        )
+        for to_parts in to_parts_list:
+            await self.write_edge_by_parts(from_parts, edge_type, to_parts)
 
     async def edge_exists(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> bool:
         results = await self._cypher(

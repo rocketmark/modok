@@ -19,7 +19,6 @@ from modok.ingestion.anchor_linking import (
     link_customer_issue_feature_anchors,
 )
 from modok.quine.client import QuineClient
-from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix, Investigation
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import (
@@ -165,10 +164,11 @@ async def _process_investigation(event: IngestEvent, quine_client: Any) -> int:
     data = event.data
     assert isinstance(data, InvestigationData)
     investigation_id = _investigation_id(data)
-    address = _idFrom("investigation", event.project_slug, investigation_id)
 
     # @spec SQ-INV-003 — already recorded: full no-op, no DRE call, no write-back
-    if await quine_client.node_exists(address):
+    if await quine_client.node_exists_by_parts(
+        ("investigation", event.project_slug, investigation_id)
+    ):
         return 0
 
     # @spec SQ-INV-004
@@ -230,7 +230,24 @@ async def _maybe_notify_github(
 
         from modok.retrieval.engine import retrieve
 
-        ci_id = str(_idFrom("customer-issue", project_slug, source_system, ticket_id))
+        # Resolve the real Quine node ID by property lookup — the CustomerIssue
+        # was addressed via Quine's own idFrom() at write time (embedded in the
+        # upsert_node Cypher), so there is no Python-computable ID for it; the
+        # DRE's retrieve() needs the actual UUID Quine assigned, not a synthetic
+        # one (see docs/llds/quine-client.md § node_exists_by_parts).
+        rows = await client.query(
+            "MATCH (n) WHERE n.node_type = 'CustomerIssue' AND n.project_slug = $p "
+            "AND n.source_system = $s AND n.ticket_id = $t RETURN id(n) LIMIT 1",
+            {"p": project_slug, "s": source_system, "t": ticket_id},
+        )
+        if not rows or not rows[0]:
+            print(
+                f"GitHub write-back: CustomerIssue not found for "
+                f"{project_slug}/{source_system}#{ticket_id}",
+                file=sys.stderr,
+            )
+            return
+        ci_id = rows[0][0]
         packet = await retrieve(ci_id, project_slug, client)
 
         from modok.retrieval.formatting import format_debug_packet_markdown
