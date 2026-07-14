@@ -15,7 +15,11 @@ from typing import Any
 
 import httpx
 
-from modok.ingestion.anchor_linking import link_customer_issue_error_anchors
+from modok.ingestion.anchor_linking import (
+    classify_customer_issue_anchors,
+    link_customer_issue_error_anchors,
+    link_customer_issue_feature_anchors,
+)
 from modok.ingestion.git_history import _update_project_config_field
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix
@@ -138,17 +142,19 @@ class GithubIngester:
         await self._link_anchors(node)
         return True
 
-    # @spec SQ-ANCH-006, SQ-ANCH-007
+    # @spec SQ-ANCH-006, SQ-ANCH-007, SQ-LLMANCH-001, SQ-LLMANCH-002
     async def _link_anchors(self, node: CustomerIssue) -> None:
-        """Resolve repo_root and run mechanical anchor linking.
+        """Resolve repo_root and run mechanical anchor linking, then the LLM
+        fallback classifier if both mechanical linkers found nothing.
 
-        The call to link_customer_issue_error_anchors always happens
-        (SQ-ANCH-006) — a repo_root resolution failure (project not
-        configured, config file absent, etc.) falls back to an
-        intentionally-invalid path rather than skipping the call outright;
-        the linker's own RegistryNotFoundError handling (SQ-ANCH-005) is
-        the actual safety net. Matches _link_anchors_resilient in
-        modok.webhook.server.
+        The calls to link_customer_issue_error_anchors and
+        link_customer_issue_feature_anchors always happen (SQ-ANCH-006) — a
+        repo_root resolution failure (project not configured, config file
+        absent, etc.) falls back to an intentionally-invalid path rather than
+        skipping the calls outright; each linker's own RegistryNotFoundError
+        handling (SQ-ANCH-005) is the actual safety net. classify_customer_issue_anchors
+        only runs when both linkers returned no matches (SQ-LLMANCH-001,
+        SQ-LLMANCH-002). Matches _link_anchors_resilient in modok.webhook.server.
         """
         try:
             from modok.cli.config import ModokConfig
@@ -161,7 +167,7 @@ class GithubIngester:
             )
             repo_root = Path("/dev/null/modok-unconfigured-project")
 
-        await link_customer_issue_error_anchors(
+        matched_errors = await link_customer_issue_error_anchors(
             self._quine,
             self._project_slug,
             repo_root,
@@ -169,6 +175,24 @@ class GithubIngester:
             node.ticket_id,
             node.raw_text,
         )
+        matched_features = await link_customer_issue_feature_anchors(
+            self._quine,
+            self._project_slug,
+            repo_root,
+            node.source_system,
+            node.ticket_id,
+            node.raw_text,
+        )
+        # @spec SQ-LLMANCH-001, SQ-LLMANCH-002
+        if not matched_errors and not matched_features:
+            await classify_customer_issue_anchors(
+                self._quine,
+                self._project_slug,
+                repo_root,
+                node.source_system,
+                node.ticket_id,
+                node.raw_text,
+            )
 
     # ------------------------------------------------------------------
     # PR ingestion

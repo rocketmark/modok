@@ -182,6 +182,25 @@ def test_pr_stop_condition_mixed():
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch):
+    """Prevent every test in this file from depending on the developer
+    machine's real ~/.modok/config.toml. Since SQ-LLMANCH-001 means an
+    unmatched CustomerIssue now triggers a real LLM call whenever
+    ModokConfig.load() resolves a real, configured project with real
+    registries, a test that forgets to mock config resolution would
+    otherwise attempt a genuine network call. Individual tests that need to
+    exercise config resolution explicitly still patch ModokConfig.load
+    themselves within their own `with` block, which takes precedence for
+    its duration."""
+    from modok.cli.config import ModokConfig
+
+    def _raise_no_config():
+        raise FileNotFoundError("no ~/.modok/config.toml in test environment")
+
+    monkeypatch.setattr(ModokConfig, "load", staticmethod(_raise_no_config))
+
+
 @pytest.fixture()
 def mock_client():
     client = MagicMock()
@@ -281,6 +300,92 @@ async def test_ingest_issue_survives_repo_root_resolution_failure(ingester, mock
         await ingester.ingest_issue(issue)  # must not raise
 
     mock_client.upsert_node.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# SQ-ANCH-006 (feature half) / SQ-LLMANCH-001 / SQ-LLMANCH-002
+# ---------------------------------------------------------------------------
+
+
+def _fake_config():
+    fake_project = type("P", (), {"slug": "stagehand", "repo": "/fake/repo"})()
+    fake_config = type("C", (), {"projects": [fake_project]})()
+    fake_config.project = lambda slug: fake_project
+    return fake_config
+
+
+# @spec SQ-ANCH-006
+@pytest.mark.asyncio
+async def test_ingest_issue_invokes_feature_anchor_linking(ingester, mock_client):
+    issue = make_issue(number=13, body="wifi keeps dropping")
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
+        "modok.ingestion.github.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        "modok.ingestion.github.link_customer_issue_feature_anchors",
+        new=AsyncMock(return_value=[]),
+    ) as mock_link_features:
+        await ingester.ingest_issue(issue)
+
+    mock_link_features.assert_called_once()
+
+
+# @spec SQ-LLMANCH-001
+@pytest.mark.asyncio
+async def test_ingest_issue_calls_llm_fallback_when_both_mechanical_empty(ingester, mock_client):
+    issue = make_issue(number=14, body="something odd happened")
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
+        "modok.ingestion.github.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        "modok.ingestion.github.link_customer_issue_feature_anchors",
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        await ingester.ingest_issue(issue)
+
+    mock_classify.assert_called_once()
+
+
+# @spec SQ-LLMANCH-002
+@pytest.mark.asyncio
+async def test_ingest_issue_skips_llm_fallback_when_error_matched(ingester, mock_client):
+    issue = make_issue(number=15, body="GSS_FAILURE seen")
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
+        "modok.ingestion.github.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=["GSS_FAILURE"]),
+    ), patch(
+        "modok.ingestion.github.link_customer_issue_feature_anchors",
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        await ingester.ingest_issue(issue)
+
+    mock_classify.assert_not_called()
+
+
+# @spec SQ-LLMANCH-002
+@pytest.mark.asyncio
+async def test_ingest_issue_skips_llm_fallback_when_feature_matched(ingester, mock_client):
+    issue = make_issue(number=16, body="wifi keeps dropping")
+
+    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
+        "modok.ingestion.github.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        "modok.ingestion.github.link_customer_issue_feature_anchors",
+        new=AsyncMock(return_value=["wifi-provisioning"]),
+    ), patch(
+        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        await ingester.ingest_issue(issue)
+
+    mock_classify.assert_not_called()
 
 
 # @spec GHING-PR-001

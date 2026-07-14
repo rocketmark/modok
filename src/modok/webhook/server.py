@@ -13,7 +13,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from modok.ingestion.anchor_linking import link_customer_issue_error_anchors
+from modok.ingestion.anchor_linking import (
+    classify_customer_issue_anchors,
+    link_customer_issue_error_anchors,
+    link_customer_issue_feature_anchors,
+)
 from modok.quine.client import QuineClient
 from modok.quine.ids import idFrom as _idFrom
 from modok.quine.models import CustomerIssue, Fix, Investigation
@@ -87,20 +91,23 @@ def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
 
 
 # ---------------------------------------------------------------------------
-# customer_issue — mechanical anchor linking
-# @spec SQ-ANCH-006, SQ-ANCH-007
+# customer_issue — mechanical anchor linking + LLM fallback classification
+# @spec SQ-ANCH-006, SQ-ANCH-007, SQ-LLMANCH-001, SQ-LLMANCH-002
 # ---------------------------------------------------------------------------
 
 
 async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: CustomerIssue) -> None:
-    """Resolve repo_root and run mechanical anchor linking.
+    """Resolve repo_root, run both mechanical anchor linkers, then the LLM
+    fallback classifier if both found nothing.
 
-    The linker itself (link_customer_issue_error_anchors) already degrades
-    gracefully when registries can't be loaded (SQ-ANCH-005) — a resolution
-    failure here (project not configured, config file absent, etc.) falls
-    through to an intentionally-invalid repo_root rather than skipping the
-    call outright, so the call always happens (SQ-ANCH-006) and the linker's
-    own RegistryNotFoundError handling is the actual safety net.
+    Each mechanical linker already degrades gracefully when registries can't
+    be loaded (SQ-ANCH-005) — a resolution failure here (project not
+    configured, config file absent, etc.) falls through to an
+    intentionally-invalid repo_root rather than skipping the calls outright,
+    so the calls always happen (SQ-ANCH-006) and each linker's own
+    RegistryNotFoundError handling is the actual safety net.
+    classify_customer_issue_anchors only runs when both linkers returned no
+    matches (SQ-LLMANCH-001, SQ-LLMANCH-002).
     """
     try:
         from modok.cli.config import ModokConfig
@@ -113,7 +120,7 @@ async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: Cu
         )
         repo_root = _UNCONFIGURED_REPO_ROOT
 
-    await link_customer_issue_error_anchors(
+    matched_errors = await link_customer_issue_error_anchors(
         quine_client,
         project_slug,
         repo_root,
@@ -121,6 +128,24 @@ async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: Cu
         node.ticket_id,
         node.raw_text,
     )
+    matched_features = await link_customer_issue_feature_anchors(
+        quine_client,
+        project_slug,
+        repo_root,
+        node.source_system,
+        node.ticket_id,
+        node.raw_text,
+    )
+    # @spec SQ-LLMANCH-001, SQ-LLMANCH-002
+    if not matched_errors and not matched_features:
+        await classify_customer_issue_anchors(
+            quine_client,
+            project_slug,
+            repo_root,
+            node.source_system,
+            node.ticket_id,
+            node.raw_text,
+        )
 
 
 # ---------------------------------------------------------------------------

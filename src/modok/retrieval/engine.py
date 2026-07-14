@@ -27,6 +27,8 @@ from modok.retrieval.models import (
     RecentCommit,
     ScoredCandidate,
 )
+from modok.text_utils import extract_text_tokens
+from modok.text_utils import tokenize as _tokenize
 
 _KI_CAP = 10
 _FIX_CAP = 10
@@ -92,9 +94,7 @@ def _pre_match_modules(
 
     # Element-token matching: tokenize words from ticket text, check element subsets
     if module_elements:
-        text_tokens: set[str] = set()
-        for word in re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b", text):
-            text_tokens.update(_tokenize(word))
+        text_tokens: set[str] = extract_text_tokens(text)
         for slug, elements in module_elements.items():
             if slug in seen:
                 continue
@@ -111,21 +111,6 @@ def _pre_match_modules(
 # ---------------------------------------------------------------------------
 # Function-anchor matching helpers
 # ---------------------------------------------------------------------------
-
-_CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-
-
-# @spec DRE-TOKEN-001
-def _tokenize(name: str) -> set[str]:
-    """Split a camelCase/snake_case/kebab-case identifier into lowercase tokens (length > 2)."""
-    parts = re.split(r"[_\-\s]+", name)
-    tokens: set[str] = set()
-    for part in parts:
-        for sub in _CAMEL_SPLIT_RE.split(part):
-            if len(sub) > 2:
-                tokens.add(sub.lower())
-    return tokens
-
 
 # @spec DRE-TOKEN-002, DRE-TOKEN-003
 def _build_anchor_tokens(

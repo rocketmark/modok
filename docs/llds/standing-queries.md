@@ -19,6 +19,12 @@ CustomerIssue write (webhook push, GitHub poll, or GitHub batch ingest)
         │
         ▼
 Mechanical Anchor Linking  ──► CustomerIssue -[:HAS_ERROR]-> ErrorSignature
+        │                  ──► CustomerIssue -[:AFFECTS]-> Feature
+        │
+        ▼ (only if BOTH of the above found nothing)
+LLM Fallback Anchor Classification (parse_ticket, validated, write-back)
+        │                  ──► CustomerIssue -[:HAS_ERROR]-> ErrorSignature
+        │                  ──► CustomerIssue -[:AFFECTS]-> Feature
         │
         ▼
 Quine Memory Graph  ──(incremental evaluation, every write)──►  Standing Query
@@ -135,7 +141,7 @@ async def remove_standing_query(self, name: str) -> bool: ...
 
 ## Mechanical Anchor Linking
 
-New module: `src/modok/ingestion/anchor_linking.py`.
+Module: `src/modok/ingestion/anchor_linking.py`. Two independent mechanical (LLM-free) linkers — one for errors, one for features — plus one LLM-fallback classifier that only ever runs when both linkers find nothing.
 
 ```python
 async def link_customer_issue_error_anchors(
@@ -150,9 +156,22 @@ async def link_customer_issue_error_anchors(
     and write HAS_ERROR edges to the ones that already exist as ErrorSignature
     nodes in the graph. Returns the list of normalized_error strings linked.
     Never invents an ErrorSignature node; never calls an LLM."""
+
+async def link_customer_issue_feature_anchors(
+    client: Any,
+    project_slug: str,
+    repo_root: Path,
+    source_system: str,
+    ticket_id: str,
+    raw_text: str | None,
+) -> list[str]:
+    """Token-match raw_text against the project's registered Feature slugs/names
+    and write AFFECTS edges to the ones that already exist as Feature nodes in
+    the graph. Returns the list of feature slugs linked. Never invents a
+    Feature node; never calls an LLM."""
 ```
 
-Algorithm:
+### Error linking algorithm (unchanged)
 
 1. If `raw_text` is `None` or empty, return `[]` immediately — no anchors possible.
 2. Load the project's `Registry` from `repo_root / "registries"`. If `RegistryNotFoundError` is raised (no registries bootstrapped yet for this project), log a warning to stderr and return `[]` — ticket ingestion must still succeed even if anchor linking cannot run.
@@ -162,14 +181,72 @@ Algorithm:
 6. Compute the **full current set** of matched `normalized_error` values, then call `client.replace_edges(idFrom('customer-issue', project_slug, source_system, ticket_id), "HAS_ERROR", [idFrom('error', project_slug, e) for e in matched])` **once**, rather than writing each match individually. `HAS_ERROR` is a shared edge-type *name* written by three separate owners at v1 (`Feature -[:HAS_ERROR]->` from doc frontmatter, `KnownIssue -[:HAS_ERROR]->` from the new known-issue block fields, `CustomerIssue -[:HAS_ERROR]->` here) — `replace_edges` only ever touches edges outbound from the single `from_id` it's given, so this reconciliation can never delete another owner's `HAS_ERROR` edges, even though all three share a label. This matters for the `issues: edited` GitHub webhook action (`GitHubAdapter` already routes edits through the same `customer_issue` ingest path): without `replace_edges`, an edit that removes a mention of an error would leave the stale `HAS_ERROR` edge in place forever, since individual `write_edge_by_parts` calls are additive-only. `replace_edges` is exactly the reconciliation primitive `quine-client.md` documents for this (§ "the reconciliation primitive for authoritative relationships").
 7. Return the list of linked `normalized_error` strings (used for logging and tests).
 
-This is deliberately narrower than the Diagnostic Retrieval Engine's LLM fallback (`docs/llds/diagnostic-retrieval-engine.md § Anchor Extraction`): no tokenization, no element matching, no LLM. It only ever confirms a match against a *registered* error string against a node *already present* in the graph — the same "convention + registries are truth" invariant the rest of ingestion follows.
+### Feature linking algorithm (new)
 
-**Call sites** (every place a `CustomerIssue` node is written gets this call immediately after the `upsert_node`):
+1. If `raw_text` is `None` or empty, return `[]` immediately.
+2. Load the project's `Registry`. If `RegistryNotFoundError`, log a warning and return `[]` — same non-fatal behavior as error linking.
+3. Tokenize `raw_text` into a set of lowercase word tokens via `modok.text_utils.extract_text_tokens` (word extraction, then camelCase/snake_case/kebab-case splitting, length > 2) — the exact same tokenizer the Diagnostic Retrieval Engine's `_pre_match_modules` already uses at read time, now extracted into a shared module so both call sites stay in sync.
+4. For each registered feature (`registry.feature_names()` → slug, name), tokenize the slug and the name the same way, and check for any token overlap with the ticket's tokens. E.g. a ticket mentioning "wifi" overlaps feature slug `wifi-provisioning` (tokenizes to `{wifi, provisioning}`).
+5. For each token-match, check `client.node_exists(idFrom('feature', project_slug, slug))` — same never-invent-a-node discipline as error linking.
+6. Compute the full current set of matched feature slugs, call `replace_edges(ci_id, "AFFECTS", [...])` once — same reconciliation rationale as step 6 above (a ticket edit that removes a feature mention should drop the stale `AFFECTS` edge, not accumulate it).
+7. Return the list of linked feature slugs.
+
+Both linkers are deliberately narrower than the Diagnostic Retrieval Engine's LLM fallback (`docs/llds/diagnostic-retrieval-engine.md § Anchor Extraction`): no LLM, no scoring. They only ever confirm a match against a *registered* string against a node *already present* in the graph — the same "convention + registries are truth" invariant the rest of ingestion follows. Token matching is more forgiving than the error linker's exact word-boundary match (necessary because organically-written ticket text essentially never contains a feature's literal slug string), but it is still a fixed, deterministic, LLM-free rule — not classification.
+
+**Call sites** (every place a `CustomerIssue` node is written runs both linkers immediately after the `upsert_node`, then conditionally the LLM fallback classifier below):
 
 - `run_ingest_event`'s `customer_issue` branch (`src/modok/webhook/server.py`) — covers the webhook push path (`GitHubAdapter`, `GenericTicketAdapter`) and the GitHub poll adapter (both call `on_event`, which wraps `run_ingest_event`).
 - `GithubIngester.ingest_issue` (`src/modok/ingestion/github.py`) — covers the batch `ingest-github` CLI path, which writes `CustomerIssue` nodes directly without going through `IngestEvent`/`on_event`. This is a small, additive, single-call touch to a different LLD's segment (`docs/llds/github-ingestion.md`) — flagged per LID cascade discipline; no other change to that file's interfaces.
 
-Both call sites need `repo_root`, resolved via `ModokConfig.load()` → the matching `ProjectConfig.repo` for `project_slug`. This resolution step is wrapped in a broad `try/except` at the call site itself (not inside `link_customer_issue_error_anchors`, which only handles `RegistryNotFoundError`) — a project not present in config, a missing config file, or any other resolution failure logs a warning and is otherwise ignored. This matters concretely: `run_ingest_event`'s pre-existing test coverage calls it directly with a bare mock client and no config file on disk, and must keep working unchanged.
+Both call sites need `repo_root`, resolved via `ModokConfig.load()` → the matching `ProjectConfig.repo` for `project_slug`. This resolution step is wrapped in a broad `try/except` at the call site itself (not inside either linker, which only handles `RegistryNotFoundError`) — a project not present in config, a missing config file, or any other resolution failure logs a warning and is otherwise ignored. This matters concretely: `run_ingest_event`'s pre-existing test coverage calls it directly with a bare mock client and no config file on disk, and must keep working unchanged.
+
+## LLM Fallback Anchor Classification
+
+New function, same module (`src/modok/ingestion/anchor_linking.py`):
+
+```python
+async def classify_customer_issue_anchors(
+    client: Any,
+    project_slug: str,
+    repo_root: Path,
+    source_system: str,
+    ticket_id: str,
+    raw_text: str | None,
+    backend: str = "local",
+) -> None:
+    """LLM fallback anchor classification. Only called by a call site when both
+    mechanical linkers (error, feature) found nothing for this CustomerIssue.
+    Calls the LLM Gateway's parse_ticket with the project's registry context,
+    validates the result against the registry and existing graph nodes — the
+    same never-invent-a-node discipline as the mechanical linkers — and
+    persists any resulting HAS_ERROR/AFFECTS edges. Never raises: LLM
+    unavailability, a rejected response, or a missing registry all degrade to
+    "no anchors written", not an ingestion failure."""
+```
+
+This is the one point in the ingestion path where LLM output is written to Quine directly (HLD Key Design Decision #3). It exists because exact/token mechanical matching — by design, conservative — misses the common case: an organically-written ticket that describes a known bug or feature without using the registry's exact words. Rather than leave that ticket anchor-less until some later caller happens to invoke the DRE's read-time fallback (the pre-existing gap this closes), ingestion itself now runs the same fallback and keeps the result.
+
+Algorithm:
+
+1. If `raw_text` is `None` or empty, return immediately — no anchors possible.
+2. Load the project's `Registry`. If `RegistryNotFoundError`, log a warning and return — same non-fatal behavior as both mechanical linkers.
+3. Build the same registry-derived context `modok retrieve`/`diagnose` already assemble for the DRE (`src/modok/cli/commands/retrieve.py`): `feature_slugs`, `module_slugs`, `valid_slugs = feature_slugs + module_slugs`, `feature_descriptions`, `module_descriptions`, `module_elements`, `all_module_source_files()`.
+4. Call `gateway.parse_ticket(raw_text, project_slug, backend=backend, valid_slugs=valid_slugs, ...)` — the identical call the DRE's read-time fallback makes (`engine.py`). `parse_ticket` already filters `feature_slugs` in its result against `valid_slugs` before returning (`gateway.py:771-772`); `error_signatures` are **not** pre-filtered by `parse_ticket` and must be validated here.
+5. If `parse_ticket` raises `LLMUnavailableError` or `LLMGatewayError`, log to stderr and return — write nothing. The `CustomerIssue` node write (which already completed before this function was ever called) is unaffected.
+6. **Feature validation and write**: keep only slugs that are (a) in `registry.feature_slugs()` specifically — not `module_slugs` — since `AFFECTS` targets are `Feature` nodes only, and (b) confirmed via `client.node_exists(idFrom('feature', ...))`. Call `replace_edges(ci_id, "AFFECTS", [...])` once with the full validated set (possibly empty), mirroring the mechanical linkers' reconciliation discipline.
+7. **Error validation and write**: keep only signatures that are (a) present in `registry.error_normalized_values()`, and (b) confirmed via `client.node_exists(idFrom('error', ...))`. Call `replace_edges(ci_id, "HAS_ERROR", [...])` once with the full validated set.
+8. `ticket_kind` (bug vs. feature-request classification) is explicitly **out of scope** for this increment — see Open Questions.
+
+**Call-site gating** — both call sites run this after both mechanical linkers, only if both returned empty:
+
+```python
+matched_errors = await link_customer_issue_error_anchors(...)
+matched_features = await link_customer_issue_feature_anchors(...)
+if not matched_errors and not matched_features:
+    await classify_customer_issue_anchors(...)
+```
+
+This mirrors the DRE's own existing precedent (`engine.py` — `if not feature_slugs and not error_sigs:` before invoking the LLM fallback at read time): mechanical/graph evidence, when present, is always preferred over an LLM call, at both read time and now write time. A ticket that mechanically matches on *either* type skips the LLM step entirely for both types — accepted trade-off, documented in Open Questions.
 
 ## `Investigation` Node
 
@@ -330,6 +407,9 @@ No new exception hierarchy — this component is a consumer of `QuineClient` (ra
 | `Investigation` idFrom scheme | Single composite `investigation_id` string (mirrors `KnownIssue`/`Fix`) | Multi-part idFrom (mirrors `ResolutionEvent`) | Keeps the node to exactly the five fields the task's schema guidance specifies; the composite string still fully encodes evidence identity for dedup |
 | GitHub poll adapter internals | Reuse `GithubIngester.run()` unchanged, called on a timer, bypassing `on_event` | Refactor `GithubIngester` to expose fetch-only methods consumable via `IngestEvent`/`on_event` | Reuses 100% of existing tested pagination/edge-writing code with zero interface changes to a second, already-covered LLD segment (`docs/llds/github-ingestion.md`); the only touch to that file is one added function call in `ingest_issue` |
 | Known-issue evidence for the demo | Extend `_write_known_issue_block` (ingestion-pipeline segment) to write `HAS_ERROR`/`RESOLVED_BY` edges from new `error_signatures`/`fixes` block fields | Seed the edges directly for the demo only, leaving ingestion untouched | User-selected: makes the demo's pre-existing evidence side real doc-ingestion rather than scripted seed data, closing a pre-existing gap (these edges were schema-documented and DRE-consumed but never written by any production code path) |
+| Feature anchor matching mechanism | Token/keyword match (tokenize slug+name, check overlap with tokenized ticket text) — same tokenizer the DRE's `_pre_match_modules` already uses at read time | Exact substring match (mirroring the error linker exactly); LLM-only (no mechanical feature matching at all) | User-selected: exact substring match was rejected because organically-written tickets essentially never contain a feature's literal slug string (unlike error text, which is often copy-pasted verbatim from a stack trace) — token overlap catches the common case ("wifi" in prose matching `wifi-provisioning`) while staying fully mechanical |
+| LLM fallback trigger condition | Gate on **both** mechanical linkers (error, feature) returning empty | Always run the LLM classifier regardless of mechanical results; gate independently per anchor type | User-selected: mirrors the DRE's own existing read-time precedent (mechanical/graph evidence, when present, is always preferred over an LLM call) and keeps the LLM call reserved for tickets with no mechanical signal at all, rather than doubling ticket-level LLM cost |
+| `ticket_kind` (bug vs. feature-request) classification | Dropped from this increment entirely | LLM-classified as part of the same `parse_ticket` call; mechanical keyword heuristic (fixed word list) | User-selected: keyword heuristics for free-form sentence *shape* (unlike entity-name matching) would misfire often enough to not be worth adding yet; deferred as a distinct, separate increment |
 
 ## Open Questions & Future Decisions
 
@@ -350,11 +430,13 @@ No new exception hierarchy — this component is a consumer of `QuineClient` (ra
 
 ### Deferred
 
-1. **Multi-row `PostToEndpoint` semantics** — whether Quine batches multiple enrichment-query result rows into one POST or sends one POST per row was not exercised (only single-row matches were tested live). The route handles both shapes defensively (§ Standing Query Result Route), but which one actually happens for a multi-combination match (`SQ-INV-006`) is unconfirmed.
-2. **Poll interval tuning** — 30s default is a demo-friendly guess, not derived from GitHub rate-limit budgets at any particular scale. Fine for a single-repo local demo; revisit if this were ever used against a busy repo.
-3. **`Investigation.status` lifecycle** — v1 only ever writes `"open"`; there is no transition to `"resolved"`/`"stale"` and no code that would drive one. There is also no handling for evidence *retraction* — if a `HAS_ERROR` or `RESOLVED_BY` edge that contributed to a match is later removed (e.g. a mechanical-anchor-linking re-run via `replace_edges` drops a stale anchor), the `Investigation` node that already fired is not revisited or marked stale. Deferred to the longer-term `AgentRun`/workflow-transition work explicitly excluded from this increment.
-4. **A GitHub write-back failure on first delivery is not retried.** Since step 1 of the `investigation` branch treats "the `Investigation` node already exists" as "nothing left to do," a GitHub API error on the *first* successful match means that particular comment is never posted — a later redelivery of the identical match (if Quine ever resends it) would see the existing node and skip straight past the notification step. Accepted for v1: the `Investigation` node itself (MODOK's authoritative record) is never lost or duplicated; only the external notification can be silently missed on a first-attempt failure. A future fix would track notification success separately from node existence.
-5. **Multiple evidence combinations for one `CustomerIssue`** — if a ticket's `raw_text` mechanically links to two different `ErrorSignature`s, each covered by its own `KnownIssue`+`Fix`, the enrichment query (not itself `DistinctId`-constrained) can return multiple rows for the same underlying match event. This is treated as intended, not a bug: each `(known_issue_id, fix_id)` combination gets its own `Investigation` node (distinct `investigation_id`) and, if GitHub-sourced, its own comment. Confirmed as desired behavior, not raised for user triage, since it correctly reflects "this issue matched N distinct actionable patterns."
+1. **`ticket_kind` (bug vs. feature-request) classification** is out of scope for this increment — no field, mechanical or LLM-derived, records it. A future increment could add it as a `CustomerIssue` property, likely riding the same `parse_ticket` call the LLM fallback classifier already makes, once a reliable enough signal (LLM-based, since mechanical keyword heuristics for sentence *shape* were rejected as too unreliable) is designed.
+2. **A ticket that mechanically matches on one anchor type but not the other never gets the missing type filled in.** E.g. a ticket whose text happens to contain an exact registered error string, but also mentions an unrelated feature by name only loosely (no token overlap), gets `HAS_ERROR` from mechanical linking and no `AFFECTS` at all — the LLM fallback never runs because the gate is "both empty," not "either empty." Accepted trade-off (see Decisions & Alternatives) since exact mechanical matches are expected to be rare in the first place; revisit if this proves to matter in practice.
+3. **Multi-row `PostToEndpoint` semantics** — whether Quine batches multiple enrichment-query result rows into one POST or sends one POST per row was not exercised (only single-row matches were tested live). The route handles both shapes defensively (§ Standing Query Result Route), but which one actually happens for a multi-combination match (`SQ-INV-006`) is unconfirmed.
+4. **Poll interval tuning** — 30s default is a demo-friendly guess, not derived from GitHub rate-limit budgets at any particular scale. Fine for a single-repo local demo; revisit if this were ever used against a busy repo.
+5. **`Investigation.status` lifecycle** — v1 only ever writes `"open"`; there is no transition to `"resolved"`/`"stale"` and no code that would drive one. There is also no handling for evidence *retraction* — if a `HAS_ERROR` or `RESOLVED_BY` edge that contributed to a match is later removed (e.g. a mechanical-anchor-linking re-run via `replace_edges` drops a stale anchor), the `Investigation` node that already fired is not revisited or marked stale. Deferred to the longer-term `AgentRun`/workflow-transition work explicitly excluded from this increment.
+6. **A GitHub write-back failure on first delivery is not retried.** Since step 1 of the `investigation` branch treats "the `Investigation` node already exists" as "nothing left to do," a GitHub API error on the *first* successful match means that particular comment is never posted — a later redelivery of the identical match (if Quine ever resends it) would see the existing node and skip straight past the notification step. Accepted for v1: the `Investigation` node itself (MODOK's authoritative record) is never lost or duplicated; only the external notification can be silently missed on a first-attempt failure. A future fix would track notification success separately from node existence.
+7. **Multiple evidence combinations for one `CustomerIssue`** — if a ticket's `raw_text` mechanically links to two different `ErrorSignature`s, each covered by its own `KnownIssue`+`Fix`, the enrichment query (not itself `DistinctId`-constrained) can return multiple rows for the same underlying match event. This is treated as intended, not a bug: each `(known_issue_id, fix_id)` combination gets its own `Investigation` node (distinct `investigation_id`) and, if GitHub-sourced, its own comment. Confirmed as desired behavior, not raised for user triage, since it correctly reflects "this issue matched N distinct actionable patterns."
 
 ## References
 

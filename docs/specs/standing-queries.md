@@ -50,10 +50,26 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`.
 - [x] **SQ-ANCH-001** [U]: When a `CustomerIssue` node is written with non-empty `raw_text` (write-time mechanical linking — distinct from, and does not replace, the Diagnostic Retrieval Engine's independent read-time LLM anchor-extraction fallback in `docs/llds/diagnostic-retrieval-engine.md`), the system shall word-boundary match `raw_text` (case-insensitive) against every `normalized_error` value in the project's `errors.yml` registry.
 - [x] **SQ-ANCH-002** [U]: For each `normalized_error` match found (SQ-ANCH-001), the system shall treat it as a candidate `HAS_ERROR` target only if an `ErrorSignature` node with that `normalized_error` already exists in the graph; the system shall never create an `ErrorSignature` node from this step.
 - [x] **SQ-ANCH-003** [U]: The system shall compute the full current set of matched `ErrorSignature` targets for a `CustomerIssue` write and call `replace_edges` once for its outbound `HAS_ERROR` edges, rather than writing individual matches additively.
-- [x] **SQ-ANCH-004** [U]: If `raw_text` is `None` or empty, the system shall perform no anchor matching and write no `HAS_ERROR` edges for that `CustomerIssue`.
-- [x] **SQ-ANCH-005** [U]: If the project's registries cannot be loaded (`RegistryNotFoundError`), the system shall log a warning and continue; the `CustomerIssue` node write shall not fail because anchor linking could not run.
-- [x] **SQ-ANCH-006** [U]: Every code path that writes a `CustomerIssue` node — the webhook `customer_issue` ingest branch (covering the push adapters and the poll adapter, both of which call `on_event`) and `GithubIngester.ingest_issue` (covering batch `ingest-github`) — shall invoke mechanical anchor linking immediately after the node write.
+- [x] **SQ-ANCH-004** [U]: If `raw_text` is `None` or empty, the system shall perform no error or feature anchor matching (SQ-ANCH-001, SQ-ANCH-008) and write no `HAS_ERROR` or `AFFECTS` edges for that `CustomerIssue`.
+- [x] **SQ-ANCH-005** [U]: If the project's registries cannot be loaded (`RegistryNotFoundError`), the system shall log a warning and continue for both error anchor matching (SQ-ANCH-001) and feature anchor matching (SQ-ANCH-008); the `CustomerIssue` node write shall not fail because anchor linking could not run.
+- [x] **SQ-ANCH-006** [U]: Every code path that writes a `CustomerIssue` node — the webhook `customer_issue` ingest branch (covering the push adapters and the poll adapter, both of which call `on_event`) and `GithubIngester.ingest_issue` (covering batch `ingest-github`) — shall invoke mechanical anchor linking (both error and feature) immediately after the node write.
 - [x] **SQ-ANCH-007** [U]: If resolving the calling project's `repo_root` (to load its registries) fails for any reason — no project config found, config file absent, or any other exception — the `customer_issue` ingest branch shall log a warning and continue; the `CustomerIssue` node write itself shall already have completed and shall not be affected.
+- [x] **SQ-ANCH-008** [U]: When a `CustomerIssue` node is written with non-empty `raw_text`, the system shall tokenize `raw_text` (word extraction, then camelCase/snake_case/kebab-case splitting into lowercase tokens of length > 2 characters) and check for token overlap against the same tokenization of every registered `Feature`'s slug and name in the project's `features.yml` registry.
+- [x] **SQ-ANCH-009** [U]: For each `Feature` token-overlap match found (SQ-ANCH-008), the system shall treat it as a candidate `AFFECTS` target only if a `Feature` node with that slug already exists in the graph; the system shall never create a `Feature` node from this step.
+- [x] **SQ-ANCH-010** [U]: The system shall compute the full current set of matched `Feature` targets for a `CustomerIssue` write and call `replace_edges` once for its outbound `AFFECTS` edges, rather than writing individual matches additively.
+
+---
+
+## LLM Fallback Anchor Classification
+
+- [x] **SQ-LLMANCH-001** [U]: When a `CustomerIssue` node is written with non-empty `raw_text`, and both mechanical error anchor linking (SQ-ANCH-001) and mechanical feature anchor linking (SQ-ANCH-008) find zero matches, the system shall call the LLM Gateway's `parse_ticket` with the project's registry context (`feature_slugs`, `module_slugs`, `valid_slugs`, `feature_descriptions`, `module_descriptions`, `module_elements`, `module_source_files`) before ingestion of that `CustomerIssue` completes.
+- [x] **SQ-LLMANCH-002** [U]: If either mechanical error anchor linking or mechanical feature anchor linking finds at least one match, the system shall not call `parse_ticket` for that `CustomerIssue` — mechanical/graph evidence is always preferred over an LLM call, mirroring the Diagnostic Retrieval Engine's existing read-time precedent.
+- [x] **SQ-LLMANCH-003** [U]: From a successful `parse_ticket` result, the system shall write `AFFECTS` edges only for feature slugs that are present in the project's `feature_slugs()` registry (not `module_slugs()`) and for which a `Feature` node already exists in the graph.
+- [x] **SQ-LLMANCH-004** [U]: From a successful `parse_ticket` result, the system shall write `HAS_ERROR` edges only for error signatures that match a `normalized_error` value in the project's `errors.yml` registry and for which an `ErrorSignature` node already exists in the graph.
+- [x] **SQ-LLMANCH-005** [U]: The system shall call `replace_edges` once per edge type (`AFFECTS`, `HAS_ERROR`) with the full validated set of matches from a single `parse_ticket` call, including when that set is empty.
+- [x] **SQ-LLMANCH-006** [U]: If `parse_ticket` raises `LLMUnavailableError` or `LLMGatewayError`, the system shall log the failure and write no `AFFECTS` or `HAS_ERROR` edges from this step; the `CustomerIssue` node write shall not fail or roll back.
+- [x] **SQ-LLMANCH-007** [U]: If the project's registries cannot be loaded (`RegistryNotFoundError`), the system shall log a warning and skip LLM fallback classification entirely, without calling `parse_ticket`.
+- [D] **SQ-LLMANCH-008**: Classifying a `CustomerIssue` as `ticket_kind` (bug vs. feature-request) is deferred — no field, mechanical or LLM-derived, records this in the current increment.
 
 ---
 
@@ -107,3 +123,4 @@ Levels are cumulative: `[P]` implies `[U]`; `[C]` implies `[U]`.
 - `docs/specs/webhook-receiver.md` — `PullAdapter`/`PushAdapter` protocols, `WH-ROUTE-001`
 - `docs/specs/github-ingestion.md` — `GithubIngester`, reused unchanged except the SQ-ANCH-006 call site
 - `docs/specs/ingestion-pipeline.md` — `SI-BLOCK-004/005/006`, the known-issue block fields this path depends on
+- `src/modok/text_utils.py` — shared `tokenize`/`extract_text_tokens` helpers used by both `SQ-ANCH-008` (mechanical feature linking) and the DRE's `_pre_match_modules` (`docs/specs/diagnostic-retrieval-engine.md`)

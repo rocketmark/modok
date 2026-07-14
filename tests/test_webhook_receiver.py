@@ -1086,6 +1086,121 @@ def test_customer_issue_branch_survives_missing_project_config():
 
 
 # ---------------------------------------------------------------------------
+# SQ-ANCH-006 (feature half) / SQ-LLMANCH-001 / SQ-LLMANCH-002 —
+# customer_issue branch also invokes feature anchor linking, and gates the
+# LLM fallback classifier on both mechanical linkers finding nothing
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-ANCH-006
+def test_customer_issue_branch_invokes_feature_anchor_linking():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="wifi keeps dropping", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ) as mock_link_features:
+        run_ingest_event(event, mock_client)
+
+    mock_link_features.assert_called_once()
+
+
+# @spec SQ-LLMANCH-001
+def test_customer_issue_branch_calls_llm_fallback_when_both_mechanical_empty():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="something odd happened", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        run_ingest_event(event, mock_client)
+
+    mock_classify.assert_called_once()
+
+
+# @spec SQ-LLMANCH-002
+def test_customer_issue_branch_skips_llm_fallback_when_error_matched():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="GSS_FAILURE seen", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors",
+        new=AsyncMock(return_value=["GSS_FAILURE"]),
+    ), patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        run_ingest_event(event, mock_client)
+
+    mock_classify.assert_not_called()
+
+
+# @spec SQ-LLMANCH-002
+def test_customer_issue_branch_skips_llm_fallback_when_feature_matched():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="issue", raw_text="wifi keeps dropping", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors",
+        new=AsyncMock(return_value=["wifi-provisioning"]),
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        run_ingest_event(event, mock_client)
+
+    mock_classify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # SQ-INV-001..004 — the "investigation" IngestEvent branch
 # ---------------------------------------------------------------------------
 
