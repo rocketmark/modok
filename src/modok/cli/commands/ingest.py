@@ -11,6 +11,11 @@ import click
 
 from modok.cli.config import ModokConfig
 from modok.cli.commands._output import require_quine
+from modok.ingestion.anchor_linking import (
+    classify_customer_issue_anchors,
+    link_customer_issue_error_anchors,
+    link_customer_issue_feature_anchors,
+)
 from modok.ingestion.pipeline import run_ingestion
 from modok.ingestion.registry import Registry
 from modok.quine.client import QuineClient
@@ -28,7 +33,7 @@ def ingest_cmd(project: str, ticket_file: str | None) -> None:
     client = require_quine(config, QuineClient)
 
     if ticket_file is not None:
-        _ingest_customer_ticket(Path(ticket_file), project, client)
+        _ingest_customer_ticket(Path(ticket_file), project, Path(proj.repo), client)
         return
 
     repo_root = Path(proj.repo)
@@ -46,7 +51,9 @@ def ingest_cmd(project: str, ticket_file: str | None) -> None:
         raise SystemExit(3)
 
 
-def _ingest_customer_ticket(path: Path, project_slug: str, client: QuineClient) -> None:
+def _ingest_customer_ticket(
+    path: Path, project_slug: str, repo_root: Path, client: QuineClient
+) -> None:
     """Parse a customer ticket markdown file and upsert it as a CustomerIssue node."""
     text = path.read_text(encoding="utf-8")
 
@@ -74,5 +81,22 @@ def _ingest_customer_ticket(path: Path, project_slug: str, client: QuineClient) 
         raw_text=text,
         status="open",
     )
-    asyncio.run(client.upsert_node(node))
+    asyncio.run(_write_ticket_and_link_anchors(client, project_slug, repo_root, node))
     click.echo(f"Ingested customer ticket {ticket_id} (source: {source_system})")
+
+
+# @spec CLI-INGEST-010
+async def _write_ticket_and_link_anchors(
+    client: QuineClient, project_slug: str, repo_root: Path, node: CustomerIssue
+) -> None:
+    await client.upsert_node(node)
+    matched_errors = await link_customer_issue_error_anchors(
+        client, project_slug, repo_root, node.source_system, node.ticket_id, node.raw_text,
+    )
+    matched_features = await link_customer_issue_feature_anchors(
+        client, project_slug, repo_root, node.source_system, node.ticket_id, node.raw_text,
+    )
+    if not matched_errors and not matched_features:
+        await classify_customer_issue_anchors(
+            client, project_slug, repo_root, node.source_system, node.ticket_id, node.raw_text,
+        )

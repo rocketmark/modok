@@ -2,7 +2,7 @@
 
 Demonstrates the claim in `docs/high-level-design.md § Detection / Trigger Path`: MODOK can continuously recognize when independently-arriving evidence forms an actionable investigation pattern, and advance the workflow the moment that pattern becomes true — no manual `retrieve`/`diagnose` call, no polling.
 
-Assumes `docs/setup.md` is already done (Quine JAR, `~/.modok/config.toml`, a project with `registries/` bootstrapped). Uses the `stagehand` project as the running example; substitute your own project slug and a real error signature from its `registries/errors.yml`.
+Assumes `docs/setup.md` (platform: Quine, LLM backend, `modok` installed) and `docs/project-setup.md` (a project registered, registries bootstrapped, first ingestion run) are already done. Uses the `stagehand` project as the running example; substitute your own project slug and a real error signature from its `registries/errors.yml`.
 
 ## 1. Start Quine and MODOK
 
@@ -38,7 +38,7 @@ fixes:
 ```
 
 ```bash
-modok ingest --project stagehand ./docs
+modok ingest --project stagehand
 ```
 
 At this point the pattern is **not** actionable yet — no `CustomerIssue` mentions this error. Confirm:

@@ -68,6 +68,7 @@ See `docs/testing-standard.md` for full definitions.
 - [x] **CLI-INGEST-007** [U]: When `--fix --dry-run` is specified, the system shall pass `dry_run=True` to `run_ingestion`; no files or Quine nodes shall be written and the command shall exit `0`.
 - [x] **CLI-INGEST-008** [U]: When `--fix --emit-counterexamples` is specified, the system shall pass `emit_counterexamples=True` to `run_ingestion`; a YAML counterexample file shall be written to `{repo_root}/tests/fixtures/llm_gateway/` for each doc with rejected fields.
 - [x] **CLI-INGEST-009** [U]: `--strict`, `--dry-run`, and `--emit-counterexamples` shall be valid only when `--fix` is also specified; supplying any of them without `--fix` shall exit `1` with a usage error.
+- [x] **CLI-INGEST-010** [U]: When `modok ingest --project <slug> <ticket_file>` is invoked (the `ticket_file` positional argument), the system shall, after upserting the resulting `CustomerIssue` node, invoke mechanical error anchor linking, mechanical feature anchor linking, and — only if both find nothing — the LLM fallback anchor classifier, exactly as every other `CustomerIssue`-writing path does (`docs/specs/standing-queries.md` — `SQ-ANCH-006`, `SQ-LLMANCH-001`, `SQ-LLMANCH-002`).
 
 ---
 

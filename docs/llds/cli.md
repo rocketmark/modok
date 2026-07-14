@@ -353,12 +353,13 @@ modok = "modok.cli.main:cli"
 ### Deferred
 1. **`$MODOK_CONFIG` env var** — config path override for multi-config setups (e.g. staging vs. prod Quine). Defer until someone needs it.
 2. **`--output json` as global flag** — currently `--json` is per-command where tabular is the default. A global flag may be cleaner once all commands support JSON. Revisit after v1.
-3. **`modok ingest-code-map`** — code map ingestion (file/module discovery from source tree). Referenced in `setup.md` but the ingestion pipeline only handles docs today. Separate command when code map ingestion is built.
+3. **`modok ingest-code-map`** — code map ingestion (file/module discovery from source tree). Referenced in `project-setup.md` but the ingestion pipeline only handles docs today. Separate command when code map ingestion is built.
 4. **`modok find-issue`** — look up a CustomerIssue node ID by source + ticket without running retrieval. Not needed given `retrieve` now accepts `--source` + `--ticket` directly.
 
 ## References
 
-- `docs/setup.md` — expected CLI invocations from a user perspective
+- `docs/setup.md` — platform bootstrap (Quine, LLM backend, `modok` install)
+- `docs/project-setup.md` — expected per-project CLI invocations from a user perspective
 - `docs/high-level-design.md` — CLI/MCP component description
 - `docs/llds/ingestion-pipeline.md` — `run_ingestion` entry point
 - `docs/llds/diagnostic-retrieval-engine.md` — `retrieve` entry point

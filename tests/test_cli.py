@@ -468,6 +468,82 @@ def test_ingest_derives_repo_root_from_config(tmp_path):
     assert Path(str(captured_args[0])) == repo
 
 
+# @spec CLI-INGEST-010
+def test_ingest_ticket_file_invokes_anchor_linking(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+
+    ticket_path = tmp_path / "ticket.md"
+    ticket_path.write_text(
+        "# Ticket: 99\n**Source:** github\n## Subject\nWifi keeps dropping\n"
+    )
+
+    runner = CliRunner()
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
+            mock_cls.return_value.ping = AsyncMock(return_value=True)
+            mock_cls.return_value.upsert_node = AsyncMock(return_value=None)
+            with patch(
+                "modok.cli.commands.ingest.link_customer_issue_error_anchors",
+                new=AsyncMock(return_value=[]),
+            ) as mock_error_link, patch(
+                "modok.cli.commands.ingest.link_customer_issue_feature_anchors",
+                new=AsyncMock(return_value=[]),
+            ) as mock_feature_link, patch(
+                "modok.cli.commands.ingest.classify_customer_issue_anchors",
+                new=AsyncMock(),
+            ) as mock_classify:
+                result = runner.invoke(
+                    cli, ["ingest", "--project", "stagehand", str(ticket_path)]
+                )
+
+    assert result.exit_code == 0, result.output
+    mock_error_link.assert_called_once()
+    mock_feature_link.assert_called_once()
+    mock_classify.assert_called_once()
+
+
+# @spec CLI-INGEST-010
+def test_ingest_ticket_file_skips_llm_fallback_when_mechanical_matches(tmp_path):
+    from click.testing import CliRunner
+    from modok.cli.main import cli
+
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    config_path = write_config(tmp_path / "config.toml", repo_path=str(repo))
+
+    ticket_path = tmp_path / "ticket.md"
+    ticket_path.write_text(
+        "# Ticket: 100\n**Source:** github\n## Subject\nGSS_FAILURE seen\n"
+    )
+
+    runner = CliRunner()
+    with patch("modok.cli.config.CONFIG_PATH", config_path):
+        with patch("modok.cli.commands.ingest.QuineClient") as mock_cls:
+            mock_cls.return_value.ping = AsyncMock(return_value=True)
+            mock_cls.return_value.upsert_node = AsyncMock(return_value=None)
+            with patch(
+                "modok.cli.commands.ingest.link_customer_issue_error_anchors",
+                new=AsyncMock(return_value=["GSS_FAILURE"]),
+            ), patch(
+                "modok.cli.commands.ingest.link_customer_issue_feature_anchors",
+                new=AsyncMock(return_value=[]),
+            ), patch(
+                "modok.cli.commands.ingest.classify_customer_issue_anchors",
+                new=AsyncMock(),
+            ) as mock_classify:
+                result = runner.invoke(
+                    cli, ["ingest", "--project", "stagehand", str(ticket_path)]
+                )
+
+    assert result.exit_code == 0, result.output
+    mock_classify.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # modok retrieve
 # ---------------------------------------------------------------------------
