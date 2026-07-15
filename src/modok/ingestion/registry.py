@@ -101,6 +101,9 @@ class Registry:
         entry = self._features.get(slug, {})
         return entry.get("source_files", []) if isinstance(entry, dict) else []
 
+    def all_feature_source_files(self) -> dict[str, list[str]]:
+        return {slug: self.source_files_for_feature(slug) for slug in self._features}
+
     def test_files_for_feature(self, slug: str) -> list[str]:
         entry = self._features.get(slug, {})
         return entry.get("test_files", []) if isinstance(entry, dict) else []

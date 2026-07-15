@@ -27,6 +27,7 @@ async def retrieve(
     module_descriptions: dict[str, str] | None = None,
     module_elements: dict[str, list[str]] | None = None,
     module_source_files: dict[str, list[str]] | None = None,
+    feature_source_files: dict[str, list[str]] | None = None,
     on_progress: Callable[[str, DebugPacket], None] | None = None,
 ) -> DebugPacket
 ```
@@ -42,6 +43,8 @@ async def retrieve(
 `module_elements` — maps module slug → list of registered element names (UI signals, emitted events, named components). Used for element anchor matching.
 
 `module_source_files` — maps module slug → list of source file paths for that module. Used for element anchor matching and pre-matching.
+
+`feature_source_files` — maps feature slug → the feature's own declared `source_files` from the registry (distinct from the union of its modules' files). Used to distinguish primary from peripheral evidence during Feature/Module traversal — see § Graph Traversal.
 
 `on_progress` — optional streaming callback called at two points:
 - Before LLM anchor extraction: `on_progress("loading", partial_packet)` — lets the caller show the ticket title immediately.
@@ -159,6 +162,8 @@ For each slug in `feature_slugs` (which may be either Feature or Module slugs):
 3. If no files found via Feature, fall back to Module traversal: `Module -[:DEFINED_IN]-> File` and walk up to parent Feature for test files.
 4. Files from step 1 or 3 get `feature_anchor` evidence (score 8.0). Test files get `test_coverage` evidence (score 7.0) — source intentionally outscores its own test for equivalent single-anchor evidence (found live: the reverse ordering put test files above the actual likely-buggy source file in every real ticket's ranked candidates).
 5. `resolved_as` is `"feature"` or `"module"` and is used to build `affected_areas`.
+6. **Paths are deduplicated (preserving first-seen order) before evidence assignment**, for both the Feature-level query and the Module-fallback query, source and test alike. Found live: a Feature with several Modules (`wifi-provisioning` → `stagehand-ble`, `stagehand-wifi-provision`, `wifi-provision-logic`, `stagehand-health`, `stagehand-wifi-provision-dbus`, `chroot-customize`) fans out per module in the two-hop `Feature -[IMPLEMENTED_BY]-> Module -[DEFINED_IN]-> File` query — a file reachable from more than one module (shared feature-level docs registered against several modules) came back once per module, so the same file received the same `feature_anchor` evidence item 6 times over, inflating its score well past what one genuine match would earn.
+7. **Primary vs. peripheral evidence.** When `resolved_as == "feature"` and `feature_source_files` was supplied, a source file gets `feature_primary_file` evidence (9.0) if its path is in that feature's own declared `source_files` list from the registry, or `feature_anchor` evidence (3.0) if it's only reachable via one of the feature's modules. When resolution falls back to a bare Module slug, or no `feature_source_files` context is available, every file gets `feature_primary_file` (9.0) — a direct module match is already narrow, and missing context shouldn't silently demote everything. Found live: `wifi-provisioning`'s module list includes modules only tangentially related to the feature itself (`chroot-customize` — OS image build tooling; `stagehand-health` — a general health monitor), and files reachable only through those modules were scoring identically to the feature's actual, registry-curated primary implementation files (`client/stagehand_client/wifi_provision_logic.py`, `scripts/stagehand-wifi-provision`, `client/stagehand_client/stagehand_ble.py` — the feature's own `source_files:` list). A handful of unrelated recent commits on the tangential files was then enough to outrank the file most directly relevant to the ticket. `feature_anchor` (peripheral) is also excluded from the diversity/corroboration bonus, same as `recent_commit` — see § Candidate Scoring.
 
 ### Error signature anchor → known issues
 
@@ -216,7 +221,8 @@ Each file accumulates `EvidenceItem` records. Items are typed:
 | Type | Base score | Source |
 |---|---|---|
 | `ticket_mention` | 10.0 | File path explicitly named in ticket raw text (LLM parse) |
-| `feature_anchor` | 8.0 | Feature/module graph traversal → source File |
+| `feature_primary_file` | 9.0 | Feature/module graph traversal → source File that is in the feature's own declared `source_files` (or resolved via a bare Module slug) |
+| `feature_anchor` | 3.0 | Feature/module graph traversal → source File reachable only via one of the feature's modules, not in the feature's own declared `source_files` |
 | `test_coverage` | 7.0 | Feature/module graph traversal → TestFile |
 | `element_anchor_match` | 6.0 | Registered element name token-matches symptom/error terms |
 | `function_anchor_match` | 6.0 | Git hunk function def token-matches func_anchor_tokens |
@@ -273,7 +279,7 @@ Each file's evidence items are combined by `_score_candidate`:
 
 1. Positive items are grouped by type.
 2. Within each type group, items are sorted descending and summed with geometric decay: `score[0] + score[1]×0.5 + score[2]×0.25 + …`. This rewards the first hit of each type but dampens redundant hits of the same type.
-3. A diversity bonus of `3.0 × min(unique_positive_types - 1, 4)` is added. Files with signal from multiple independent sources are preferred.
+3. A diversity bonus of `3.0 × min(unique_corroborating_types - 1, 4)` is added, where `unique_corroborating_types` excludes `recent_commit` (see `_NON_CORROBORATING_TYPES`). Files with signal from multiple independent sources are preferred — but bare recency is not treated as independent corroboration of relevance; a file's own decayed `recent_commit` score still adds to its total, it just cannot unlock the bonus on its own. Found live: before this exclusion, a file whose only evidence was a broad `feature_anchor` match plus several commits from unrelated maintenance work still got the full +3.0 bonus for having a second evidence *type* present, letting a frequently-edited operational script outrank a file directly relevant to the ticket that simply hadn't been touched recently.
 4. All negative items (penalties) are summed directly and added.
 5. Result is rounded to one decimal place.
 
@@ -337,6 +343,9 @@ class DRELLMUnavailableError(DREError): pass    # LLM gateway unreachable (fallb
 | LLM summary includes `matched_elements` | Passed to `summarise_packet` | Summarize from files only | Without element names the LLM focuses on the file path; element names produce more specific summaries |
 | Non-source file penalty | ×0.25 actionability multiplier applied as `doc_penalty` item | Exclude entirely; no penalty | Docs appear in results when they are the only anchor match, but their low score prevents them from displacing real source files |
 | `recent_commit` base weight | 1.5 (low) | 4.0 (original); split into a separate "correlated" evidence type | `docs/scoring-brainstorm.md` treats recency as a modifier, not an independent strong signal — the correlated case is already captured by `function_anchor_match` (6.0), so a separate type wasn't needed, just a lower base weight for the uncorrelated case |
+| `recent_commit` excluded from diversity bonus | Excluded from the corroborating-type count in `_score_candidate` | Leave it counting; add a third tier between "counts" and "doesn't" | Lowering the base weight alone wasn't sufficient — the flat +3.0 bonus for a second *type* still let weak, uncorrelated recency evidence out-rank files with no recency evidence at all. A binary in/out of the corroboration count is the simplest rule that fixes the observed case without adding new dimensions |
+| Feature/Module traversal path dedup | `dict.fromkeys` dedup preserving order, applied to source and test paths in both the Feature and Module-fallback queries | `RETURN DISTINCT file` in Cypher | Deduping in Python is simpler to reason about across the two-hop `OPTIONAL MATCH` fan-out and doesn't depend on how Quine's `DISTINCT` interacts with multi-column projections (`f, m, file`) |
+| Primary/peripheral split for feature-traversal source files | New `feature_primary_file` (9.0, corroborating) vs. demoted `feature_anchor` (3.0, non-corroborating), keyed off the feature's own registry `source_files` list | Narrow the feature's module list instead (registry-side fix); add a hub-penalty formula per `docs/scoring-brainstorm.md` | The feature's own `source_files` is already the curated, feature-owner-declared signal for "this implements the feature" — using it doesn't require every project's registry to keep an artificially narrow module list, and it's a much smaller change than a general hub-penalty model. Registry curation (e.g. trimming `wifi-provisioning`'s module list) remains a valid complementary fix, left to the project maintainer |
 
 ## Open Questions & Future Decisions
 

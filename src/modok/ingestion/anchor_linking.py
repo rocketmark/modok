@@ -64,6 +64,20 @@ async def link_customer_issue_error_anchors(
 
 
 # @spec SQ-ANCH-008, SQ-ANCH-009, SQ-ANCH-010
+def _ambiguous_feature_tokens(registry: Registry) -> set[str]:
+    """Tokens shared by 2+ features' own slug/name, and therefore too generic
+    to discriminate between them — e.g. "client" appearing in the slug of
+    every client-side feature in a project. Found live: a ticket mentioning
+    only "client" (no other relevant token) matched every one of five
+    unrelated client-side features via that single shared token, alongside
+    the one genuinely relevant feature matched on its own specific tokens."""
+    token_features: dict[str, set[str]] = {}
+    for slug, name in registry.feature_names().items():
+        for token in tokenize(slug) | tokenize(name):
+            token_features.setdefault(token, set()).add(slug)
+    return {token for token, slugs in token_features.items() if len(slugs) > 1}
+
+
 async def link_customer_issue_feature_anchors(
     client: Any,
     project_slug: str,
@@ -88,12 +102,15 @@ async def link_customer_issue_feature_anchors(
         return []
 
     text_tokens = extract_text_tokens(raw_text)
+    ambiguous_tokens = _ambiguous_feature_tokens(registry)
 
     matched: list[str] = []
     for slug, name in registry.feature_names().items():
-        # @spec SQ-ANCH-008 — token overlap, not exact substring
+        # @spec SQ-ANCH-008, SQ-ANCH-011 — token overlap, not exact substring,
+        # excluding tokens shared by 2+ features (not discriminating)
         slug_tokens = tokenize(slug) | tokenize(name)
-        if not slug_tokens or not (slug_tokens & text_tokens):
+        meaningful_overlap = (slug_tokens & text_tokens) - ambiguous_tokens
+        if not slug_tokens or not meaningful_overlap:
             continue
         # @spec SQ-ANCH-009 — only link to nodes that already exist
         if await client.node_exists_by_parts(("feature", project_slug, slug)):

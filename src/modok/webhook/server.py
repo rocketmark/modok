@@ -266,10 +266,11 @@ async def _maybe_notify_github(
             module_descriptions = registry.module_descriptions() if registry else None
             module_elements = registry.module_elements() if registry else None
             module_source_files = registry.all_module_source_files() if registry else None
+            feature_source_files = registry.all_feature_source_files() if registry else None
         except Exception:
             feature_slugs = module_slugs = valid_slugs = None
             feature_descriptions = module_descriptions = None
-            module_elements = module_source_files = None
+            module_elements = module_source_files = feature_source_files = None
 
         packet = await retrieve(
             ci_id,
@@ -282,6 +283,7 @@ async def _maybe_notify_github(
             module_descriptions=module_descriptions,
             module_elements=module_elements,
             module_source_files=module_source_files,
+            feature_source_files=feature_source_files,
         )
 
         from modok.retrieval.formatting import format_debug_packet_markdown

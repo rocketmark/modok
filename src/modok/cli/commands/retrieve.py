@@ -60,6 +60,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         module_descriptions = registry.module_descriptions()
         module_elements = registry.module_elements()
         module_source_files = registry.all_module_source_files()
+        feature_source_files = registry.all_feature_source_files()
     except Exception:
         feature_slugs = None
         module_slugs = None
@@ -68,6 +69,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
         module_descriptions = None
         module_elements = None
         module_source_files = None
+        feature_source_files = None
 
     client = require_quine(config, QuineClient)
 
@@ -105,6 +107,7 @@ def retrieve_cmd(project: str, ticket: str | None, node_id: int | None, stream_m
                 module_descriptions=module_descriptions,
                 module_elements=module_elements,
                 module_source_files=module_source_files,
+                feature_source_files=feature_source_files,
                 on_progress=_on_progress if stream_mode else None,
                 skip_summary=config.llm.skip_summary,
             )

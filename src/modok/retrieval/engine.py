@@ -174,7 +174,10 @@ def _add_evidence(
     evidence_map[path].append(item)
 
 
-# @spec DRE-CAND-001, DRE-CAND-002
+# @spec DRE-CAND-001, DRE-CAND-002, DRE-CAND-006
+_NON_CORROBORATING_TYPES = {"recent_commit", "feature_anchor"}
+
+
 def _score_candidate(items: list[EvidenceItem]) -> float:
     by_type: dict[str, list[float]] = {}
     penalties = 0.0
@@ -187,7 +190,13 @@ def _score_candidate(items: list[EvidenceItem]) -> float:
     for scores in by_type.values():
         scores.sort(reverse=True)
         total += sum(s * (0.5**i) for i, s in enumerate(scores))
-    total += 3.0 * min(len(by_type) - 1, 4)
+    # A non-corroborating type (weak/broad, e.g. bare recency or a peripheral
+    # feature match) only earns diversity-bonus credit when the candidate
+    # also has at least one genuinely direct evidence type to reinforce —
+    # otherwise it's manufacturing apparent strength from weak signals alone.
+    has_direct_evidence = bool(by_type.keys() - _NON_CORROBORATING_TYPES)
+    diversity_type_count = len(by_type) if has_direct_evidence else 0
+    total += 3.0 * min(max(diversity_type_count - 1, 0), 4)
     total += penalties
     return round(total, 1)
 
@@ -315,6 +324,7 @@ async def _traverse_files_to_recent_commits(
     return all_commits[:limit]
 
 
+# @spec DRE-TRAV-008
 async def _traverse_feature_to_files(
     feature_slug: str,
     project_slug: str,
@@ -333,14 +343,16 @@ async def _traverse_feature_to_files(
         "RETURN f, m, file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    source_paths = [
-        row[2]["properties"]["repo_path"]
-        for row in rows
-        if len(row) > 2
-        and row[2]
-        and isinstance(row[2], dict)
-        and row[2].get("properties", {}).get("repo_path")
-    ]
+    source_paths = list(
+        dict.fromkeys(
+            row[2]["properties"]["repo_path"]
+            for row in rows
+            if len(row) > 2
+            and row[2]
+            and isinstance(row[2], dict)
+            and row[2].get("properties", {}).get("repo_path")
+        )
+    )
 
     test_rows = await client.query(
         "MATCH (f) WHERE id(f) = idFrom('feature', $project_slug, $feature_slug) "
@@ -349,14 +361,16 @@ async def _traverse_feature_to_files(
         "RETURN file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    test_paths = [
-        row[0]["properties"]["repo_path"]
-        for row in test_rows
-        if row
-        and row[0]
-        and isinstance(row[0], dict)
-        and row[0].get("properties", {}).get("repo_path")
-    ]
+    test_paths = list(
+        dict.fromkeys(
+            row[0]["properties"]["repo_path"]
+            for row in test_rows
+            if row
+            and row[0]
+            and isinstance(row[0], dict)
+            and row[0].get("properties", {}).get("repo_path")
+        )
+    )
 
     if source_paths or test_paths:
         return source_paths, test_paths, "feature"
@@ -368,14 +382,16 @@ async def _traverse_feature_to_files(
         "RETURN m, file",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    module_paths = [
-        row[1]["properties"]["repo_path"]
-        for row in rows
-        if len(row) > 1
-        and row[1]
-        and isinstance(row[1], dict)
-        and row[1].get("properties", {}).get("repo_path")
-    ]
+    module_paths = list(
+        dict.fromkeys(
+            row[1]["properties"]["repo_path"]
+            for row in rows
+            if len(row) > 1
+            and row[1]
+            and isinstance(row[1], dict)
+            and row[1].get("properties", {}).get("repo_path")
+        )
+    )
 
     # Walk up to the parent Feature to get its HAS_TEST → TestFile edges.
     test_rows = await client.query(
@@ -386,14 +402,16 @@ async def _traverse_feature_to_files(
         "RETURN tfile",
         {"project_slug": project_slug, "feature_slug": feature_slug},
     )
-    module_test_paths = [
-        row[0]["properties"]["repo_path"]
-        for row in test_rows
-        if row
-        and row[0]
-        and isinstance(row[0], dict)
-        and row[0].get("properties", {}).get("repo_path")
-    ]
+    module_test_paths = list(
+        dict.fromkeys(
+            row[0]["properties"]["repo_path"]
+            for row in test_rows
+            if row
+            and row[0]
+            and isinstance(row[0], dict)
+            and row[0].get("properties", {}).get("repo_path")
+        )
+    )
 
     return module_paths, module_test_paths, "module"
 
@@ -501,6 +519,7 @@ async def retrieve(
     module_descriptions: dict[str, str] | None = None,
     module_elements: dict[str, list[str]] | None = None,
     module_source_files: dict[str, list[str]] | None = None,
+    feature_source_files: dict[str, list[str]] | None = None,
     on_progress: Callable[[str, "DebugPacket"], None] | None = None,
     skip_summary: bool = False,
 ) -> DebugPacket:
@@ -602,7 +621,7 @@ async def retrieve(
     resolved_module_slugs: list[str] = []
     resolved_feature_slugs: list[str] = []
 
-    # @spec DRE-TRAV-001
+    # @spec DRE-TRAV-001, DRE-TRAV-009
     for slug in feature_slugs:
         try:
             src_paths, tst_paths, resolved_as = await _traverse_feature_to_files(
@@ -613,13 +632,22 @@ async def retrieve(
 
         if src_paths or tst_paths:
             matched_anchors += 1
+            # @spec DRE-TRAV-009
+            feature_primary_paths = (
+                set(feature_source_files.get(slug, [])) if feature_source_files else None
+            )
             for path in src_paths:
+                is_primary = (
+                    resolved_as == "module"
+                    or feature_primary_paths is None
+                    or path in feature_primary_paths
+                )
                 _add_evidence(
                     file_evidence,
                     path,
                     EvidenceItem(
-                        type="feature_anchor",
-                        score=8.0,
+                        type="feature_primary_file" if is_primary else "feature_anchor",
+                        score=9.0 if is_primary else 3.0,
                         explanation=slug,
                     ),
                 )

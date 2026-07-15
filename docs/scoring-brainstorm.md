@@ -375,13 +375,14 @@ MODOK's graph does not have stack traces, runbooks, endpoint ownership, or tenan
 |---|---|---|
 | `ticket_mention` | "Ticket directly mentions symbol/function/class" (10) | File path named verbatim in ticket text |
 | `element_anchor_match`, `function_anchor_match` | "Exact symbol/function match" territory — high specificity (1.5x), one-hop directness (1.2x) | Registered element or git-hunk function def token-matches an anchored term |
-| `feature_anchor` | "Same broad component tag" (3) — **not** an exact match | `Feature -[IMPLEMENTED_BY]-> Module -[DEFINED_IN]-> File` is a two-hop rollup (0.8x directness at best), the same shape as the rubric's `Ticket -> has_tag -> Payments -> contains -> CodeUnit` broad-category example |
+| `feature_primary_file` | "File/module-level match" (specificity 1.25x) | A source file in the feature's *own* declared `source_files` list (registry-curated) — narrower and more trustworthy than "reachable via some module of this feature" |
+| `feature_anchor` | "Same broad component tag" (3) — **not** an exact match | `Feature -[IMPLEMENTED_BY]-> Module -[DEFINED_IN]-> File` is a two-hop rollup (0.8x directness at best), the same shape as the rubric's `Ticket -> has_tag -> Payments -> contains -> CodeUnit` broad-category example. Only files reachable *solely* through a module (not in the feature's own `source_files`) get this weaker tier |
 | `test_coverage` | "Test directly covers failing behavior" (8) | Direct `Feature -[HAS_TEST]-> TestFile` edge |
 | `recent_commit` (correlates with a `function_anchor_match` on the same commit) | "Recent commit + related symbol" (7) | |
 | `recent_commit` (file touched, no anchored symbol in that commit's hunks) | "Recent commit, no other relevance" (1) | See recency note above |
 | `doc_penalty` | Negative evidence — non-source file | |
 
-`feature_anchor` is the one row worth calling out explicitly: it was implemented at a weight comparable to direct symbol-level evidence, which is the broad-category mistake this document warns against elsewhere. It should score closer to a weak/medium signal that diversity bonuses and direct evidence build on top of, not a strong signal in its own right.
+`feature_anchor` is the one row worth calling out explicitly: it was originally implemented at a weight comparable to direct symbol-level evidence, which is the broad-category mistake this document warns against elsewhere. Splitting it into `feature_primary_file` (the feature's own curated files) and a demoted `feature_anchor` (everything else reachable via the module graph) fixes this without requiring every project's registry to keep an artificially narrow module list.
 
 # Suggested multipliers
 

@@ -398,6 +398,37 @@ async def test_feature_anchor_traverses_to_files():
 
 
 @pytest.mark.asyncio
+async def test_feature_source_files_get_primary_evidence():
+    # @spec DRE-TRAV-009
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue()
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=["shtp-receiver"],
+        has_errors=[],
+        feature_files={"shtp-receiver": ["agent/src/shtp.c", "agent/src/shtp.h"]},
+    )
+
+    packet = await retrieve(
+        issue_id=1,
+        project_slug="stagehand",
+        client=mock_client,
+        feature_source_files={"shtp-receiver": ["agent/src/shtp.c"]},
+    )
+
+    by_path = {c.path: c for c in packet.scored_candidates}
+    primary_types = {e.type for e in by_path["agent/src/shtp.c"].evidence}
+    peripheral_types = {e.type for e in by_path["agent/src/shtp.h"].evidence}
+    assert primary_types == {"feature_primary_file"}
+    assert peripheral_types == {"feature_anchor"}
+    # Primary (declared in the feature's own source_files) outscores peripheral
+    # (reachable only via the module graph) for equivalent single-anchor evidence.
+    assert by_path["agent/src/shtp.c"].score > by_path["agent/src/shtp.h"].score
+
+
+@pytest.mark.asyncio
 async def test_error_anchor_traverses_to_known_issues():
     # @spec DRE-TRAV-002
     from modok.retrieval.engine import retrieve
@@ -2092,10 +2123,10 @@ def test_score_diversity_bonus_per_unique_type():
     from modok.retrieval.engine import EvidenceItem, _score_candidate
 
     items = [
-        EvidenceItem(type="feature_anchor", score=7.0, explanation=""),
+        EvidenceItem(type="feature_primary_file", score=7.0, explanation=""),
         EvidenceItem(type="test_coverage", score=8.0, explanation=""),
     ]
-    # Two types: diversity bonus = 3.0 * min(1, 4) = 3.0.
+    # Two corroborating types: diversity bonus = 3.0 * min(1, 4) = 3.0.
     # Total = 7.0 + 8.0 + 3.0 = 18.0.
     assert _score_candidate(items) == 18.0
 
@@ -2105,15 +2136,50 @@ def test_score_diversity_bonus_capped_at_four_types():
     from modok.retrieval.engine import EvidenceItem, _score_candidate
 
     items = [
-        EvidenceItem(type="feature_anchor", score=1.0, explanation=""),
+        EvidenceItem(type="feature_primary_file", score=1.0, explanation=""),
         EvidenceItem(type="test_coverage", score=1.0, explanation=""),
         EvidenceItem(type="element_anchor_match", score=1.0, explanation=""),
         EvidenceItem(type="function_anchor_match", score=1.0, explanation=""),
-        EvidenceItem(type="recent_commit", score=1.0, explanation=""),
+        EvidenceItem(type="ticket_mention", score=1.0, explanation=""),
     ]
-    # 5 types: diversity bonus = 3.0 * min(4, 4) = 12.0 (capped).
+    # 5 corroborating types: diversity bonus = 3.0 * min(4, 4) = 12.0 (capped).
     # Type scores: 5 × 1.0. Total = 5.0 + 12.0 = 17.0.
     assert _score_candidate(items) == 17.0
+
+
+def test_score_recent_commit_does_not_count_toward_diversity_bonus_alone():
+    # @spec DRE-CAND-006
+    from modok.retrieval.engine import EvidenceItem, _score_candidate
+
+    items = [
+        EvidenceItem(type="feature_anchor", score=3.0, explanation=""),
+        EvidenceItem(type="recent_commit", score=1.5, explanation=""),
+    ]
+    # Both types are non-corroborating (peripheral feature match + bare
+    # recency) — with no direct evidence to reinforce, the diversity bonus
+    # must not fire; it would manufacture apparent strength from two weak
+    # signals alone. Total = 3.0 + 1.5 + 0.0 (no bonus) = 4.5.
+    assert _score_candidate(items) == 4.5
+
+
+def test_score_recent_commit_counts_toward_diversity_when_direct_evidence_present():
+    # @spec DRE-CAND-006
+    from modok.retrieval.engine import EvidenceItem, _score_candidate
+
+    items = [
+        EvidenceItem(type="feature_primary_file", score=9.0, explanation=""),
+        EvidenceItem(type="element_anchor_match", score=6.0, explanation=""),
+        EvidenceItem(type="recent_commit", score=1.5, explanation=""),
+    ]
+    # feature_primary_file and element_anchor_match are direct evidence —
+    # recent_commit reinforcing an already-plausible candidate should still
+    # count toward the diversity bonus. This is the case that regressed
+    # live: a well-anchored candidate (element match + several recent
+    # commits on the same file) scored noticeably lower than it should have
+    # when recent_commit was unconditionally excluded from the bonus.
+    # 3 types: diversity bonus = 3.0 * min(2, 4) = 6.0.
+    # Total = 9.0 + 6.0 + 1.5 + 6.0 = 22.5.
+    assert _score_candidate(items) == 22.5
 
 
 def test_score_penalty_items_summed_directly():
