@@ -245,13 +245,13 @@ async def test_query_affects_feature_returns_feature_rows():
     await dq.write_edge(ci_id, "AFFECTS", feat_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug}) "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:AFFECTS]->(f) WHERE f.node_type = 'Feature' AND f.project_slug = $project_slug "
         "RETURN f.feature_slug",
         {"issue_id": ci_id, "project_slug": "stagehand"},
     )
     assert len(rows) == 1
-    assert rows[0][0]["properties"]["feature_slug"] == "shtp"
+    assert rows[0][0] == "shtp"
 
 
 # @spec DQ-QD-002
@@ -267,13 +267,13 @@ async def test_query_has_error_returns_error_sig_rows():
     await dq.write_edge(ci_id, "HAS_ERROR", err_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_ERROR]->(e:ErrorSignature {project_slug: $project_slug}) "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:HAS_ERROR]->(e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug "
         "RETURN e.normalized_error",
         {"issue_id": ci_id, "project_slug": "stagehand"},
     )
     assert len(rows) == 1
-    assert rows[0][0]["properties"]["normalized_error"] == "shtp_mismatch"
+    assert rows[0][0] == "shtp_mismatch"
 
 
 # @spec DQ-QD-003
@@ -318,8 +318,9 @@ async def test_query_known_issue_reverse_walk():
     await dq.write_edge(ki_id, "HAS_ERROR", err_id)
 
     rows = await dq.query(
-        "MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error}) "
-        "MATCH (e)<-[:HAS_ERROR]-(ki:KnownIssue) "
+        "MATCH (e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug "
+        "AND e.normalized_error = $normalized_error "
+        "MATCH (e)<-[:HAS_ERROR]-(ki) WHERE ki.node_type = 'KnownIssue' "
         "RETURN ki",
         {"project_slug": "stagehand", "normalized_error": "shtp_mismatch"},
     )
@@ -340,8 +341,8 @@ async def test_query_resolved_by_returns_fix_rows():
     await dq.write_edge(ki_id, "RESOLVED_BY", fix_id)
 
     rows = await dq.query(
-        "MATCH (ki:KnownIssue) WHERE id(ki) = $ki_node_id "
-        "MATCH (ki)-[:RESOLVED_BY]->(fix:Fix {project_slug: $project_slug}) "
+        "MATCH (ki) WHERE id(ki) = $ki_node_id "
+        "MATCH (ki)-[:RESOLVED_BY]->(fix) WHERE fix.node_type = 'Fix' AND fix.project_slug = $project_slug "
         "RETURN fix",
         {"ki_node_id": ki_id, "project_slug": "stagehand"},
     )
@@ -366,9 +367,10 @@ async def test_query_similarity_match_returns_ki_with_status():
     await dq.write_edge(sm_id, "MATCHES", ki_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue {project_slug: $project_slug}) "
-        "WHERE sm.review_status IN ['candidate', 'confirmed'] "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm)-[:MATCHES]->(ki) "
+        "WHERE sm.node_type = 'SimilarityMatch' AND ki.node_type = 'KnownIssue' "
+        "AND ki.project_slug = $project_slug AND sm.review_status IN ['candidate', 'confirmed'] "
         "RETURN ki, sm.review_status",
         {"issue_id": ci_id, "project_slug": "stagehand"},
     )
@@ -396,9 +398,10 @@ async def test_query_similarity_match_excludes_rejected():
     await dq.write_edge(sm_id, "MATCHES", ki_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue {project_slug: $project_slug}) "
-        "WHERE sm.review_status IN ['candidate', 'confirmed'] "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm)-[:MATCHES]->(ki) "
+        "WHERE sm.node_type = 'SimilarityMatch' AND ki.node_type = 'KnownIssue' "
+        "AND ki.project_slug = $project_slug AND sm.review_status IN ['candidate', 'confirmed'] "
         "RETURN ki, sm.review_status",
         {"issue_id": ci_id, "project_slug": "stagehand"},
     )
@@ -416,20 +419,24 @@ async def test_query_unrecognized_fingerprint_raises():
 # @spec DQ-QD-008
 @pytest.mark.asyncio
 async def test_query_row_format():
+    # Uses a whole-node RETURN (RETURN ki) to verify the node-dict row shape —
+    # RETURN f.feature_slug (a scalar projection) legitimately returns the raw
+    # value directly, not this shape; see _dispatch_affects_feature.
     dq = DummyQuine()
-    feat = make_feature("shtp")
-    ci = make_customer_issue("1001")
-    ci_id = idFrom("customer-issue", "stagehand", "zendesk", "1001")
-    feat_id = idFrom("feature", "stagehand", "shtp")
-    await dq.upsert_node(ci)
-    await dq.upsert_node(feat)
-    await dq.write_edge(ci_id, "AFFECTS", feat_id)
+    err = make_error_sig("shtp_mismatch")
+    ki = make_known_issue("KI-001")
+    err_id = idFrom("error", "stagehand", "shtp_mismatch")
+    ki_id = idFrom("known-issue", "stagehand", "KI-001")
+    await dq.upsert_node(err)
+    await dq.upsert_node(ki)
+    await dq.write_edge(ki_id, "HAS_ERROR", err_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug}) "
-        "RETURN f.feature_slug",
-        {"issue_id": ci_id, "project_slug": "stagehand"},
+        "MATCH (e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug "
+        "AND e.normalized_error = $normalized_error "
+        "MATCH (e)<-[:HAS_ERROR]-(ki) WHERE ki.node_type = 'KnownIssue' "
+        "RETURN ki",
+        {"project_slug": "stagehand", "normalized_error": "shtp_mismatch"},
     )
     assert len(rows) == 1
     row = rows[0]
@@ -471,10 +478,10 @@ async def test_query_affects_filters_by_project():
     await dq.write_edge(ci_id, "AFFECTS", feat_b_id)
 
     rows = await dq.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug}) "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:AFFECTS]->(f) WHERE f.node_type = 'Feature' AND f.project_slug = $project_slug "
         "RETURN f.feature_slug",
         {"issue_id": ci_id, "project_slug": "stagehand"},
     )
     assert len(rows) == 1
-    assert rows[0][0]["properties"]["project_slug"] == "stagehand"
+    assert rows[0][0] == "shtp"

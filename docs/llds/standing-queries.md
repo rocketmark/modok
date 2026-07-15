@@ -161,6 +161,8 @@ None of this was caught by the unit test suite, because every test mocks `node_e
 
 **A third live pass (testing `new-bug-report-pattern`, below) found the ID-type fix alone was insufficient.** A real bug-labeled `CustomerIssue` write produced a confirmed standing-query match and a `200 OK` `PostToEndpoint` delivery, but no `Investigation` node ever appeared. Root cause: `node_exists`/`node_exists_by_parts` still returned `True` for an address nothing had ever been written to — Quine's `MATCH (n) WHERE id(n) = <any address> RETURN n` always returns a row (an empty-property shell), even for a brand-new address, so `bool(results)` could never report "doesn't exist." `_process_investigation`'s dedup check hit exactly this, concluded the `Investigation` was "already recorded," and skipped the real upsert on the very first delivery. Fixed by requiring a `node_type` property on the returned node — the same discipline `collect_nodes()` already applies (`CLI-REC-009`). Full detail: `docs/llds/quine-client.md § node_exists_by_parts`.
 
+**A fourth live pass (checking the actual GitHub comment content for a real ticket) found the DRE's graph-first anchoring had never worked at all.** With the three fixes above in place, `new-bug-report-pattern` correctly fired and posted a comment — but the comment contained only a summary line, no known issues, fixes, files, or tests, despite a real `AFFECTS` edge to a real `Feature` sitting in the graph. Root cause, in `modok.retrieval.engine`: (1) `_graph_anchors` and four other traversal functions used the same broken `:Label` Cypher syntax established elsewhere in this document, so graph-first anchoring was a dead code path that always fell through to the LLM fallback; (2) `RETURN f.feature_slug` projects a scalar, which real Quine returns as a raw value, not a node dict — the code's `row[0]["properties"]["feature_slug"]` silently extracted nothing even after fix (1). Separately, `_maybe_notify_github`'s call to `retrieve()` passed no registry context at all, crippling the LLM fallback that was — until fix (1) — the *only* path anchoring ever took. All fixed; full detail and the exact Cypher: `docs/llds/diagnostic-retrieval-engine.md § Anchor Extraction`, `§ Graph Traversal`.
+
 ### Loader and installer interface
 
 ```python
@@ -392,7 +394,7 @@ In `run_ingest_event`, the new branch:
 
 `post_issue_comment(github_repo: str, token: str, issue_number: str, body: str) -> None` — one `httpx` POST, same header shape (`Authorization: Bearer`, `Accept: application/vnd.github+json`) as `GithubIngester` already uses. Best-effort: any non-2xx response or exception is logged, never raised past this function.
 
-`format_debug_packet_markdown(packet: DebugPacket, investigation_id: str, standing_query_name: str) -> str` renders:
+`format_debug_packet_markdown(packet: DebugPacket, investigation_id: str, standing_query_name: str) -> str` renders the **full** packet — the same content `ui/src/components/modok/DebugPacketView.tsx` shows in the demo app, not the thinner subset `diagnose.py`'s `_print_packet` prints to a terminal. `retrieve()` already computes anchors, affected areas, scored candidates, and recent commits regardless of caller; the original version of this formatter silently dropped all of them, discarding real evidence that was already sitting on the packet — found live when a real, over-matched ticket's comment showed only a flat file list with no way to distinguish a strong match from a weak one:
 
 ```markdown
 ## 🔎 MODOK investigation triggered
@@ -401,15 +403,26 @@ Standing query `{standing_query_name}` matched this issue against existing graph
 
 **Summary:** {packet.summary}
 
+**Anchors:** Features: {...} · Errors: {...} · Symptoms: {...}
+
+**Affected areas:** {⬡|○} {name}, ...
+
+**Top suspects:**
+- `[{CONFIDENCE}]` `{path}` (score {score})
+  - {evidence.type}: {evidence.explanation}
+  ...
+
 **Known issues:** {for each: `- {id}: {summary}`}
 **Prior fixes:** {for each: `- {id} ({commit}): {summary}`}
 **Relevant files:** {up to N, as a list}
 **Relevant tests:** {up to N, as a list}
 
+**Recent commits:** {for each: `- {sha[:7]} ({date}) {author} — {message}`}
+
 _Investigation: `{investigation_id}`_
 ```
 
-Exact field ordering/omission-when-empty mirrors `diagnose.py`'s `_print_packet` (skip a section header entirely when its list is empty).
+Every section is omitted entirely when its underlying list is empty, same discipline as before. Section order mirrors `DebugPacketView.tsx`'s rendering order (summary → anchors → affected areas → top suspects → known issues/fixes → files/tests → recent commits) rather than `_print_packet`'s, since parity with the demo app's richer view — not the terminal's thinner one — is the goal here.
 
 ## GitHub Poll Adapter
 

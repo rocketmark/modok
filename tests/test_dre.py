@@ -127,6 +127,26 @@ async def test_raises_graph_unavailable_when_quine_unreachable():
 
 
 @pytest.mark.asyncio
+async def test_graph_anchors_extracts_scalar_rows_directly():
+    """_graph_anchors's RETURN f.feature_slug / e.normalized_error project a
+    scalar, not a node — real Quine returns the raw value directly as row[0],
+    not wrapped in a {"properties": {...}} node dict. Found live: the old
+    code assumed the node-dict shape and silently extracted nothing, even
+    when client.query() returned real matches."""
+    from modok.retrieval.engine import _graph_anchors
+
+    mock_client = AsyncMock()
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=["wifi-provisioning"],
+        has_errors=["GSS_FAILURE"],
+    )
+
+    feature_slugs, error_sigs = await _graph_anchors("1", "stagehand", mock_client)
+    assert feature_slugs == ["wifi-provisioning"]
+    assert error_sigs == ["GSS_FAILURE"]
+
+
+@pytest.mark.asyncio
 async def test_uses_graph_feature_anchors_skips_llm():
     # @spec DRE-ANCH-001, DRE-ANCH-003
     from modok.retrieval.engine import retrieve
@@ -1049,36 +1069,13 @@ def _make_query_side_effect(
         proj = params.get("project_slug", "stagehand")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "feature_slug": slug,
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": slug,
-                        },
-                    }
-                ]
-                for i, slug in enumerate(affects_features)
-            ]
+            # RETURN f.feature_slug projects a scalar — real Quine returns the
+            # raw value directly, not wrapped in a node dict.
+            return [[slug] for slug in affects_features]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
-            return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "normalized_error": err,
-                            "project_slug": proj,
-                            "node_type": "ErrorSignature",
-                            "display_text": err,
-                        },
-                    }
-                ]
-                for i, err in enumerate(has_errors)
-            ]
+            # RETURN e.normalized_error projects a scalar — same as above.
+            return [[err] for err in has_errors]
 
         if "idFrom('module'" in cypher:
             slug = params.get("feature_slug", "")
@@ -1233,20 +1230,8 @@ def _make_query_side_effect_cross_project_fix(
             return []
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
-            return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "normalized_error": err,
-                            "project_slug": proj,
-                            "node_type": "ErrorSignature",
-                            "display_text": err,
-                        },
-                    }
-                ]
-                for i, err in enumerate(has_errors)
-            ]
+            # RETURN e.normalized_error projects a scalar — same as above.
+            return [[err] for err in has_errors]
 
         if "IMPLEMENTED_BY" in cypher:
             return []
@@ -1275,9 +1260,9 @@ def _make_query_side_effect_cross_project_fix(
             kid = _ki_node_id_map.get(ki_node_id, "")
             fixes = ki_fixes_cross_project.get(kid, [])
             # Simulate Quine filtering: Fix nodes belong to OTHER-PROJECT;
-            # with the correct Cypher filter ({project_slug: $project_slug}),
+            # with the correct Cypher filter (fix.project_slug = $project_slug),
             # Quine returns nothing. We simulate that by checking the cypher.
-            if "Fix {project_slug" in cypher or "Fix{project_slug" in cypher:
+            if "fix.project_slug = $project_slug" in cypher:
                 return []  # Quine filters out cross-project Fix nodes
             # Without the filter in Cypher, Quine would return them (the old bug).
             return [
@@ -1313,23 +1298,11 @@ def _make_query_side_effect_cross_project_similarity(
 
     def _side_effect(cypher: str, params: dict | None = None):
         params = params or {}
-        proj = params.get("project_slug", "stagehand")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "feature_slug": slug,
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": slug,
-                        },
-                    }
-                ]
-                for i, slug in enumerate(affects_features)
-            ]
+            # RETURN f.feature_slug projects a scalar — real Quine returns the
+            # raw value directly, not wrapped in a node dict.
+            return [[slug] for slug in affects_features]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return []
@@ -1345,9 +1318,9 @@ def _make_query_side_effect_cross_project_similarity(
 
         if "HAS_SIMILARITY_MATCH" in cypher:
             # Simulate Quine filtering: KI nodes belong to OTHER-PROJECT;
-            # with the correct Cypher filter ({project_slug: $project_slug}),
+            # with the correct Cypher filter (ki.project_slug = $project_slug),
             # Quine returns nothing. We simulate that by inspecting the cypher.
-            if "KnownIssue {project_slug" in cypher or "KnownIssue{project_slug" in cypher:
+            if "ki.project_slug = $project_slug" in cypher:
                 return []  # Quine filters out cross-project KnownIssue nodes
             # Without the filter in Cypher, Quine would return them (the old bug).
             return [
@@ -1387,7 +1360,7 @@ async def test_test_files_included_in_relevant_files():
     async def mock_query(cypher, params=None):
         # Graph anchor: one feature
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [[{"properties": {"feature_slug": "shtp-receiver"}}]]
+            return [["shtp-receiver"]]
         if "AFFECTS" in cypher and "ErrorSignature" in cypher:
             return []
         # Source file traversal: Feature->Module->DEFINED_IN->File
@@ -1422,6 +1395,53 @@ async def test_test_files_included_in_relevant_files():
 
     assert "agent/src/shtp.c" in packet.relevant_files
     assert "agent/tests/test_shtp.c" in packet.relevant_tests
+
+
+# @spec DRE-TRAV-001
+@pytest.mark.asyncio
+async def test_source_file_outranks_test_file_for_same_feature_anchor():
+    """A source file and its test, matched via the exact same feature anchor
+    and no other evidence, must not rank the test above the source — found
+    live: test_coverage (8.0) outscoring feature_anchor (7.0) meant every
+    real bug report's "Top Suspects" list put test files above the likely
+    actual source of the bug."""
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue(raw_text=None)
+
+    async def mock_query(cypher, params=None):
+        if "AFFECTS" in cypher and "Feature" in cypher:
+            return [["shtp-receiver"]]
+        if "AFFECTS" in cypher and "ErrorSignature" in cypher:
+            return []
+        if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
+            return [
+                [
+                    {"properties": {"feature_slug": "shtp-receiver"}},
+                    {"properties": {"module_slug": "shtp"}},
+                    {"properties": {"repo_path": "agent/src/shtp.c"}},
+                ]
+            ]
+        if "HAS_TEST" in cypher:
+            return [[{"properties": {"repo_path": "agent/tests/test_shtp.c"}}]]
+        if "TOUCHES" in cypher:
+            return []
+        if "HAS_SIMILARITY_MATCH" in cypher:
+            return []
+        return []
+
+    mock_client = AsyncMock()
+    mock_client.get_node = AsyncMock(return_value=issue)
+    mock_client.query = AsyncMock(side_effect=mock_query)
+
+    mock_gw = AsyncMock()
+    mock_gw.summarise_packet = AsyncMock(return_value=[])
+
+    with patch("modok.retrieval.engine.gateway", mock_gw):
+        packet = await retrieve("123", "stagehand", mock_client)
+
+    by_path = {c.path: c for c in packet.scored_candidates}
+    assert by_path["agent/src/shtp.c"].score > by_path["agent/tests/test_shtp.c"].score
 
 
 # ---------------------------------------------------------------------------
@@ -1605,35 +1625,10 @@ def _make_module_error_query_side_effect(
         slug = params.get("feature_slug", "")
         file_path = params.get("file_path", "")
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": 0,
-                        "properties": {
-                            "feature_slug": module_slug,
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": module_slug,
-                        },
-                    }
-                ]
-            ]
+            return [[module_slug]]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
-            return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "normalized_error": err,
-                            "project_slug": proj,
-                            "node_type": "ErrorSignature",
-                            "display_text": err,
-                        },
-                    }
-                ]
-                for i, err in enumerate(error_sigs)
-            ]
+            return [[err] for err in error_sigs]
 
         if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
             return []  # No Feature→Module→File; triggers module fallback
@@ -1711,19 +1706,7 @@ def _make_module_slug_query_side_effect(
         file_path = params.get("file_path", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": 0,
-                        "properties": {
-                            "feature_slug": module_slug,
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": module_slug,
-                        },
-                    }
-                ]
-            ]
+            return [[module_slug]]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return []
@@ -2145,6 +2128,40 @@ def test_score_penalty_items_summed_directly():
     assert _score_candidate(items) == 2.0
 
 
+# @spec DRE-CAND-002
+def test_is_source_path_recognizes_shell_scripts():
+    from modok.retrieval.engine import _is_source_path
+
+    assert _is_source_path("pi-image/chroot-customize.sh") is True
+
+
+# @spec DRE-CAND-002
+def test_is_source_path_recognizes_extensionless_scripts_dir():
+    """Deployment/provisioning scripts under scripts/ are real operational
+    code, not documentation, even with no file extension — found live:
+    scripts/stagehand-wifi-provision (no extension) was penalized with the
+    same 0.25x actionability multiplier as a markdown doc, dropping a
+    directly-relevant script to the bottom of the Top Suspects list."""
+    from modok.retrieval.engine import _is_source_path
+
+    assert _is_source_path("scripts/stagehand-wifi-provision") is True
+    assert _is_source_path("scripts/stagehand-health") is True
+
+
+# @spec DRE-CAND-002
+def test_is_source_path_still_treats_markdown_as_non_source():
+    from modok.retrieval.engine import _is_source_path
+
+    assert _is_source_path("docs/llds/wifi-provisioning.md") is False
+
+
+# @spec DRE-CAND-002
+def test_is_source_path_extensionless_outside_scripts_dir_is_non_source():
+    from modok.retrieval.engine import _is_source_path
+
+    assert _is_source_path("config/stagehand-wifi-provision.service") is False
+
+
 def test_doc_penalty_applied_to_non_source_file():
     # @spec DRE-CAND-002
     from modok.retrieval.engine import EvidenceItem, _add_evidence, _build_scored_candidates
@@ -2206,19 +2223,7 @@ async def test_source_and_test_candidates_built_and_merged_separately():
         slug = params.get("feature_slug", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": 0,
-                        "properties": {
-                            "feature_slug": "feat-a",
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": "feat-a",
-                        },
-                    }
-                ]
-            ]
+            return [["feat-a"]]
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return []
         if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
@@ -2607,34 +2612,12 @@ def _make_commit_query_side_effect(
         file_path = params.get("file_path", "")
 
         if "AFFECTS" in cypher and "Feature" in cypher:
-            return [
-                [
-                    {
-                        "id": 0,
-                        "properties": {
-                            "feature_slug": module_slug,
-                            "project_slug": proj,
-                            "node_type": "Feature",
-                            "name": module_slug,
-                        },
-                    }
-                ]
-            ]
+            return [[module_slug]]
 
         if "HAS_ERROR" in cypher and "ErrorSignature" in cypher and "CustomerIssue" in cypher:
             return [
-                [
-                    {
-                        "id": i,
-                        "properties": {
-                            "normalized_error": err,
-                            "project_slug": proj,
-                            "node_type": "ErrorSignature",
-                            "display_text": err,
-                        },
-                    }
-                ]
-                for i, err in enumerate(error_sigs)
+                [err]
+                for err in error_sigs
             ]
 
         if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:

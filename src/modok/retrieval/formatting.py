@@ -1,5 +1,8 @@
 """Markdown formatting of a DebugPacket for GitHub write-back comments.
-See docs/llds/standing-queries.md § GitHub Write-Back."""
+
+Renders the *full* packet — the same content
+ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
+subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
 # @spec SQ-GH-002
 
 from __future__ import annotations
@@ -18,6 +21,33 @@ def format_debug_packet_markdown(
         f"**Summary:** {packet.summary or packet.issue.summary}",
         "",
     ]
+
+    anchors = packet.issue.anchors
+    if anchors.features or anchors.errors or anchors.symptoms:
+        parts = []
+        if anchors.features:
+            parts.append(f"Features: {', '.join(anchors.features)}")
+        if anchors.errors:
+            parts.append(f"Errors: {', '.join(anchors.errors)}")
+        if anchors.symptoms:
+            parts.append(f"Symptoms: {', '.join(anchors.symptoms)}")
+        lines.append(f"**Anchors:** {' · '.join(parts)}")
+        lines.append("")
+
+    if packet.affected_areas:
+        badges = [
+            f"{'⬡' if area.type == 'feature' else '○'} {area.name}" for area in packet.affected_areas
+        ]
+        lines.append(f"**Affected areas:** {', '.join(badges)}")
+        lines.append("")
+
+    if packet.scored_candidates:
+        lines.append("**Top suspects:**")
+        for c in packet.scored_candidates:
+            lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
+            for ev in c.evidence:
+                lines.append(f"  - {ev.type}: {ev.explanation}")
+        lines.append("")
 
     if packet.known_issues:
         lines.append("**Known issues:**")
@@ -42,6 +72,14 @@ def format_debug_packet_markdown(
         lines.append("**Relevant tests:**")
         for t in packet.relevant_tests:
             lines.append(f"- {t}")
+        lines.append("")
+
+    if packet.recent_commits:
+        lines.append("**Recent commits:**")
+        for c in packet.recent_commits:
+            sha = c.sha[:7] if c.sha else ""
+            date = c.timestamp[:10] if c.timestamp else ""
+            lines.append(f"- `{sha}` ({date}) {c.author_name} — {c.message}")
         lines.append("")
 
     lines.append(f"_Investigation: `{investigation_id}`_")

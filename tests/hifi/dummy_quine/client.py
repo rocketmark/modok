@@ -130,6 +130,8 @@ class DummyQuine:
 
     # @spec DQ-QD-001
     def _dispatch_affects_feature(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        # RETURN f.feature_slug projects a scalar — real Quine returns the raw
+        # value directly, not wrapped in a node dict (see engine.py _graph_anchors).
         issue_id = params.get("issue_id")
         project_slug = params.get("project_slug")
         results = []
@@ -138,11 +140,12 @@ class DummyQuine:
                 node = self._nodes.get(t)
                 if node is not None and node.node_type == "Feature":
                     if project_slug is None or node.project_slug == project_slug:
-                        results.append(self._node_to_row(t, node))
+                        results.append([node.feature_slug])
         return results
 
     # @spec DQ-QD-002
     def _dispatch_has_error_signature(self, params: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        # RETURN e.normalized_error projects a scalar — same as above.
         issue_id = params.get("issue_id")
         project_slug = params.get("project_slug")
         results = []
@@ -151,7 +154,7 @@ class DummyQuine:
                 node = self._nodes.get(t)
                 if node is not None and node.node_type == "ErrorSignature":
                     if project_slug is None or node.project_slug == project_slug:
-                        results.append(self._node_to_row(t, node))
+                        results.append([node.normalized_error])
         return results
 
     # @spec DQ-QD-003
@@ -311,16 +314,16 @@ class DummyQuine:
         return results
 
     _FINGERPRINTS = [
-        ("AFFECTS]->(f:Feature", "_dispatch_affects_feature"),
-        ("HAS_ERROR]->(e:ErrorSignature", "_dispatch_has_error_signature"),
+        ("AFFECTS]->(f) WHERE f.node_type = 'Feature'", "_dispatch_affects_feature"),
+        ("HAS_ERROR]->(e) WHERE e.node_type = 'ErrorSignature'", "_dispatch_has_error_signature"),
         ("IMPLEMENTED_BY]->(m:Module)-[:DEFINED_IN]->(file:File)", "_dispatch_feature_to_files"),
         ("idFrom('feature'", "_dispatch_feature_to_files"),
         ("idFrom('module'", "_dispatch_module_slug_to_files"),
         ("idFrom('file'", "_dispatch_file_to_commits"),
-        ("HAS_ERROR]-(ki:KnownIssue)", "_dispatch_error_to_known_issues"),
-        ("RESOLVED_BY]->(fix:Fix", "_dispatch_ki_to_fixes"),
+        ("HAS_ERROR]-(ki) WHERE ki.node_type = 'KnownIssue'", "_dispatch_error_to_known_issues"),
+        ("RESOLVED_BY]->(fix) WHERE fix.node_type = 'Fix'", "_dispatch_ki_to_fixes"),
         (
-            "HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue",
+            "HAS_SIMILARITY_MATCH]->(sm)-[:MATCHES]->(ki)",
             "_dispatch_similarity",
         ),
     ]

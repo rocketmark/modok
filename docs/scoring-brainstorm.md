@@ -154,6 +154,8 @@ specificity and directness dominate;
 recency breaks ties.
 ```
 
+**A recent commit is not, by itself, a first-class evidence item.** "Recent commit touched candidate and related symbol" (see weights below) is strong because of the *related symbol* half — the commit's diff overlaps something already implicated by other evidence (a matched function, an anchored error). Strip that half away and a bare "this file was in a commit sometime recently, unrelated to anything else about this ticket" is not stronger than generic keyword overlap — it should carry roughly the same low weight, and multiple such commits on the same file should not each add their own evidence slot (that's just one file being frequently edited, not corroborating evidence). Do not let recency alone earn its own corroboration-bonus type; it should only stack additional weight when it is tied to a specific, already-anchored symbol.
+
 ---
 
 ## 5. Frequency / corroboration
@@ -352,15 +354,34 @@ candidate_score =
 | Prior confirmed fix modified candidate | 9 |
 | Test directly covers failing behavior | 8 |
 | Runbook maps failure mode to component | 8 |
-| Recent commit touched candidate and related symbol | 7 |
+| Recent commit touched candidate **and** an already-anchored symbol | 7 |
 | Ticket mentions endpoint owned by candidate | 7 |
 | Design doc maps feature to component | 5 |
 | Same customer / tenant had prior issue here | 4 |
-| Same broad component tag | 3 |
+| Same broad component tag (e.g. reached only via a feature/module rollup, not a direct edge) | 3 |
+| Recent commit touched candidate, no other established relevance | 1 |
 | Keyword overlap only | 1 |
 | Vector similarity only | 1-3 |
 
+Note the two "recent commit" rows above are deliberately 7 points apart. The high one requires corroboration with a specific symbol; the low one is what's left when you strip that corroboration away. An implementation that scores every recently-touched file at the high weight — regardless of whether the commit touched anything relevant — will let frequently-edited-but-unrelated files (health-check scripts, chroot/build tooling, anything under constant maintenance) outrank a candidate that is directly named in the ticket but hasn't been touched recently. This is not a hypothetical: it is the failure mode that motivated this note.
+
 ---
+
+# MODOK evidence-type mapping
+
+MODOK's graph does not have stack traces, runbooks, endpoint ownership, or tenant history — the schema is `CustomerIssue` / `Feature` / `Module` / `File` / `TestFile` / `Commit` / `KnownIssue` / `Fix` / `ErrorSignature`. Translating the generic types above onto what the DRE (`src/modok/retrieval/engine.py`) actually produces:
+
+| MODOK evidence type | Maps to | Why |
+|---|---|---|
+| `ticket_mention` | "Ticket directly mentions symbol/function/class" (10) | File path named verbatim in ticket text |
+| `element_anchor_match`, `function_anchor_match` | "Exact symbol/function match" territory — high specificity (1.5x), one-hop directness (1.2x) | Registered element or git-hunk function def token-matches an anchored term |
+| `feature_anchor` | "Same broad component tag" (3) — **not** an exact match | `Feature -[IMPLEMENTED_BY]-> Module -[DEFINED_IN]-> File` is a two-hop rollup (0.8x directness at best), the same shape as the rubric's `Ticket -> has_tag -> Payments -> contains -> CodeUnit` broad-category example |
+| `test_coverage` | "Test directly covers failing behavior" (8) | Direct `Feature -[HAS_TEST]-> TestFile` edge |
+| `recent_commit` (correlates with a `function_anchor_match` on the same commit) | "Recent commit + related symbol" (7) | |
+| `recent_commit` (file touched, no anchored symbol in that commit's hunks) | "Recent commit, no other relevance" (1) | See recency note above |
+| `doc_penalty` | Negative evidence — non-source file | |
+
+`feature_anchor` is the one row worth calling out explicitly: it was implemented at a weight comparable to direct symbol-level evidence, which is the broad-category mistake this document warns against elsewhere. It should score closer to a weak/medium signal that diversity bonuses and direct evidence build on top of, not a strong signal in its own right.
 
 # Suggested multipliers
 

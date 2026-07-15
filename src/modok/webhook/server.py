@@ -247,7 +247,42 @@ async def _maybe_notify_github(
             )
             return
         ci_id = rows[0][0]
-        packet = await retrieve(ci_id, project_slug, client)
+
+        # Load registry context so the DRE's LLM fallback (used whenever
+        # graph-first anchors are absent) has feature/module slugs and
+        # descriptions to work with — the same context modok retrieve's CLI
+        # command loads. Without this, a ticket with no graph anchors yet
+        # gets an almost-empty packet even when the LLM fallback runs.
+        try:
+            from modok.ingestion.registry import Registry
+
+            registry = Registry(Path(project.repo)) if project else None
+            feature_slugs = registry.feature_slugs() if registry else None
+            module_slugs = registry.module_slugs() if registry else None
+            valid_slugs = (
+                feature_slugs + module_slugs if registry else None
+            )
+            feature_descriptions = registry.feature_descriptions() if registry else None
+            module_descriptions = registry.module_descriptions() if registry else None
+            module_elements = registry.module_elements() if registry else None
+            module_source_files = registry.all_module_source_files() if registry else None
+        except Exception:
+            feature_slugs = module_slugs = valid_slugs = None
+            feature_descriptions = module_descriptions = None
+            module_elements = module_source_files = None
+
+        packet = await retrieve(
+            ci_id,
+            project_slug,
+            client,
+            valid_slugs=valid_slugs,
+            feature_slugs=feature_slugs,
+            module_slugs=module_slugs,
+            feature_descriptions=feature_descriptions,
+            module_descriptions=module_descriptions,
+            module_elements=module_elements,
+            module_source_files=module_source_files,
+        )
 
         from modok.retrieval.formatting import format_debug_packet_markdown
 

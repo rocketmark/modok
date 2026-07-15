@@ -113,18 +113,25 @@ Sections with no matches are returned as empty lists.
 The DRE fetches the `CustomerIssue` node, then reads its outbound edges:
 
 ```cypher
-MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
-MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug})
+MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue'
+MATCH (ci)-[:AFFECTS]->(f) WHERE f.node_type = 'Feature' AND f.project_slug = $project_slug
 RETURN f.feature_slug
 ```
 
 ```cypher
-MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
-MATCH (ci)-[:HAS_ERROR]->(e:ErrorSignature {project_slug: $project_slug})
+MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue'
+MATCH (ci)-[:HAS_ERROR]->(e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug
 RETURN e.normalized_error
 ```
 
 If at least one feature slug or error signature is found, the LLM fallback is skipped entirely.
+
+**Two real bugs found live, testing a real GitHub issue's debug-packet write-back** (`docs/llds/standing-queries.md` — the standing query's GitHub comment came back with only a summary line, no known issues/fixes/files, despite a real `AFFECTS` edge sitting in the graph):
+
+1. **`:Label` syntax never matches real Quine.** The original queries used `(ci:CustomerIssue)` / `(f:Feature {project_slug: ...})` — established multiple times elsewhere in this project (`docs/llds/standing-queries.md § Live Verification Findings`) that `node_type` is a property, not a real Quine label, so these patterns silently matched nothing. This meant "graph-first" was a dead code path in production — `retrieve()` always fell through to the LLM fallback, even when real anchors existed. Fixed by filtering on `WHERE ... node_type = '...'` instead. This same bug, and fix, applied to four more traversal functions (`_traverse_error_to_known_issues`, `_traverse_ki_to_fixes`, `_fetch_fix_commit_sha`, `_traverse_similarity` — see § Graph Traversal) — all of `modok retrieve`/`diagnose`'s known-issue/fix/similarity lookups were affected, not just anchor extraction.
+2. **`RETURN f.feature_slug` projects a scalar, not a node.** Even after fixing (1), the anchors still came back empty: real Quine returns a scalar `RETURN` projection as the raw value directly (`row[0] == "wifi-provisioning"`), not wrapped in a `{"id":..., "properties": {...}}` node dict. The original code read `row[0]["properties"]["feature_slug"]`, silently extracting nothing from every row. Fixed by reading `row[0]` directly. This distinction was already understood correctly elsewhere in this same file (`_traverse_similarity`'s handling of `sm.review_status`, and `modok retrieve`'s own `RETURN id(n)` resolution query) — `_graph_anchors` simply predated that understanding.
+
+Neither bug was visible to the unit test suite, which mocks `client.query()` directly and returns whatever shape the test author chose — both bugs only exist in the gap between what real Quine actually returns and what the mocks assumed it returns.
 
 ### LLM fallback
 
@@ -150,7 +157,7 @@ For each slug in `feature_slugs` (which may be either Feature or Module slugs):
 1. Try Feature traversal: `Feature -[:IMPLEMENTED_BY]-> Module -[:DEFINED_IN]-> File`
 2. Also fetch: `Feature -[:HAS_TEST]-> TestFile`
 3. If no files found via Feature, fall back to Module traversal: `Module -[:DEFINED_IN]-> File` and walk up to parent Feature for test files.
-4. Files from step 1 or 3 get `feature_anchor` evidence (score 7.0). Test files get `test_coverage` evidence (score 8.0).
+4. Files from step 1 or 3 get `feature_anchor` evidence (score 8.0). Test files get `test_coverage` evidence (score 7.0) — source intentionally outscores its own test for equivalent single-anchor evidence (found live: the reverse ordering put test files above the actual likely-buggy source file in every real ticket's ranked candidates).
 5. `resolved_as` is `"feature"` or `"module"` and is used to build `affected_areas`.
 
 ### Error signature anchor → known issues
@@ -158,8 +165,9 @@ For each slug in `feature_slugs` (which may be either Feature or Module slugs):
 For each `normalized_error` in `error_sigs`:
 
 ```cypher
-MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error})
-MATCH (e)<-[:HAS_ERROR]-(ki:KnownIssue)
+MATCH (e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug
+  AND e.normalized_error = $normalized_error
+MATCH (e)<-[:HAS_ERROR]-(ki) WHERE ki.node_type = 'KnownIssue'
 RETURN ki
 ```
 
@@ -170,8 +178,8 @@ RETURN ki
 For each `KnownIssue` found above:
 
 ```cypher
-MATCH (ki:KnownIssue) WHERE id(ki) = $ki_id
-MATCH (ki)-[:RESOLVED_BY]->(fix:Fix)
+MATCH (ki) WHERE id(ki) = $ki_id
+MATCH (ki)-[:RESOLVED_BY]->(fix) WHERE fix.node_type = 'Fix' AND fix.project_slug = $project_slug
 RETURN fix
 ```
 
@@ -180,9 +188,10 @@ RETURN fix
 ### Pre-computed similarity
 
 ```cypher
-MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id
-MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue)
-WHERE sm.review_status IN ['candidate', 'confirmed']
+MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue'
+MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm)-[:MATCHES]->(ki)
+WHERE sm.node_type = 'SimilarityMatch' AND ki.node_type = 'KnownIssue'
+  AND ki.project_slug = $project_slug AND sm.review_status IN ['candidate', 'confirmed']
 RETURN ki, sm.review_status
 ```
 
@@ -207,12 +216,14 @@ Each file accumulates `EvidenceItem` records. Items are typed:
 | Type | Base score | Source |
 |---|---|---|
 | `ticket_mention` | 10.0 | File path explicitly named in ticket raw text (LLM parse) |
-| `test_coverage` | 8.0 | Feature/module graph traversal → TestFile |
-| `feature_anchor` | 7.0 | Feature/module graph traversal → source File |
+| `feature_anchor` | 8.0 | Feature/module graph traversal → source File |
+| `test_coverage` | 7.0 | Feature/module graph traversal → TestFile |
 | `element_anchor_match` | 6.0 | Registered element name token-matches symptom/error terms |
 | `function_anchor_match` | 6.0 | Git hunk function def token-matches func_anchor_tokens |
-| `recent_commit` | 4.0 | File touched by a recent commit |
+| `recent_commit` | 1.5 | File touched by a recent commit, with no established relevance to the specific ticket |
 | `doc_penalty` | negative | Applied to non-source files (×0.25 actionability multiplier) |
+
+**`recent_commit`'s weight is deliberately low** (`docs/scoring-brainstorm.md` § Recency, § MODOK evidence-type mapping). It fires for *any* file touched by *any* recent commit, independent of whether that commit touched anything relevant to the ticket — it is corroborated relevance (`function_anchor_match`, 6.0, fired separately when a commit's diff actually matches an anchored symbol) that deserves the higher weight, not bare recency. Found live: at the previous weight (4.0), a handful of unrelated commits on a frequently-edited operational script (`chroot-customize.sh`, `stagehand-health`) accumulated enough decayed `recent_commit` evidence to outrank a file that was directly named in the ticket but hadn't been touched recently — the exact anti-pattern `scoring-brainstorm.md` warns against ("a recent vague keyword match should not beat an older exact prior fix"). Lowering the base weight to 1.5 caps the maximum contribution from an unbounded string of unrelated commits to roughly 3.0 (geometric decay converges to ~2× base), instead of ~8.0.
 
 ## Anchor Token Matching
 
@@ -271,7 +282,7 @@ Confidence label:
 - `"medium"`: score ≥ 10.0
 - `"low"`: score < 10.0
 
-Non-source files (docs, markdown, config) receive a `doc_penalty` item equal to `raw_score × (0.25 - 1.0)`. This penalizes files that cannot contain bugs without removing them from the output.
+Non-source files (docs, markdown, config) receive a `doc_penalty` item equal to `raw_score × (0.25 - 1.0)`. This penalizes files that cannot contain bugs without removing them from the output. "Source" (`_is_source_path`) includes the fixed extension set (now including `.sh`) *and* any extensionless file directly under a `scripts/` directory — found live: shell scripts and extensionless deployment/provisioning scripts (e.g. `scripts/stagehand-wifi-provision`) were previously classified as non-source and penalized identically to a markdown doc, despite being real operational code directly relevant to the ticket.
 
 Source candidates and test candidates are built and sorted separately (cap: 20 each), then merged and re-sorted by score for `scored_candidates`. `relevant_files` and `relevant_tests` are the ordered paths from each list.
 
@@ -325,6 +336,7 @@ class DRELLMUnavailableError(DREError): pass    # LLM gateway unreachable (fallb
 | `on_progress` streaming callback | Caller-supplied callback, two events | SSE in engine; no streaming | Keeps engine transport-agnostic; the API route layer owns SSE framing |
 | LLM summary includes `matched_elements` | Passed to `summarise_packet` | Summarize from files only | Without element names the LLM focuses on the file path; element names produce more specific summaries |
 | Non-source file penalty | ×0.25 actionability multiplier applied as `doc_penalty` item | Exclude entirely; no penalty | Docs appear in results when they are the only anchor match, but their low score prevents them from displacing real source files |
+| `recent_commit` base weight | 1.5 (low) | 4.0 (original); split into a separate "correlated" evidence type | `docs/scoring-brainstorm.md` treats recency as a modifier, not an independent strong signal — the correlated case is already captured by `function_anchor_match` (6.0), so a separate type wasn't needed, just a lower base weight for the uncorrelated case |
 
 ## Open Questions & Future Decisions
 
@@ -334,7 +346,8 @@ class DRELLMUnavailableError(DREError): pass    # LLM gateway unreachable (fallb
 3. ✅ Element anchor matching uses `symptom_error_tokens` to avoid module name self-match.
 
 ### Deferred
-1. **Recency boost on commits** — recent commits contribute uniform score; older commits are not penalized beyond being later in the list. A recency decay function (e.g., exponential by days) could be added without changing the evidence model.
+1. **Recency decay by age, not just position** — recent commits within the same file contribute uniform per-hit score (only dampened by the existing same-type geometric decay, not by how many days old the commit is); a true recency-by-age multiplier (e.g., exponential by days, per `docs/scoring-brainstorm.md` § Recency multiplier) could be layered on top of the now-lowered base weight without changing the evidence model. Not done yet — the immediate live bug was fixed by lowering the base weight (see Evidence Sources), which was sufficient and much lower-risk than adding a new dimension.
+2. **Full specificity/directness/reliability multiplier model** — `docs/scoring-brainstorm.md` proposes per-evidence-item dimensions (specificity, directness, reliability, recency, actionability, confidence) multiplied together, plus hub/stale/contradiction penalties. The current implementation only has flat per-type base scores, the corroboration bonus, and same-type geometric decay — the latter two already match the brainstorm's formulas, but the richer per-dimension weighting does not exist. Adopting it fully would be a larger scoring-engine redesign; deferred until a second concrete ranking failure demonstrates the flat-weight model is insufficient beyond what targeted weight adjustments (like the `recent_commit` fix above) can address.
 2. **Vector index recall** — deferred until graph-only retrieval is proven insufficient.
 3. **`relevant_tests`** — produced but the `Test` node type and `HAS_TEST` edge do not yet exist for all modules.
 4. **Anchor caching** — LLM fallback re-parses raw text on every call. Fix: write derived anchors back as `AFFECTS`/`HAS_ERROR` edges during ingestion. The DRE does not write these itself.
@@ -348,3 +361,4 @@ class DRELLMUnavailableError(DREError): pass    # LLM gateway unreachable (fallb
 - `docs/llds/quine-client.md` — `query()` and `get_node()` interfaces
 - `docs/llds/ingestion-pipeline.md` — upstream pipeline; creates `CustomerIssue` nodes and writes `AFFECTS`/`HAS_ERROR` edges
 - `docs/llds/github-ingestion.md` — ingests `Commit` nodes with `TOUCHES` edges and `file_hunks` hunk data
+- `docs/scoring-brainstorm.md` — evidence weighting design rubric; current implementation follows its corroboration bonus and same-type decay formulas exactly, and its recency-as-modifier principle for `recent_commit`'s weight, but not yet its full per-dimension multiplier model (see Open Questions)

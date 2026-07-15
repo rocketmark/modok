@@ -18,10 +18,13 @@ from modok.retrieval.formatting import format_debug_packet_markdown
 from modok.retrieval.models import (
     AffectedArea,
     DebugPacket,
+    EvidenceItem,
     IssueAnchors,
     IssueSummary,
     KnownIssueRef,
     PriorFix,
+    RecentCommit,
+    ScoredCandidate,
 )
 
 
@@ -70,6 +73,101 @@ def test_markdown_omits_empty_sections():
     md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
     assert "Relevant tests" not in md
     assert "Prior fixes" not in md
+
+
+# @spec SQ-GH-002
+def test_markdown_includes_anchors():
+    packet = make_packet(
+        issue=IssueSummary(
+            summary="Client rejects v2 header",
+            anchors=IssueAnchors(
+                features=["shtp-receiver"], errors=["shtp-version-mismatch"], symptoms=["freeze"]
+            ),
+        )
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "shtp-receiver" in md
+    assert "shtp-version-mismatch" in md
+    assert "freeze" in md
+
+
+# @spec SQ-GH-002
+def test_markdown_omits_anchors_section_when_empty():
+    packet = make_packet(
+        issue=IssueSummary(
+            summary="Client rejects v2 header",
+            anchors=IssueAnchors(features=[], errors=[], symptoms=[]),
+        )
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "Anchors" not in md
+
+
+# @spec SQ-GH-002
+def test_markdown_includes_affected_areas():
+    md = format_debug_packet_markdown(make_packet(), "inv-42", "actionable-issue-pattern")
+    assert "shtp-receiver" in md
+    assert "Affected areas" in md
+
+
+# @spec SQ-GH-002
+def test_markdown_omits_affected_areas_when_empty():
+    packet = make_packet(affected_areas=[])
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "Affected areas" not in md
+
+
+# @spec SQ-GH-002
+def test_markdown_includes_top_suspects_with_confidence_and_evidence():
+    packet = make_packet(
+        scored_candidates=[
+            ScoredCandidate(
+                path="agent/src/shtp.c",
+                kind="source",
+                score=12.5,
+                confidence="high",
+                evidence=[EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver")],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "Top suspects" in md
+    assert "agent/src/shtp.c" in md
+    assert "HIGH" in md.upper()
+    assert "feature_anchor" in md
+    assert "shtp-receiver" in md
+
+
+# @spec SQ-GH-002
+def test_markdown_omits_top_suspects_when_empty():
+    md = format_debug_packet_markdown(make_packet(scored_candidates=[]), "inv-42", "actionable-issue-pattern")
+    assert "Top suspects" not in md
+
+
+# @spec SQ-GH-002
+def test_markdown_includes_recent_commits():
+    packet = make_packet(
+        recent_commits=[
+            RecentCommit(
+                sha="a3f9c1234567",
+                timestamp="2026-07-10T12:00:00Z",
+                author_name="Jane Dev",
+                message="Fix byte offset in version check",
+                files_touched=["agent/src/shtp.c"],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "Recent commits" in md
+    assert "a3f9c12" in md
+    assert "Jane Dev" in md
+    assert "Fix byte offset in version check" in md
+
+
+# @spec SQ-GH-002
+def test_markdown_omits_recent_commits_when_empty():
+    md = format_debug_packet_markdown(make_packet(recent_commits=[]), "inv-42", "actionable-issue-pattern")
+    assert "Recent commits" not in md
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +319,7 @@ async def test_maybe_notify_github_resolves_customer_issue_by_property_lookup():
 
     captured_ids = []
 
-    async def fake_retrieve(issue_id, project_slug, client):
+    async def fake_retrieve(issue_id, project_slug, client, **kwargs):
         captured_ids.append(issue_id)
         return make_packet()
 

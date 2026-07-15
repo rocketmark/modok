@@ -59,11 +59,21 @@ _SOURCE_EXTS = {
     ".java",
     ".rb",
     ".swift",
+    ".sh",
 }
 
 
 def _is_source_path(path: str) -> bool:
-    return os.path.splitext(path)[1].lower() in _SOURCE_EXTS
+    if os.path.splitext(path)[1].lower() in _SOURCE_EXTS:
+        return True
+    # Extensionless executable scripts under scripts/ are real operational
+    # (deployment/provisioning) code, not documentation — found live: a
+    # directly-relevant script with no file extension was penalized with
+    # the same 0.25x actionability multiplier as a markdown doc.
+    parts = path.replace("\\", "/").split("/")
+    if len(parts) > 1 and "scripts" in parts[:-1] and not os.path.splitext(path)[1]:
+        return True
+    return False
 
 
 def _path_actionability_multiplier(path: str) -> float:
@@ -237,27 +247,23 @@ async def _graph_anchors(
 ) -> tuple[list[str], list[str]]:
     """Return (feature_slugs, error_signatures) from graph edges, project-scoped."""
     feature_rows = await client.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:AFFECTS]->(f:Feature {project_slug: $project_slug}) "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:AFFECTS]->(f) WHERE f.node_type = 'Feature' AND f.project_slug = $project_slug "
         "RETURN f.feature_slug",
         {"issue_id": issue_id, "project_slug": project_slug},
     )
     error_rows = await client.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_ERROR]->(e:ErrorSignature {project_slug: $project_slug}) "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:HAS_ERROR]->(e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug "
         "RETURN e.normalized_error",
         {"issue_id": issue_id, "project_slug": project_slug},
     )
-    feature_slugs = [
-        row[0]["properties"]["feature_slug"]
-        for row in feature_rows
-        if row and row[0].get("properties", {}).get("feature_slug")
-    ]
-    error_sigs = [
-        row[0]["properties"]["normalized_error"]
-        for row in error_rows
-        if row and row[0].get("properties", {}).get("normalized_error")
-    ]
+    # RETURN f.feature_slug / e.normalized_error project a scalar property,
+    # not a node — real Quine returns the raw value directly as row[0], not
+    # wrapped in a {"properties": {...}} node dict (found live: the old code
+    # here assumed the node-dict shape and silently extracted nothing).
+    feature_slugs = [row[0] for row in feature_rows if row and row[0]]
+    error_sigs = [row[0] for row in error_rows if row and row[0]]
     return feature_slugs, error_sigs
 
 
@@ -399,8 +405,9 @@ async def _traverse_error_to_known_issues(
 ) -> list[tuple[str, dict[str, str]]]:
     """Return (quine_node_id, props) for each KnownIssue reachable from this error."""
     rows = await client.query(
-        "MATCH (e:ErrorSignature {project_slug: $project_slug, normalized_error: $normalized_error}) "
-        "MATCH (e)<-[:HAS_ERROR]-(ki:KnownIssue) "
+        "MATCH (e) WHERE e.node_type = 'ErrorSignature' AND e.project_slug = $project_slug "
+        "AND e.normalized_error = $normalized_error "
+        "MATCH (e)<-[:HAS_ERROR]-(ki) WHERE ki.node_type = 'KnownIssue' "
         "RETURN ki",
         {"project_slug": project_slug, "normalized_error": normalized_error},
     )
@@ -418,8 +425,8 @@ async def _traverse_ki_to_fixes(
     client: QuineClient,
 ) -> list[dict[str, str]]:
     rows = await client.query(
-        "MATCH (ki:KnownIssue) WHERE id(ki) = $ki_node_id "
-        "MATCH (ki)-[:RESOLVED_BY]->(fix:Fix {project_slug: $project_slug}) "
+        "MATCH (ki) WHERE id(ki) = $ki_node_id "
+        "MATCH (ki)-[:RESOLVED_BY]->(fix) WHERE fix.node_type = 'Fix' AND fix.project_slug = $project_slug "
         "RETURN fix",
         {"project_slug": project_slug, "ki_node_id": ki_node_id},
     )
@@ -436,7 +443,7 @@ async def _fetch_fix_commit_sha(
     """Return the short commit SHA for a fix via Fix-[:IMPLEMENTED_IN]->Commit, or ''."""
     rows = await client.query(
         "MATCH (f) WHERE id(f) = idFrom('fix', $project_slug, $fix_id) "
-        "MATCH (f)-[:IMPLEMENTED_IN]->(c:Commit) "
+        "MATCH (f)-[:IMPLEMENTED_IN]->(c) WHERE c.node_type = 'Commit' "
         "RETURN c",
         {"project_slug": project_slug, "fix_id": fix_id},
     )
@@ -456,9 +463,10 @@ async def _traverse_similarity(
 ) -> list[tuple[dict[str, str], str]]:
     """Return list of (ki_properties, review_status) for non-rejected similarity matches."""
     rows = await client.query(
-        "MATCH (ci:CustomerIssue) WHERE id(ci) = $issue_id "
-        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm:SimilarityMatch)-[:MATCHES]->(ki:KnownIssue {project_slug: $project_slug}) "
-        "WHERE sm.review_status IN ['candidate', 'confirmed'] "
+        "MATCH (ci) WHERE id(ci) = $issue_id AND ci.node_type = 'CustomerIssue' "
+        "MATCH (ci)-[:HAS_SIMILARITY_MATCH]->(sm)-[:MATCHES]->(ki) "
+        "WHERE sm.node_type = 'SimilarityMatch' AND ki.node_type = 'KnownIssue' "
+        "AND ki.project_slug = $project_slug AND sm.review_status IN ['candidate', 'confirmed'] "
         "RETURN ki, sm.review_status",
         {"issue_id": issue_id, "project_slug": project_slug},
     )
@@ -611,7 +619,7 @@ async def retrieve(
                     path,
                     EvidenceItem(
                         type="feature_anchor",
-                        score=7.0,
+                        score=8.0,
                         explanation=slug,
                     ),
                 )
@@ -621,7 +629,7 @@ async def retrieve(
                     path,
                     EvidenceItem(
                         type="test_coverage",
-                        score=8.0,
+                        score=7.0,
                         explanation=slug,
                     ),
                 )
@@ -762,7 +770,7 @@ async def retrieve(
     for elem in matched_elements:
         func_anchor_tokens.update(_tokenize(elem))
 
-    # @spec DRE-FUNC-001, DRE-FUNC-002, DRE-FUNC-003
+    # @spec DRE-FUNC-001, DRE-FUNC-002, DRE-FUNC-003, DRE-CAND-005
     for c in raw_commits:
         sha_short = c.get("sha", "")[:7]
         for fpath in c.get("files_touched", []):
@@ -778,7 +786,7 @@ async def retrieve(
                 fpath,
                 EvidenceItem(
                     type="recent_commit",
-                    score=4.0,
+                    score=1.5,
                     explanation=f"Touched in recent commit {sha_short}",
                 ),
             )
