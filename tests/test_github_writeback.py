@@ -14,7 +14,10 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from modok.retrieval.formatting import format_debug_packet_markdown
+from modok.retrieval.formatting import (
+    format_debug_packet_markdown,
+    format_investigation_triggered_markdown,
+)
 from modok.retrieval.models import (
     AffectedArea,
     DebugPacket,
@@ -56,6 +59,28 @@ def test_markdown_includes_standing_query_name_and_investigation_id():
     md = format_debug_packet_markdown(make_packet(), "inv-42", "actionable-issue-pattern")
     assert "actionable-issue-pattern" in md
     assert "inv-42" in md
+
+
+# @spec SQ-GH-007
+def test_triggered_markdown_has_header_summary_and_investigation_id():
+    md = format_investigation_triggered_markdown(
+        "Likely a logic error in wifi_provision_logic.py.", "new-bug-report-pattern", "inv-77"
+    )
+    assert "investigation triggered" in md
+    assert "new-bug-report-pattern" in md
+    assert "Likely a logic error in wifi_provision_logic.py." in md
+    assert "inv-77" in md
+    # This is the fast, short comment — it must not contain full-packet
+    # sections that only the later "results" comment has.
+    assert "Top suspects" not in md
+    assert "Relevant files" not in md
+
+
+# @spec SQ-GH-007
+def test_results_markdown_header_says_results_not_triggered():
+    md = format_debug_packet_markdown(make_packet(), "inv-42", "actionable-issue-pattern")
+    assert "investigation results" in md
+    assert "investigation triggered" not in md
 
 
 # @spec SQ-GH-002
@@ -136,6 +161,54 @@ def test_markdown_includes_top_suspects_with_confidence_and_evidence():
     assert "HIGH" in md.upper()
     assert "feature_anchor" in md
     assert "shtp-receiver" in md
+
+
+# @spec SQ-GH-002
+def test_markdown_groups_doc_penalized_candidates_into_single_low():
+    packet = make_packet(
+        scored_candidates=[
+            ScoredCandidate(
+                path="agent/src/shtp.c",
+                kind="source",
+                score=12.5,
+                confidence="high",
+                evidence=[EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver")],
+            ),
+            ScoredCandidate(
+                path="docs/llds/shtp.md",
+                kind="source",
+                score=1.8,
+                confidence="low",
+                evidence=[
+                    EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver"),
+                    EvidenceItem(
+                        type="doc_penalty", score=-5.2, explanation="Non-source file (×0.25 actionability penalty)"
+                    ),
+                ],
+            ),
+            ScoredCandidate(
+                path="docs/specs/shtp-specs.md",
+                kind="source",
+                score=1.8,
+                confidence="low",
+                evidence=[
+                    EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver"),
+                    EvidenceItem(
+                        type="doc_penalty", score=-5.2, explanation="Non-source file (×0.25 actionability penalty)"
+                    ),
+                ],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "agent/src/shtp.c" in md
+    assert "docs/llds/shtp.md" in md
+    assert "docs/specs/shtp-specs.md" in md
+    # The two doc-penalized files collapse into a single grouped LOW line,
+    # not two separate `[LOW]` entries with their own evidence breakdown.
+    assert md.count("`[LOW]`") == 1
+    assert "2 supporting doc/config files" in md
+    assert "doc_penalty" not in md
 
 
 # @spec SQ-GH-002
@@ -221,6 +294,7 @@ async def test_maybe_notify_github_posts_when_configured():
 
     with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
          patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.retrieval.engine.quick_investigation_summary", new=AsyncMock(return_value="quick take")), \
          patch("modok.retrieval.engine.retrieve", new=AsyncMock(return_value=make_packet())), \
          patch("modok.ingestion.github.post_issue_comment", new=AsyncMock()) as mock_post:
         await _maybe_notify_github(
@@ -232,7 +306,13 @@ async def test_maybe_notify_github_posts_when_configured():
             standing_query_name="actionable-issue-pattern",
         )
 
-    mock_post.assert_called_once()
+    # @spec SQ-GH-007 — one fast "triggered" comment, one full "results" comment
+    assert mock_post.call_count == 2
+    triggered_body = mock_post.call_args_list[0].args[3]
+    results_body = mock_post.call_args_list[1].args[3]
+    assert "investigation triggered" in triggered_body
+    assert "quick take" in triggered_body
+    assert "investigation results" in results_body
 
 
 # @spec SQ-GH-003
@@ -325,6 +405,7 @@ async def test_maybe_notify_github_resolves_customer_issue_by_property_lookup():
 
     with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
          patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.retrieval.engine.quick_investigation_summary", new=AsyncMock(return_value="quick take")), \
          patch("modok.retrieval.engine.retrieve", new=fake_retrieve), \
          patch("modok.ingestion.github.post_issue_comment", new=AsyncMock()) as mock_post:
         await _maybe_notify_github(
@@ -336,11 +417,14 @@ async def test_maybe_notify_github_resolves_customer_issue_by_property_lookup():
             standing_query_name="actionable-issue-pattern",
         )
 
-    query_call = mock_client.query.call_args
+    # First query() call is always the ci_id property-lookup, regardless of
+    # how many more queries quick_investigation_summary's own graph-anchor
+    # lookup makes afterward.
+    query_call = mock_client.query.call_args_list[0]
     params = query_call.args[1]
     assert params == {"p": "stagehand", "s": "github", "t": "42"}
     assert captured_ids == ["real-quine-uuid-123"]
-    mock_post.assert_called_once()
+    assert mock_post.call_count == 2
 
 
 # @spec SQ-GH-004
@@ -379,6 +463,7 @@ async def test_maybe_notify_github_swallows_dre_failure():
 
     with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
          patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.retrieval.engine.quick_investigation_summary", new=AsyncMock(return_value="quick take")), \
          patch("modok.retrieval.engine.retrieve", new=AsyncMock(side_effect=Exception("DRE unavailable"))), \
          patch("modok.ingestion.github.post_issue_comment", new=AsyncMock()) as mock_post:
         await _maybe_notify_github(
@@ -390,4 +475,7 @@ async def test_maybe_notify_github_swallows_dre_failure():
             standing_query_name="actionable-issue-pattern",
         )  # must not raise
 
-    mock_post.assert_not_called()
+    # The fast "triggered" comment still posts even though the later,
+    # slower retrieve() call (for the "results" comment) fails.
+    assert mock_post.call_count == 1
+    assert "investigation triggered" in mock_post.call_args_list[0].args[3]

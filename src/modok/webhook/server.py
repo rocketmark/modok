@@ -209,7 +209,7 @@ async def _maybe_notify_github(
 ) -> None:
     """Best-effort: post the DRE's debug packet as a GitHub issue comment.
 
-    @spec SQ-GH-001, SQ-GH-003, SQ-GH-004
+    @spec SQ-GH-001, SQ-GH-003, SQ-GH-004, SQ-GH-007
     """
     if source_system != "github":
         return
@@ -227,7 +227,7 @@ async def _maybe_notify_github(
         if not github_repo or not token:
             return
 
-        from modok.retrieval.engine import retrieve
+        from modok.retrieval.engine import quick_investigation_summary, retrieve
 
         # Resolve the real Quine node ID by property lookup — the CustomerIssue
         # was addressed via Quine's own idFrom() at write time (embedded in the
@@ -272,6 +272,36 @@ async def _maybe_notify_github(
             feature_descriptions = module_descriptions = None
             module_elements = module_source_files = feature_source_files = None
 
+        from modok.ingestion.github import post_issue_comment
+        from modok.retrieval.formatting import (
+            format_debug_packet_markdown,
+            format_investigation_triggered_markdown,
+        )
+
+        # Post the fast "triggered" comment first, before the slow
+        # traversal/scoring/LLM-summary work below — found live: a full
+        # retrieve() can take several minutes with no visible feedback in
+        # the meantime. This comment's own generation failing must not
+        # prevent it from posting at all (falls back to no summary line)
+        # or block the results comment that follows.
+        try:
+            quick_summary = await quick_investigation_summary(
+                ci_id, project_slug, client, feature_source_files=feature_source_files
+            )
+        except Exception:
+            quick_summary = ""
+        triggered_body = format_investigation_triggered_markdown(
+            quick_summary, standing_query_name, investigation_id
+        )
+        try:
+            await post_issue_comment(github_repo, token, ticket_id, triggered_body)
+        except Exception as exc:
+            print(
+                f"GitHub write-back (triggered comment) failed for "
+                f"{project_slug}#{ticket_id}: {exc}",
+                file=sys.stderr,
+            )
+
         packet = await retrieve(
             ci_id,
             project_slug,
@@ -286,13 +316,9 @@ async def _maybe_notify_github(
             feature_source_files=feature_source_files,
         )
 
-        from modok.retrieval.formatting import format_debug_packet_markdown
+        results_body = format_debug_packet_markdown(packet, investigation_id, standing_query_name)
 
-        body = format_debug_packet_markdown(packet, investigation_id, standing_query_name)
-
-        from modok.ingestion.github import post_issue_comment
-
-        await post_issue_comment(github_repo, token, ticket_id, body)
+        await post_issue_comment(github_repo, token, ticket_id, results_body)
     except Exception as exc:
         print(f"GitHub write-back failed for {project_slug}#{ticket_id}: {exc}", file=sys.stderr)
 

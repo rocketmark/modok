@@ -380,6 +380,7 @@ MODOK's graph does not have stack traces, runbooks, endpoint ownership, or tenan
 | `test_coverage` | "Test directly covers failing behavior" (8) | Direct `Feature -[HAS_TEST]-> TestFile` edge |
 | `recent_commit` (correlates with a `function_anchor_match` on the same commit) | "Recent commit + related symbol" (7) | |
 | `recent_commit` (file touched, no anchored symbol in that commit's hunks) | "Recent commit, no other relevance" (1) | See recency note above |
+| `commit_message_match` | "Prior confirmed fix modified candidate" (9) | The commit's own message — not its diff — names the same thing the ticket describes. Distinct from `function_anchor_match`: a commit can be topically on-target (message) without its diff touching a matched symbol (e.g. an OS-image build script fix for "wifi provisioning" that never touches the application-level wifi logic file) |
 | `doc_penalty` | Negative evidence — non-source file | |
 
 `feature_anchor` is the one row worth calling out explicitly: it was originally implemented at a weight comparable to direct symbol-level evidence, which is the broad-category mistake this document warns against elsewhere. Splitting it into `feature_primary_file` (the feature's own curated files) and a demoted `feature_anchor` (everything else reachable via the module graph) fixes this without requiring every project's registry to keep an artificially narrow module list.

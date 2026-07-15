@@ -1,20 +1,38 @@
-"""Markdown formatting of a DebugPacket for GitHub write-back comments.
-
-Renders the *full* packet — the same content
+"""Markdown formatting for GitHub write-back comments — two separate
+messages per investigation (SQ-GH-007): an immediate, fast "triggered"
+comment (format_investigation_triggered_markdown) posted before the slow
+retrieve() pipeline runs, and a later "results" comment
+(format_debug_packet_markdown) with the *full* packet — the same content
 ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
 subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
-# @spec SQ-GH-002
+# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007
 
 from __future__ import annotations
 
 from modok.retrieval.models import DebugPacket
 
 
+def format_investigation_triggered_markdown(summary: str, standing_query_name: str, investigation_id: str) -> str:
+    """The immediate, fast comment posted as soon as a standing query fires
+    — before retrieve()'s traversal/scoring/LLM-summary work runs. `summary`
+    comes from quick_investigation_summary(), not the full packet."""
+    lines = [
+        "## 🔎 MODOK investigation triggered",
+        "",
+        f"Standing query `{standing_query_name}` matched this issue against existing graph evidence.",
+        "",
+        f"**Summary:** {summary}",
+        "",
+        f"_Investigation: `{investigation_id}`_",
+    ]
+    return "\n".join(lines)
+
+
 def format_debug_packet_markdown(
     packet: DebugPacket, investigation_id: str, standing_query_name: str
 ) -> str:
     lines = [
-        "## 🔎 MODOK investigation triggered",
+        "## 🔍 MODOK investigation results",
         "",
         f"Standing query `{standing_query_name}` matched this issue against existing graph evidence.",
         "",
@@ -43,10 +61,19 @@ def format_debug_packet_markdown(
 
     if packet.scored_candidates:
         lines.append("**Top suspects:**")
-        for c in packet.scored_candidates:
+        doc_penalized = [
+            c for c in packet.scored_candidates if any(ev.type == "doc_penalty" for ev in c.evidence)
+        ]
+        regular = [c for c in packet.scored_candidates if c not in doc_penalized]
+        for c in regular:
             lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
             for ev in c.evidence:
                 lines.append(f"  - {ev.type}: {ev.explanation}")
+        if doc_penalized:
+            count = len(doc_penalized)
+            noun = "file" if count == 1 else "files"
+            paths = ", ".join(f"`{c.path}`" for c in doc_penalized)
+            lines.append(f"- `[LOW]` {count} supporting doc/config {noun} (non-source, low relevance): {paths}")
         lines.append("")
 
     if packet.known_issues:

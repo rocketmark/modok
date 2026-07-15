@@ -1959,6 +1959,59 @@ async def test_element_match_extends_func_anchor_tokens():
     )
 
 
+@pytest.mark.asyncio
+async def test_commit_message_matching_anchor_tokens_gets_evidence():
+    # @spec DRE-CAND-007
+    # A commit whose own message shares an anchor token with the ticket (here,
+    # the error signature "reinit-error" contributes token "reinit") is much
+    # stronger, more targeted evidence than bare recency — found live: a
+    # commit literally titled "fixed wifi provisioning" was indistinguishable
+    # from four unrelated maintenance commits touching the same file.
+    from modok.retrieval.engine import retrieve
+
+    import json
+
+    sha = "def4567" + "0" * 33
+    relevant_commit = {
+        "sha": sha,
+        "timestamp": "2024-01-15T10:00:00Z",
+        "author_name": "Test Author",
+        "message": "fixed reinit handling",
+        "files_touched": ["ui/device_card.py"],
+        "file_hunks": json.dumps({}),
+    }
+    unrelated_sha = "aaa1111" + "0" * 33
+    unrelated_commit = {
+        "sha": unrelated_sha,
+        "timestamp": "2024-01-14T10:00:00Z",
+        "author_name": "Test Author",
+        "message": "cleaned up docs",
+        "files_touched": ["ui/device_card.py"],
+        "file_hunks": json.dumps({}),
+    }
+
+    issue = make_customer_issue(raw_text=None)
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_module_error_query_side_effect(
+        module_slug="device-card",
+        module_files=["ui/device_card.py"],
+        error_sigs=["reinit-error"],
+        commits=[relevant_commit, unrelated_commit],
+    )
+
+    with patch("modok.retrieval.engine.gateway") as mock_gw:
+        mock_gw.summarise_packet = AsyncMock(return_value="summary")
+
+        packet = await retrieve(issue_id=1, project_slug="stagehand", client=mock_client)
+
+    candidate = next(c for c in packet.scored_candidates if c.path == "ui/device_card.py")
+    msg_ev = [ev for ev in candidate.evidence if ev.type == "commit_message_match"]
+    assert len(msg_ev) == 1
+    assert msg_ev[0].explanation.startswith("fixed reinit handling")
+    assert sha[:7] in msg_ev[0].explanation
+
+
 # ---------------------------------------------------------------------------
 # Function Anchor Matching
 # ---------------------------------------------------------------------------
@@ -2741,3 +2794,75 @@ def _make_commit_query_side_effect(
         return []
 
     return _side_effect
+
+
+# ---------------------------------------------------------------------------
+# Quick Investigation Summary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_quick_investigation_summary_uses_graph_anchors_and_primary_files():
+    # @spec DRE-QUICK-001, DRE-QUICK-002
+    from modok.retrieval.engine import quick_investigation_summary
+
+    issue = make_customer_issue(raw_text="wifi won't connect")
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(
+        affects_features=["wifi-provisioning"],
+        has_errors=[],
+    )
+
+    with patch("modok.retrieval.engine.gateway") as mock_gw:
+        mock_gw.summarise_packet = AsyncMock(return_value="quick take on the wifi issue")
+
+        summary = await quick_investigation_summary(
+            issue_id=1,
+            project_slug="stagehand",
+            client=mock_client,
+            feature_source_files={"wifi-provisioning": ["client/wifi_provision_logic.py"]},
+        )
+
+    assert summary == "quick take on the wifi issue"
+    call_kwargs = mock_gw.summarise_packet.call_args.kwargs
+    assert call_kwargs["module_slugs"] == ["wifi-provisioning"]
+    assert call_kwargs["relevant_files"] == ["client/wifi_provision_logic.py"]
+    # No traversal-derived data should be involved — this is the fast path.
+    assert call_kwargs["recent_commits"] == []
+    assert call_kwargs["known_issues"] == []
+
+
+@pytest.mark.asyncio
+async def test_quick_investigation_summary_falls_back_on_gateway_failure():
+    # @spec DRE-QUICK-003
+    from modok.retrieval.engine import quick_investigation_summary
+
+    issue = make_customer_issue(summary="Tracker won't initialize")
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = _make_query_side_effect(affects_features=[], has_errors=[])
+
+    with patch("modok.retrieval.engine.gateway") as mock_gw:
+        mock_gw.summarise_packet = AsyncMock(side_effect=Exception("LLM unavailable"))
+
+        summary = await quick_investigation_summary(
+            issue_id=1, project_slug="stagehand", client=mock_client
+        )
+
+    assert summary == "Tracker won't initialize"
+
+
+@pytest.mark.asyncio
+async def test_quick_investigation_summary_falls_back_when_issue_not_found():
+    # @spec DRE-QUICK-003
+    from modok.retrieval.engine import quick_investigation_summary
+
+    mock_client = AsyncMock()
+    mock_client.get_node.side_effect = Exception("not found")
+
+    summary = await quick_investigation_summary(
+        issue_id=999, project_slug="stagehand", client=mock_client
+    )
+
+    assert summary == ""

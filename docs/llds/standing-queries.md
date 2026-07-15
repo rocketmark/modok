@@ -394,10 +394,31 @@ In `run_ingest_event`, the new branch:
 
 `post_issue_comment(github_repo: str, token: str, issue_number: str, body: str) -> None` — one `httpx` POST, same header shape (`Authorization: Bearer`, `Accept: application/vnd.github+json`) as `GithubIngester` already uses. Best-effort: any non-2xx response or exception is logged, never raised past this function.
 
-`format_debug_packet_markdown(packet: DebugPacket, investigation_id: str, standing_query_name: str) -> str` renders the **full** packet — the same content `ui/src/components/modok/DebugPacketView.tsx` shows in the demo app, not the thinner subset `diagnose.py`'s `_print_packet` prints to a terminal. `retrieve()` already computes anchors, affected areas, scored candidates, and recent commits regardless of caller; the original version of this formatter silently dropped all of them, discarding real evidence that was already sitting on the packet — found live when a real, over-matched ticket's comment showed only a flat file list with no way to distinguish a strong match from a weak one:
+### Two comments per investigation (SQ-GH-007)
+
+`_maybe_notify_github` posts **two** independent comments, not one:
+
+1. **Triggered** (`format_investigation_triggered_markdown`) — posted immediately, before `retrieve()` runs. Just the header, the standing query name, a summary from `quick_investigation_summary` (`docs/llds/diagnostic-retrieval-engine.md § Quick Investigation Summary`), and the investigation ID. No anchors, candidates, or commits — those require the traversal this comment is specifically posted *before*.
+2. **Results** (`format_debug_packet_markdown`) — posted after `retrieve()` completes, with the full packet as before.
+
+Found live: a full `retrieve()` call — traversal, scoring, and the summary LLM call — can take several minutes, during which the reporter previously saw nothing at all confirming MODOK had picked up their ticket. Splitting the notification lets the fast, traversal-free summary post right away while the slow work continues in the background.
+
+The two posts are independent best-effort attempts: if generating the quick summary fails, the triggered comment still posts (with an empty summary line) rather than being skipped; if *posting* the triggered comment fails (GitHub API error), `retrieve()` still runs and the results comment is still attempted. Neither failure blocks or is blocked by the other — this mirrors the existing SQ-GH-004 discipline (log and continue) applied to two posts instead of one.
 
 ```markdown
 ## 🔎 MODOK investigation triggered
+
+Standing query `{standing_query_name}` matched this issue against existing graph evidence.
+
+**Summary:** {quick_summary}
+
+_Investigation: `{investigation_id}`_
+```
+
+`format_debug_packet_markdown(packet: DebugPacket, investigation_id: str, standing_query_name: str) -> str` renders the **full** packet — the same content `ui/src/components/modok/DebugPacketView.tsx` shows in the demo app, not the thinner subset `diagnose.py`'s `_print_packet` prints to a terminal. `retrieve()` already computes anchors, affected areas, scored candidates, and recent commits regardless of caller; the original version of this formatter silently dropped all of them, discarding real evidence that was already sitting on the packet — found live when a real, over-matched ticket's comment showed only a flat file list with no way to distinguish a strong match from a weak one:
+
+```markdown
+## 🔍 MODOK investigation results
 
 Standing query `{standing_query_name}` matched this issue against existing graph evidence.
 
@@ -411,6 +432,7 @@ Standing query `{standing_query_name}` matched this issue against existing graph
 - `[{CONFIDENCE}]` `{path}` (score {score})
   - {evidence.type}: {evidence.explanation}
   ...
+- `[LOW]` {N} supporting doc/config files (non-source, low relevance): `{path}`, `{path}`, ...
 
 **Known issues:** {for each: `- {id}: {summary}`}
 **Prior fixes:** {for each: `- {id} ({commit}): {summary}`}
@@ -422,7 +444,11 @@ Standing query `{standing_query_name}` matched this issue against existing graph
 _Investigation: `{investigation_id}`_
 ```
 
+The header changed from "investigation triggered" to "investigation results" (SQ-GH-007) specifically to distinguish this comment from the first one now that both exist — otherwise two identically-headed comments on the same issue would be confusing to tell apart at a glance.
+
 Every section is omitted entirely when its underlying list is empty, same discipline as before. Section order mirrors `DebugPacketView.tsx`'s rendering order (summary → anchors → affected areas → top suspects → known issues/fixes → files/tests → recent commits) rather than `_print_packet`'s, since parity with the demo app's richer view — not the terminal's thinner one — is the goal here.
+
+**Doc-penalized candidates are grouped, not listed individually** (SQ-GH-006). Any `scored_candidates` entry whose evidence includes a `doc_penalty` item is pulled out of the ranked list and collapsed into one trailing `[LOW]` line (count + comma-separated paths), after all non-doc-penalized candidates. Found live: a feature with several modules can pull in 10+ LLDs/specs/arrow docs/systemd unit files, all scoring similarly low — listing each individually (path, confidence, full evidence breakdown) buried the handful of genuinely-scored source/test candidates the reader actually needs. This grouping is purely a rendering choice in `format_debug_packet_markdown` — `retrieve()`'s own `scored_candidates` list (and the JSON/CLI/API surfaces built on it) is untouched, so no data is lost, only the GitHub comment's presentation is condensed.
 
 ## GitHub Poll Adapter
 

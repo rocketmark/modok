@@ -276,6 +276,64 @@ async def _graph_anchors(
     return feature_slugs, error_sigs
 
 
+# @spec DRE-QUICK-001, DRE-QUICK-002, DRE-QUICK-003
+async def quick_investigation_summary(
+    issue_id: str,
+    project_slug: str,
+    client: QuineClient,
+    feature_source_files: dict[str, list[str]] | None = None,
+    backend: str = "local",
+) -> str:
+    """Fast, traversal-free summary for the immediate "investigation
+    triggered" notification, posted before the full retrieve() pipeline runs.
+
+    Uses only graph-first anchors (already written at ingestion time) and the
+    registry's declared primary files per feature — no traversal, scoring, or
+    evidence-building — so it is materially faster than retrieve(), whose
+    graph traversals (feature/module/commit lookups) and evidence-building
+    are the reason a full debug packet can take minutes. Reuses
+    gateway.summarise_packet with a reduced input set rather than a
+    dedicated prompt, so both summaries stay stylistically consistent.
+
+    Never raises: any failure degrades to the CustomerIssue's own summary
+    field (the ticket title), matching retrieve()'s own summary fallback
+    discipline.
+    """
+    try:
+        issue = await client.get_node(issue_id, CustomerIssue)
+    except Exception:
+        return ""
+
+    fallback = issue.summary or ""
+    try:
+        feature_slugs, error_sigs = await _graph_anchors(issue_id, project_slug, client)
+    except Exception:
+        return fallback
+
+    relevant_files: list[str] = []
+    if feature_source_files:
+        for slug in feature_slugs:
+            for fpath in feature_source_files.get(slug, []):
+                if fpath not in relevant_files:
+                    relevant_files.append(fpath)
+
+    try:
+        return await gateway.summarise_packet(
+            issue_text=issue.raw_text or issue.summary,
+            module_slugs=feature_slugs,
+            error_signatures=error_sigs,
+            symptoms=[],
+            relevant_files=relevant_files,
+            relevant_tests=[],
+            matched_elements=[],
+            recent_commits=[],
+            known_issues=[],
+            backend=backend,
+        )
+    except Exception:
+        return fallback
+
+
 # ---------------------------------------------------------------------------
 # Graph traversals
 # ---------------------------------------------------------------------------
@@ -798,9 +856,12 @@ async def retrieve(
     for elem in matched_elements:
         func_anchor_tokens.update(_tokenize(elem))
 
-    # @spec DRE-FUNC-001, DRE-FUNC-002, DRE-FUNC-003, DRE-CAND-005
+    # @spec DRE-FUNC-001, DRE-FUNC-002, DRE-FUNC-003, DRE-CAND-005, DRE-CAND-007
     for c in raw_commits:
         sha_short = c.get("sha", "")[:7]
+        message = (c.get("message") or "").splitlines()[0] if c.get("message") else ""
+        message_tokens = extract_text_tokens(message) if message else set()
+        matched_message_tokens = message_tokens & anchor_tokens if anchor_tokens else set()
         for fpath in c.get("files_touched", []):
             evidence_map = (
                 test_file_evidence
@@ -818,6 +879,16 @@ async def retrieve(
                     explanation=f"Touched in recent commit {sha_short}",
                 ),
             )
+            if matched_message_tokens:
+                _add_evidence(
+                    evidence_map,
+                    fpath,
+                    EvidenceItem(
+                        type="commit_message_match",
+                        score=9.0,
+                        explanation=f"{message[:80]} · {sha_short}",
+                    ),
+                )
             if func_anchor_tokens:
                 hunk_data = c.get("file_hunk_data", {}).get(fpath, [])
                 matched = _matching_defs(hunk_data, func_anchor_tokens)
