@@ -49,6 +49,10 @@ class EvidenceItem:
     type: str
     score: float
     explanation: str
+    # Set only for commit-derived evidence (recent_commit, commit_message_match,
+    # function_anchor_match) so the formatter can group evidence by commit
+    # instead of relying on parsing the commit SHA out of `explanation` text.
+    commit_sha: str | None = None
 
 
 @dataclass

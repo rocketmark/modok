@@ -5,11 +5,50 @@ retrieve() pipeline runs, and a later "results" comment
 (format_debug_packet_markdown) with the *full* packet — the same content
 ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
 subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
-# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008
+# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008, SQ-GH-009
 
 from __future__ import annotations
 
-from modok.retrieval.models import DebugPacket
+from modok.retrieval.models import DebugPacket, EvidenceItem
+
+
+def _commit_evidence_label(ev: EvidenceItem) -> str:
+    """Render a commit-grouped evidence item's sub-bullet text, stripping the
+    trailing `· {sha}` — the commit SHA is already the group's own header."""
+    if ev.type == "recent_commit":
+        return "Touched"
+    if ev.type == "commit_message_match":
+        return f"Commit message: {ev.explanation.rsplit(' · ', 1)[0]}"
+    if ev.type == "function_anchor_match":
+        return f"Function match: {ev.explanation.rsplit(' · ', 1)[0]}"
+    return f"{ev.type}: {ev.explanation}"
+
+
+def _render_candidate_evidence(lines: list[str], evidence: list[EvidenceItem]) -> None:
+    """Non-commit evidence renders flat, as before. Commit-derived evidence
+    (recent_commit / commit_message_match / function_anchor_match — anything
+    carrying a commit_sha) groups under one bullet per commit, sorted by how
+    many distinct signals that commit has (most first) — a commit that's
+    both recent *and* has a matching message or matching function is a much
+    stronger "look here first" signal than one that's merely recent."""
+    other_items = [ev for ev in evidence if not ev.commit_sha]
+    commit_items: dict[str, list[EvidenceItem]] = {}
+    for ev in evidence:
+        if ev.commit_sha:
+            commit_items.setdefault(ev.commit_sha, []).append(ev)
+
+    for ev in other_items:
+        lines.append(f"  - {ev.type}: {ev.explanation}")
+
+    for sha in sorted(commit_items, key=lambda s: -len(commit_items[s])):
+        # sha is deliberately bare (no backticks) — GitHub auto-links a bare
+        # commit SHA to the commit within the same repo; wrapping it in an
+        # inline code span (as an earlier version of this did) suppresses
+        # that auto-linking, found live when commit references stopped being
+        # clickable after this grouping was introduced.
+        lines.append(f"  - Recent commit {sha}:")
+        for ev in commit_items[sha]:
+            lines.append(f"    - {_commit_evidence_label(ev)}")
 
 
 def format_investigation_triggered_markdown(summary: str, standing_query_name: str, investigation_id: str) -> str:
@@ -75,8 +114,7 @@ def format_debug_packet_markdown(
         regular = [c for c in packet.scored_candidates if c not in doc_penalized and c not in plain_tests]
         for c in regular:
             lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
-            for ev in c.evidence:
-                lines.append(f"  - {ev.type}: {ev.explanation}")
+            _render_candidate_evidence(lines, c.evidence)
         if plain_tests:
             count = len(plain_tests)
             noun = "file" if count == 1 else "files"

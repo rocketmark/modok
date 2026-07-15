@@ -71,6 +71,10 @@ class EvidenceItem(BaseModel):
     type: str               # see Evidence Sources section
     score: float
     explanation: str
+    commit_sha: str | None = None  # set only for recent_commit / commit_message_match /
+                                    # function_anchor_match — lets the formatter group a
+                                    # candidate's evidence by commit instead of parsing
+                                    # the SHA out of `explanation` text
 
 class ScoredCandidate(BaseModel):
     path: str               # repo-relative file path

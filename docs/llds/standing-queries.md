@@ -450,6 +450,20 @@ Every section is omitted entirely when its underlying list is empty, same discip
 
 **Doc-penalized and plain-test candidates are grouped, not listed individually** (SQ-GH-006, SQ-GH-008). Any `scored_candidates` entry whose evidence includes a `doc_penalty` item, or whose evidence is *only* a bare `test_coverage` item (`kind == "test"`, one evidence item, no ticket mention / recent commit / function match / anything else distinguishing it), is pulled out of the ranked list. Each group renders as one summary line (`[LOW]`, count, no score) followed by every path in the group on its own indented line — not a comma-separated inline list, which became unreadable once a group passed a handful of entries. Render order: individually-listed candidates (ranked) → grouped plain-test line → grouped doc-penalty line. Found live: a feature with several modules can pull in 10+ LLDs/specs/arrow docs/systemd unit files and 5+ generically-covering test files, all scoring identically low — listing each individually (path, confidence, full evidence breakdown) buried the handful of genuinely-scored source candidates the reader actually needs. A test file with *any* additional evidence beyond bare coverage is not grouped — that's a more specific signal worth surfacing on its own. Both groupings are purely rendering choices in `format_debug_packet_markdown` — `retrieve()`'s own `scored_candidates` list (and the JSON/CLI/API surfaces built on it) is untouched, so no data is lost, only the GitHub comment's presentation is condensed.
 
+**Per-candidate evidence is grouped by commit, not listed flat** (SQ-GH-009). `EvidenceItem` carries an optional `commit_sha` field, set only by the three commit-derived evidence types (`recent_commit`, `commit_message_match`, `function_anchor_match` — `docs/llds/diagnostic-retrieval-engine.md § Debug Packet Schema`). `_render_candidate_evidence` splits a candidate's evidence into non-commit items (rendered flat, as before) and commit items (grouped by `commit_sha` into `- Recent commit {sha}:` headers with per-signal sub-bullets — `Touched`, `Commit message: {text}`, `Function match: {names}`, with the redundant `· {sha}` suffix stripped since the SHA is already the group header). Commit groups sort by signal count descending, not recency — found live: `chroot-customize.sh`'s strongest evidence was a single commit (`3a3882d`, message "fixed wifi provisioning") that was both recently touched *and* message-matched, but it rendered as two disconnected bullets indistinguishable from four other purely-recency commits on the same file, with nothing visually tying the message match to its specific commit.
+
+**The SHA in the group header is bare text, not backtick-wrapped** — found live, a first version wrapped it in an inline code span (`` `{sha}` ``) for visual consistency with the file-path/name-styling used elsewhere in this formatter, which silently broke GitHub's auto-linking of commit SHAs to their commit pages (auto-linking only applies to plain text, not text inside a code span). The paths/names elsewhere in this formatter are backtick-wrapped deliberately (GitHub doesn't autolink file paths anyway, so code-styling them is pure win); commit SHAs are the one case where bare text is strictly better.
+
+```markdown
+- `[HIGH]` `pi-image/chroot-customize.sh` (score 26.9)
+  - feature_primary_file: wifi-provisioning
+  - Recent commit 3a3882d:
+    - Touched
+    - Commit message: fixed wifi provisioning
+  - Recent commit 7c0e771:
+    - Touched
+```
+
 ## GitHub Poll Adapter
 
 New `src/modok/webhook/adapters/github_poll.py`, implementing the existing `PullAdapter` protocol (`docs/llds/webhook-receiver.md § Pull adapter`) exactly as documented — no protocol changes.

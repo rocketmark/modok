@@ -880,6 +880,7 @@ async def retrieve(
                     type="recent_commit",
                     score=1.5,
                     explanation=f"Touched in recent commit {sha_short}",
+                    commit_sha=sha_short,
                 ),
             )
             if matched_message_tokens:
@@ -890,6 +891,7 @@ async def retrieve(
                         type="commit_message_match",
                         score=9.0,
                         explanation=f"{message[:80]} · {sha_short}",
+                        commit_sha=sha_short,
                     ),
                 )
             if func_anchor_tokens:
@@ -904,6 +906,7 @@ async def retrieve(
                             type="function_anchor_match",
                             score=6.0,
                             explanation=f"{names} · {sha_short}",
+                            commit_sha=sha_short,
                         ),
                     )
 

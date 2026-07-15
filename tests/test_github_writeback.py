@@ -266,6 +266,54 @@ def test_markdown_groups_plain_test_coverage_candidates_into_single_low():
 
 
 # @spec SQ-GH-002
+def test_markdown_groups_evidence_by_commit_sorted_by_signal_count():
+    packet = make_packet(
+        scored_candidates=[
+            ScoredCandidate(
+                path="pi-image/chroot-customize.sh",
+                kind="source",
+                score=26.9,
+                confidence="high",
+                evidence=[
+                    EvidenceItem(type="feature_primary_file", score=9.0, explanation="wifi-provisioning"),
+                    EvidenceItem(
+                        type="recent_commit",
+                        score=1.5,
+                        explanation="Touched in recent commit 7c0e771",
+                        commit_sha="7c0e771",
+                    ),
+                    EvidenceItem(
+                        type="recent_commit",
+                        score=1.5,
+                        explanation="Touched in recent commit 3a3882d",
+                        commit_sha="3a3882d",
+                    ),
+                    EvidenceItem(
+                        type="commit_message_match",
+                        score=9.0,
+                        explanation="fixed wifi provisioning · 3a3882d",
+                        commit_sha="3a3882d",
+                    ),
+                ],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    # The two-signal commit (3a3882d: touched + message match) is grouped
+    # under one header and sorted ahead of the one-signal commit (7c0e771),
+    # even though 7c0e771 appeared first in the evidence list.
+    # sha is bare (no backticks) so GitHub auto-links it to the commit.
+    assert "Recent commit 3a3882d" in md
+    assert "Recent commit 7c0e771" in md
+    assert "`3a3882d`" not in md
+    assert "`7c0e771`" not in md
+    assert md.index("Recent commit 3a3882d") < md.index("Recent commit 7c0e771")
+    assert "Commit message: fixed wifi provisioning" in md
+    assert "fixed wifi provisioning · 3a3882d" not in md  # sha not duplicated in the sub-bullet
+    assert "Touched" in md
+
+
+# @spec SQ-GH-002
 def test_markdown_omits_top_suspects_when_empty():
     md = format_debug_packet_markdown(make_packet(scored_candidates=[]), "inv-42", "actionable-issue-pattern")
     assert "Top suspects" not in md
