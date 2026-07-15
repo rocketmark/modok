@@ -2,9 +2,10 @@
 messages per investigation (SQ-GH-007): an immediate, fast "triggered"
 comment (format_investigation_triggered_markdown) posted before the slow
 retrieve() pipeline runs, and a later "results" comment
-(format_debug_packet_markdown) with the *full* packet — the same content
-ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
-subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
+(format_debug_packet_markdown) with the *full* packet — all of the same
+underlying data ui/src/components/modok/DebugPacketView.tsx shows in the
+demo app, not a subset (the two have since diverged in presentation, not
+data — see docs/llds/standing-queries.md § GitHub Write-Back)."""
 # @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008, SQ-GH-009, SQ-GH-010
 
 from __future__ import annotations

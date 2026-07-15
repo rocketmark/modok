@@ -379,8 +379,8 @@ CustomerIssue --[mentions]--> ErrorSignature <--[has]-- KnownIssue --[resolved b
 When that pattern completes, MODOK:
 
 - records an `Investigation` — what fired, what evidence completed it, when
-- assembles the debug packet automatically, with no one calling `retrieve`
-- posts it back to the originating GitHub issue, if that's where the ticket came from
+- posts an immediate acknowledgment to the originating GitHub issue, if that's where the ticket came from — no LLM call, just the anchors and likely files already known
+- assembles the full debug packet automatically, with no one calling `retrieve`, and posts it as a second comment once ready
 
 No polling loop decides this happened. The graph write *is* the trigger.
 
@@ -454,7 +454,7 @@ MODOK currently focuses on inspectable support/debugging context, static and liv
 - Quine-backed graph storage
 - incremental pattern detection via Quine standing queries
 - automatic investigation triggering when connected evidence becomes actionable
-- GitHub issue write-back with the resulting debug packet
+- GitHub issue write-back: an immediate acknowledgment comment, followed by the full resulting debug packet
 
 ---
 

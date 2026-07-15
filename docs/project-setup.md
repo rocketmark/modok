@@ -149,6 +149,7 @@ Returns a summary of what MODOK knows about that module: its parent feature, sou
 ## What's next
 
 - **`docs/standing-query-demo.md`** — turn on `modok serve` (webhook push or GitHub poll adapter) so new tickets are ingested continuously, and watch MODOK detect an actionable pattern automatically without a manual `retrieve` call.
+- **`docs/customize-for-your-project.md`** — the knobs worth deliberately setting up before relying on this day to day: registry curation quality (it directly affects debug-packet ranking), GitHub issue labels (required for the `new-bug-report-pattern` standing query), and write-back config.
 - **Demo UI** — a local Next.js console showing the core MODOK workflow end to end (below).
 
 ---

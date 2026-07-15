@@ -64,7 +64,7 @@ Watch `modok serve`'s log for `POST /standing-query/result` (this is Quine calli
 modok --status   # a new Investigation node is now present
 ```
 
-If the `CustomerIssue` came from GitHub and `GITHUB_TOKEN` + `github_repo` are configured, the debug packet (summary, known issues, fixes, relevant files) appears as a comment on the GitHub issue within moments — this is the DRE's usual `retrieve()` output, generated automatically instead of by a person running `modok retrieve`.
+If the `CustomerIssue` came from GitHub and `GITHUB_TOKEN` + `github_repo` are configured, two comments appear on the GitHub issue: first an immediate "🔎 MODOK investigation triggered" comment (no LLM call — just anchors and the registry's declared primary files, so it posts almost instantly), then a "🔍 MODOK investigation results" comment with the full debug packet (summary, known issues, fixes, relevant files) once the DRE's usual `retrieve()` completes — the same output a person would get running `modok retrieve`, generated automatically instead.
 
 ## 5. Prove order independence
 
@@ -80,7 +80,7 @@ modok quine start
 modok stream install
 ```
 
-Re-running steps 2–4 with the same IDs is idempotent: re-ingesting the same doc or the same ticket does not create duplicate nodes, and a redelivered standing-query match does not create a duplicate `Investigation` (`SQ-INV-005`) or repost the GitHub comment.
+Re-running steps 2–4 with the same IDs is idempotent: re-ingesting the same doc or the same ticket does not create duplicate nodes, and a redelivered standing-query match does not create a duplicate `Investigation` (`SQ-INV-005`) or repost either GitHub comment.
 
 ## What this proves
 

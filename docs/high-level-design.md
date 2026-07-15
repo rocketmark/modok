@@ -166,18 +166,21 @@ The read and write paths above are both caller-initiated: something asks Quine a
               │
     ┌─────────┴──────────────────────────┐
     ▼                                    ▼
-writes Investigation node       calls Diagnostic Retrieval Engine
-+ INVESTIGATES edge             to assemble the full debug packet —
-(idempotent — deterministic     including its existing LLM Gateway
- investigation_id via idFrom)   summary step (local-first, e.g. Ollama;
-                                 falls back to issue.summary on failure)
+writes Investigation node       if CustomerIssue.source_system == "github":
++ INVESTIGATES edge             posts an immediate "triggered" comment first —
+(idempotent — deterministic     no LLM call, just graph-first anchors and the
+ investigation_id via idFrom)   registry's declared primary files per feature —
+                                 then calls the Diagnostic Retrieval Engine to
+                                 assemble the full debug packet, including its
+                                 existing LLM Gateway summary step (local-first,
+                                 e.g. Ollama; falls back to issue.summary on
+                                 failure), and posts a second "results" comment
+                                 with the full packet
                                             │
                                             ▼
-                              if CustomerIssue.source_system == "github":
-                              posts the debug packet (LLM summary included)
-                              as a comment on the originating GitHub issue
-                              (best-effort; failure is logged, never blocks
-                              the Investigation write)
+                              both comments are independent best-effort posts
+                              (a failure in either is logged, never blocks the
+                              Investigation write or the other comment)
 ```
 
 The DRE's LLM involvement here is unchanged from how it already works: LLM output enriches the *summary* of already-validated graph facts, never decides *what matched*. The match itself is already settled — mechanically, by the standing query — before the DRE or its LLM Gateway is invoked at all. This keeps the "LLM output is a proposal, never the source of a written edge" invariant intact even though a local LLM call now sits in the write-back path.
@@ -204,9 +207,9 @@ This path is what makes Quine authoritative for *when* a workflow becomes action
 
 **Standing Query Engine** — a small, fixed set of Quine standing queries, each installed idempotently by name via `modok stream install` (`POST /api/v1/query/standing/{name}`; a name that already exists is a no-op). A standing query pattern is a maintained Cypher artifact (not an embedded string) that Quine evaluates incrementally against every graph write — no polling, no caller-triggered traversal. Each standing query's output pipeline runs a `CypherQuery` enrichment stage inside Quine itself before `PostToEndpoint` delivers the match to MODOK's webhook server. This is deliberately narrow: MODOK does not expose standing-query authoring to agents or users in v1 — see Non-Goals.
 
-**Standing Query Adapter (write-back)** — a webhook push adapter (`POST /webhook/{project}/standing-query`) that receives a fired standing query's enriched match, writes the `Investigation` node and its `INVESTIGATES` edge (idempotent — `investigation_id` is deterministic), then calls the Diagnostic Retrieval Engine to assemble the same debug packet a human would get from `retrieve`/`diagnose` — including that engine's existing LLM Gateway summary step (local-first, e.g. Ollama; falls back to `issue.summary` on failure). The LLM only ever enriches the *prose summary* of facts the standing query already settled mechanically; it is never consulted on whether a match occurred. If the triggering `CustomerIssue` came from GitHub (`source_system == "github"`), the packet is posted back as a comment on the originating GitHub issue using the same `GITHUB_TOKEN` + `github_repo` config `ingest-github` already uses. Best-effort: a failed GitHub write-back is logged and never blocks or rolls back the `Investigation` write, which remains MODOK's authoritative record of the trigger regardless of whether the external notification succeeded.
+**Standing Query Adapter (write-back)** — a webhook push adapter (`POST /webhook/{project}/standing-query`) that receives a fired standing query's enriched match and writes the `Investigation` node and its `INVESTIGATES` edge (idempotent — `investigation_id` is deterministic). If the triggering `CustomerIssue` came from GitHub (`source_system == "github"`), it then posts **two** independent comments to the originating issue, using the same `GITHUB_TOKEN` + `github_repo` config `ingest-github` already uses: first an immediate "triggered" comment (no LLM call — just graph-first anchors and the registry's declared primary files per feature, so it posts in about the time of a couple of Quine round-trips), then the Diagnostic Retrieval Engine is called to assemble the same debug packet a human would get from `retrieve`/`diagnose` — including that engine's existing LLM Gateway summary step (local-first, e.g. Ollama; falls back to `issue.summary` on failure) — and a second "results" comment with the full packet. The LLM only ever enriches the *prose summary* of facts the standing query already settled mechanically; it is never consulted on whether a match occurred. Best-effort throughout: either comment failing is logged and never blocks or rolls back the `Investigation` write (MODOK's authoritative record of the trigger) or the other comment.
 
-**Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Results are prioritized by anchor match count: items matched by more anchors appear first. No numeric scoring or vector search in v1. Reused as-is by the Standing Query Adapter — the debug packet content is identical whether it was requested on demand or assembled automatically after a standing-query match.
+**Diagnostic Retrieval Engine** — given a `CustomerIssue` node ID, extracts anchors (feature, error, environment), traverses Quine for related nodes, and assembles a debug packet. Candidate files accumulate typed evidence (graph traversal matches, element/function token matches, ticket mentions, recent commits, commit-message matches) which is combined into a numeric score per candidate — direct, specific evidence (a feature's own declared primary files, an exact element or ticket match) outweighs broad or undifferentiated evidence (a file merely reachable via the feature's module graph, or touched by an unrelated recent commit), and a diversity bonus rewards multiple independent corroborating signals. See `docs/scoring-brainstorm.md` for the underlying rubric. Reused as-is by the Standing Query Adapter — the full debug packet content is identical whether it was requested on demand or assembled automatically after a standing-query match (the adapter's separate immediate "triggered" comment uses a different, deliberately non-scored fast path — see Standing Query Adapter above).
 
 **Optional Vector Index** — fuzzy recall for natural-language ticket text. Candidates from vector search are always expanded through Quine before inclusion in the debug packet. Not required for Phase 4 functionality; graph-anchor similarity (shared ErrorSignature, Feature, FailureMode, etc.) is sufficient for most cases.
 
