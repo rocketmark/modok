@@ -2804,6 +2804,11 @@ def _make_commit_query_side_effect(
 @pytest.mark.asyncio
 async def test_quick_investigation_summary_uses_graph_anchors_and_primary_files():
     # @spec DRE-QUICK-001, DRE-QUICK-002
+    # No LLM call involved — the summary is built mechanically from graph-first
+    # anchors and the registry's declared primary files, so it returns in
+    # about the time of a couple of Quine round-trips (found live: an
+    # LLM-based version of this function measured ~85s standalone, defeating
+    # the point of a fast "triggered" notification posted before retrieve()).
     from modok.retrieval.engine import quick_investigation_summary
 
     issue = make_customer_issue(raw_text="wifi won't connect")
@@ -2811,30 +2816,23 @@ async def test_quick_investigation_summary_uses_graph_anchors_and_primary_files(
     mock_client.get_node.return_value = issue
     mock_client.query.side_effect = _make_query_side_effect(
         affects_features=["wifi-provisioning"],
-        has_errors=[],
+        has_errors=["wifi-timeout"],
     )
 
-    with patch("modok.retrieval.engine.gateway") as mock_gw:
-        mock_gw.summarise_packet = AsyncMock(return_value="quick take on the wifi issue")
+    summary = await quick_investigation_summary(
+        issue_id=1,
+        project_slug="stagehand",
+        client=mock_client,
+        feature_source_files={"wifi-provisioning": ["client/wifi_provision_logic.py"]},
+    )
 
-        summary = await quick_investigation_summary(
-            issue_id=1,
-            project_slug="stagehand",
-            client=mock_client,
-            feature_source_files={"wifi-provisioning": ["client/wifi_provision_logic.py"]},
-        )
-
-    assert summary == "quick take on the wifi issue"
-    call_kwargs = mock_gw.summarise_packet.call_args.kwargs
-    assert call_kwargs["module_slugs"] == ["wifi-provisioning"]
-    assert call_kwargs["relevant_files"] == ["client/wifi_provision_logic.py"]
-    # No traversal-derived data should be involved — this is the fast path.
-    assert call_kwargs["recent_commits"] == []
-    assert call_kwargs["known_issues"] == []
+    assert "wifi-provisioning" in summary
+    assert "wifi-timeout" in summary
+    assert "client/wifi_provision_logic.py" in summary
 
 
 @pytest.mark.asyncio
-async def test_quick_investigation_summary_falls_back_on_gateway_failure():
+async def test_quick_investigation_summary_falls_back_when_no_anchors():
     # @spec DRE-QUICK-003
     from modok.retrieval.engine import quick_investigation_summary
 
@@ -2843,12 +2841,26 @@ async def test_quick_investigation_summary_falls_back_on_gateway_failure():
     mock_client.get_node.return_value = issue
     mock_client.query.side_effect = _make_query_side_effect(affects_features=[], has_errors=[])
 
-    with patch("modok.retrieval.engine.gateway") as mock_gw:
-        mock_gw.summarise_packet = AsyncMock(side_effect=Exception("LLM unavailable"))
+    summary = await quick_investigation_summary(
+        issue_id=1, project_slug="stagehand", client=mock_client
+    )
 
-        summary = await quick_investigation_summary(
-            issue_id=1, project_slug="stagehand", client=mock_client
-        )
+    assert summary == "Tracker won't initialize"
+
+
+@pytest.mark.asyncio
+async def test_quick_investigation_summary_falls_back_on_anchor_query_failure():
+    # @spec DRE-QUICK-003
+    from modok.retrieval.engine import quick_investigation_summary
+
+    issue = make_customer_issue(summary="Tracker won't initialize")
+    mock_client = AsyncMock()
+    mock_client.get_node.return_value = issue
+    mock_client.query.side_effect = Exception("Quine unreachable")
+
+    summary = await quick_investigation_summary(
+        issue_id=1, project_slug="stagehand", client=mock_client
+    )
 
     assert summary == "Tracker won't initialize"
 

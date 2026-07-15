@@ -281,9 +281,16 @@ async def _maybe_notify_github(
         # Post the fast "triggered" comment first, before the slow
         # traversal/scoring/LLM-summary work below — found live: a full
         # retrieve() can take several minutes with no visible feedback in
-        # the meantime. This comment's own generation failing must not
-        # prevent it from posting at all (falls back to no summary line)
-        # or block the results comment that follows.
+        # the meantime, and an earlier LLM-based version of this comment's
+        # own summary measured ~85s on its own, largely defeating the head
+        # start (the following retrieve() call's own summary landed on an
+        # already-warm model and finished in seconds, so the two comments
+        # arrived almost together). quick_investigation_summary is now a
+        # pure graph/registry lookup with no LLM call, so this posts in
+        # about the time of a couple of Quine round-trips. This comment's
+        # own generation failing must not prevent it from posting at all
+        # (falls back to no summary line) or block the results comment
+        # that follows.
         try:
             quick_summary = await quick_investigation_summary(
                 ci_id, project_slug, client, feature_source_files=feature_source_files

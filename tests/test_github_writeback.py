@@ -205,10 +205,64 @@ def test_markdown_groups_doc_penalized_candidates_into_single_low():
     assert "docs/llds/shtp.md" in md
     assert "docs/specs/shtp-specs.md" in md
     # The two doc-penalized files collapse into a single grouped LOW line,
-    # not two separate `[LOW]` entries with their own evidence breakdown.
+    # not two separate `[LOW]` entries with their own evidence breakdown —
+    # but each grouped file still gets its own line (not a comma-separated
+    # inline list) so the paths stay individually readable/clickable.
     assert md.count("`[LOW]`") == 1
     assert "2 supporting doc/config files" in md
+    assert "- `docs/llds/shtp.md`" in md
+    assert "- `docs/specs/shtp-specs.md`" in md
     assert "doc_penalty" not in md
+
+
+# @spec SQ-GH-002
+def test_markdown_groups_plain_test_coverage_candidates_into_single_low():
+    packet = make_packet(
+        scored_candidates=[
+            ScoredCandidate(
+                path="agent/src/shtp.c",
+                kind="source",
+                score=12.5,
+                confidence="high",
+                evidence=[EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver")],
+            ),
+            ScoredCandidate(
+                path="agent/tests/test_shtp_a.py",
+                kind="test",
+                score=7.0,
+                confidence="low",
+                evidence=[EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver")],
+            ),
+            ScoredCandidate(
+                path="agent/tests/test_shtp_b.py",
+                kind="test",
+                score=7.0,
+                confidence="low",
+                evidence=[EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver")],
+            ),
+            # A test file with *more* than bare test_coverage evidence is a
+            # more interesting candidate and must stay listed individually.
+            ScoredCandidate(
+                path="agent/tests/test_shtp_relevant.py",
+                kind="test",
+                score=11.0,
+                confidence="medium",
+                evidence=[
+                    EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver"),
+                    EvidenceItem(type="ticket_mention", score=10.0, explanation="named in ticket"),
+                ],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "agent/src/shtp.c" in md
+    assert "agent/tests/test_shtp_a.py" in md
+    assert "agent/tests/test_shtp_b.py" in md
+    assert "agent/tests/test_shtp_relevant.py" in md
+    assert "2 test files covering this feature" in md
+    assert "- `agent/tests/test_shtp_a.py`" in md
+    assert "- `agent/tests/test_shtp_b.py`" in md
+    assert "ticket_mention" in md
 
 
 # @spec SQ-GH-002

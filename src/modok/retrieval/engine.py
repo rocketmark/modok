@@ -276,28 +276,34 @@ async def _graph_anchors(
     return feature_slugs, error_sigs
 
 
+_QUICK_SUMMARY_FILE_CAP = 5
+
+
 # @spec DRE-QUICK-001, DRE-QUICK-002, DRE-QUICK-003
 async def quick_investigation_summary(
     issue_id: str,
     project_slug: str,
     client: QuineClient,
     feature_source_files: dict[str, list[str]] | None = None,
-    backend: str = "local",
 ) -> str:
-    """Fast, traversal-free summary for the immediate "investigation
+    """Instant, mechanical summary for the immediate "investigation
     triggered" notification, posted before the full retrieve() pipeline runs.
 
-    Uses only graph-first anchors (already written at ingestion time) and the
-    registry's declared primary files per feature — no traversal, scoring, or
-    evidence-building — so it is materially faster than retrieve(), whose
-    graph traversals (feature/module/commit lookups) and evidence-building
-    are the reason a full debug packet can take minutes. Reuses
-    gateway.summarise_packet with a reduced input set rather than a
-    dedicated prompt, so both summaries stay stylistically consistent.
+    No LLM call — deliberately. An LLM call, even a small one, costs tens of
+    seconds to a few minutes on local inference (found live: this function
+    originally reused gateway.summarise_packet with a reduced input, which
+    measured ~85s standalone; in production the gap to the second, full
+    "results" comment was often just a few seconds, because retrieve()'s own
+    summary call landed on an already-warm model — the intended head start
+    mostly didn't materialize, since the slow part was the LLM call itself,
+    not the traversal this function was built to skip). This function uses
+    only graph-first anchors (already written at ingestion time, two fast
+    Quine queries) and the registry's declared primary files per feature —
+    pure data lookups, no generation — so it returns in about the time of a
+    couple of Quine round-trips, not an LLM call.
 
     Never raises: any failure degrades to the CustomerIssue's own summary
-    field (the ticket title), matching retrieve()'s own summary fallback
-    discipline.
+    field (the ticket title), or "" if the node itself can't be fetched.
     """
     try:
         issue = await client.get_node(issue_id, CustomerIssue)
@@ -310,6 +316,9 @@ async def quick_investigation_summary(
     except Exception:
         return fallback
 
+    if not feature_slugs and not error_sigs:
+        return fallback
+
     relevant_files: list[str] = []
     if feature_source_files:
         for slug in feature_slugs:
@@ -317,21 +326,15 @@ async def quick_investigation_summary(
                 if fpath not in relevant_files:
                     relevant_files.append(fpath)
 
-    try:
-        return await gateway.summarise_packet(
-            issue_text=issue.raw_text or issue.summary,
-            module_slugs=feature_slugs,
-            error_signatures=error_sigs,
-            symptoms=[],
-            relevant_files=relevant_files,
-            relevant_tests=[],
-            matched_elements=[],
-            recent_commits=[],
-            known_issues=[],
-            backend=backend,
-        )
-    except Exception:
-        return fallback
+    parts = []
+    if feature_slugs:
+        parts.append(f"Features: {', '.join(feature_slugs)}")
+    if error_sigs:
+        parts.append(f"Errors: {', '.join(error_sigs)}")
+    summary = " · ".join(parts)
+    if relevant_files:
+        summary += f". Likely files: {', '.join(relevant_files[:_QUICK_SUMMARY_FILE_CAP])}"
+    return summary
 
 
 # ---------------------------------------------------------------------------

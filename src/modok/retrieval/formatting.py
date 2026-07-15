@@ -5,7 +5,7 @@ retrieve() pipeline runs, and a later "results" comment
 (format_debug_packet_markdown) with the *full* packet — the same content
 ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
 subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
-# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007
+# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008
 
 from __future__ import annotations
 
@@ -64,16 +64,31 @@ def format_debug_packet_markdown(
         doc_penalized = [
             c for c in packet.scored_candidates if any(ev.type == "doc_penalty" for ev in c.evidence)
         ]
-        regular = [c for c in packet.scored_candidates if c not in doc_penalized]
+        plain_tests = [
+            c
+            for c in packet.scored_candidates
+            if c not in doc_penalized
+            and c.kind == "test"
+            and len(c.evidence) == 1
+            and c.evidence[0].type == "test_coverage"
+        ]
+        regular = [c for c in packet.scored_candidates if c not in doc_penalized and c not in plain_tests]
         for c in regular:
             lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
             for ev in c.evidence:
                 lines.append(f"  - {ev.type}: {ev.explanation}")
+        if plain_tests:
+            count = len(plain_tests)
+            noun = "file" if count == 1 else "files"
+            lines.append(f"- `[LOW]` {count} test {noun} covering this feature (no other evidence):")
+            for c in plain_tests:
+                lines.append(f"  - `{c.path}`")
         if doc_penalized:
             count = len(doc_penalized)
             noun = "file" if count == 1 else "files"
-            paths = ", ".join(f"`{c.path}`" for c in doc_penalized)
-            lines.append(f"- `[LOW]` {count} supporting doc/config {noun} (non-source, low relevance): {paths}")
+            lines.append(f"- `[LOW]` {count} supporting doc/config {noun} (non-source, low relevance):")
+            for c in doc_penalized:
+                lines.append(f"  - `{c.path}`")
         lines.append("")
 
     if packet.known_issues:
