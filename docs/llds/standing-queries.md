@@ -454,6 +454,8 @@ Every section is omitted entirely when its underlying list is empty, same discip
 
 **The SHA in the group header is bare text, not backtick-wrapped** — found live, a first version wrapped it in an inline code span (`` `{sha}` ``) for visual consistency with the file-path/name-styling used elsewhere in this formatter, which silently broke GitHub's auto-linking of commit SHAs to their commit pages (auto-linking only applies to plain text, not text inside a code span). The paths/names elsewhere in this formatter are backtick-wrapped deliberately (GitHub doesn't autolink file paths anyway, so code-styling them is pure win); commit SHAs are the one case where bare text is strictly better.
 
+**The group header also shows the commit's date** (SQ-GH-010): `format_debug_packet_markdown` builds a `{sha_prefix: date}` lookup from `packet.recent_commits` once (`c.sha[:7] → c.timestamp[:10]`) and passes it into `_render_candidate_evidence`, which appends `" ({date})"` to the header when a match exists. No new field on `EvidenceItem` — `packet.recent_commits` already has the timestamp for every commit that could produce `commit_sha`-bearing evidence, since both come from the same `_traverse_files_to_recent_commits` result.
+
 ```markdown
 - `[HIGH]` `pi-image/chroot-customize.sh` (score 26.9)
   - feature_primary_file: wifi-provisioning

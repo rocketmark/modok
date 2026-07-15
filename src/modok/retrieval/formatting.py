@@ -5,7 +5,7 @@ retrieve() pipeline runs, and a later "results" comment
 (format_debug_packet_markdown) with the *full* packet — the same content
 ui/src/components/modok/DebugPacketView.tsx shows in the demo app, not a
 subset. See docs/llds/standing-queries.md § GitHub Write-Back."""
-# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008, SQ-GH-009
+# @spec SQ-GH-002, SQ-GH-006, SQ-GH-007, SQ-GH-008, SQ-GH-009, SQ-GH-010
 
 from __future__ import annotations
 
@@ -24,7 +24,9 @@ def _commit_evidence_label(ev: EvidenceItem) -> str:
     return f"{ev.type}: {ev.explanation}"
 
 
-def _render_candidate_evidence(lines: list[str], evidence: list[EvidenceItem]) -> None:
+def _render_candidate_evidence(
+    lines: list[str], evidence: list[EvidenceItem], commit_dates: dict[str, str]
+) -> None:
     """Non-commit evidence renders flat, as before. Commit-derived evidence
     (recent_commit / commit_message_match / function_anchor_match — anything
     carrying a commit_sha) groups under one bullet per commit, sorted by how
@@ -46,7 +48,9 @@ def _render_candidate_evidence(lines: list[str], evidence: list[EvidenceItem]) -
         # inline code span (as an earlier version of this did) suppresses
         # that auto-linking, found live when commit references stopped being
         # clickable after this grouping was introduced.
-        lines.append(f"  - Recent commit {sha}:")
+        date = commit_dates.get(sha, "")
+        date_suffix = f" ({date})" if date else ""
+        lines.append(f"  - Recent commit {sha}{date_suffix}:")
         for ev in commit_items[sha]:
             lines.append(f"    - {_commit_evidence_label(ev)}")
 
@@ -112,9 +116,12 @@ def format_debug_packet_markdown(
             and c.evidence[0].type == "test_coverage"
         ]
         regular = [c for c in packet.scored_candidates if c not in doc_penalized and c not in plain_tests]
+        commit_dates = {
+            c.sha[:7]: c.timestamp[:10] for c in packet.recent_commits if c.sha and c.timestamp
+        }
         for c in regular:
             lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
-            _render_candidate_evidence(lines, c.evidence)
+            _render_candidate_evidence(lines, c.evidence, commit_dates)
         if plain_tests:
             count = len(plain_tests)
             noun = "file" if count == 1 else "files"

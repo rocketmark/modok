@@ -313,6 +313,39 @@ def test_markdown_groups_evidence_by_commit_sorted_by_signal_count():
     assert "Touched" in md
 
 
+# @spec SQ-GH-009
+def test_markdown_annotates_commit_group_header_with_date():
+    packet = make_packet(
+        scored_candidates=[
+            ScoredCandidate(
+                path="pi-image/chroot-customize.sh",
+                kind="source",
+                score=10.5,
+                confidence="medium",
+                evidence=[
+                    EvidenceItem(
+                        type="recent_commit",
+                        score=1.5,
+                        explanation="Touched in recent commit 3a3882d",
+                        commit_sha="3a3882d",
+                    ),
+                ],
+            ),
+        ],
+        recent_commits=[
+            RecentCommit(
+                sha="3a3882d44a7a13b140d90140663bf736c3265808",
+                timestamp="2026-06-26T18:04:08-04:00",
+                author_name="Mark Stalzer",
+                message="fixed wifi provisioning",
+                files_touched=["pi-image/chroot-customize.sh"],
+            ),
+        ],
+    )
+    md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
+    assert "Recent commit 3a3882d (2026-06-26):" in md
+
+
 # @spec SQ-GH-002
 def test_markdown_omits_top_suspects_when_empty():
     md = format_debug_packet_markdown(make_packet(scored_candidates=[]), "inv-42", "actionable-issue-pattern")
