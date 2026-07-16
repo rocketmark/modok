@@ -218,9 +218,9 @@ files:
 
 ---
 
-## Auto-generation from ingest-docs
+## Auto-generation from `modok ingest`
 
-`modok ingest-docs` checks for `.modok/code-map.yml` before running.
+`modok ingest` checks for `.modok/code-map.yml` before running.
 
 **Normal mode** (default): if the file does not exist, a warning is printed to stderr (`No code map found — generating before ingestion...`), `extract-code-map` runs automatically, and ingestion proceeds. If extraction fails, ingestion aborts.
 

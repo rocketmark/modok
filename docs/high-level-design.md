@@ -192,7 +192,7 @@ This path is what makes Quine authoritative for *when* a workflow becomes action
 
 ### Major components
 
-**Code Map Extractor** — a deterministic, LLM-free command (`modok extract-code-map`) that walks the repo and extracts file facts: repo-relative path, SHA-256 hash, language, role (source / test / config / docs / generated / ignored), line count, and test-to-source coverage by mirrored path convention. For Python files, symbol and import facts are extracted via `ast` (classes, functions, methods, line ranges, imports). The output is `.modok/code-map.yml` — a sorted, stable YAML artifact. The same repo state always produces the same code map. `modok ingest-docs` auto-generates the code map if one does not exist. The code map is the foundation against which doc ingestion validates source file and module claims; it is not required for registry validation or ticket ingestion.
+**Code Map Extractor** — a deterministic, LLM-free command (`modok extract-code-map`) that walks the repo and extracts file facts: repo-relative path, SHA-256 hash, language, role (source / test / config / docs / generated / ignored), line count, and test-to-source coverage by mirrored path convention. For Python files, symbol and import facts are extracted via `ast` (classes, functions, methods, line ranges, imports). The output is `.modok/code-map.yml` — a sorted, stable YAML artifact. The same repo state always produces the same code map. `modok ingest` auto-generates the code map if one does not exist. The code map is the foundation against which doc ingestion validates source file and module claims; it is not required for registry validation or ticket ingestion.
 
 **Demo UI** — a local-only web console for demonstrating MODOK's core workflow. A Next.js app (`ui/`) that presents a seeded customer ticket inbox, ticket detail view with notes, and a MODOK analysis panel. The UI calls `modok ingest` and `modok retrieve` via `child_process.spawn` from Next.js API routes. Ticket and note state persists in local JSON files under `ui/data/`. A top navigation bar provides MODOK branding and a freeform search that calls `modok search` with a project slug configured in `ui/config.json`. A mock mode (`MODOK_MOCK=1`) returns fixture debug packets when Quine is not running. The Demo UI is not a production surface — it has no auth, no database, and no deployment target. It exists to make MODOK's debug-packet workflow tangible to engineers and stakeholders.
 
@@ -306,7 +306,7 @@ This is distinct from the `--fix` metadata proposal pass in `modok ingest`, whic
 
 The repo is the primary source of truth for what files, modules, and symbols exist. Docs make claims against that known universe — they do not define it.
 
-`modok ingest-docs` requires a code map. If one does not exist it is generated automatically before ingestion proceeds (equivalent to running `modok extract-code-map` first). Passing `--no-code-map` skips generation and disables code-map validation for that run.
+`modok ingest` requires a code map. If one does not exist it is generated automatically before ingestion proceeds (equivalent to running `modok extract-code-map` first). Passing `--no-code-map` skips generation and disables code-map validation for that run.
 
 Consequences:
 - A `source_files` claim in a doc frontmatter that is absent from the code map produces a warning by default and an error under `--strict`. This catches stale or mistyped file references.

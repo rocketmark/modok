@@ -7,7 +7,7 @@ See `docs/high-level-design.md § GitHub Dependency-Graph Ingestion` and the cor
 This is **additional resource-type coverage on ingestion paths that already exist**, not new infrastructure:
 
 - The existing 30-second `GitHubPollAdapter` (`docs/llds/continuous-ci-ingestion.md § Poll Cycle Extension`) gains a fourth per-cycle step, on its own cursor, for package/version/manifest/change data — same pattern CI ingestion used to add workflow-run discovery alongside issue/PR sync.
-- The existing `ingest-docs` path (`docs/llds/ingestion-pipeline.md`, ultimately `modok.ingestion.pipeline.run_ingestion`) gains one additional call for `File -[:USES_DEPENDENCY]-> DependencyPackage` edges, driven by the code map's already-captured, currently-unconsumed `imports` field (`docs/llds/code-map.md § Symbol Extraction`).
+- The existing `modok ingest` path (`docs/llds/ingestion-pipeline.md`, ultimately `modok.ingestion.pipeline.run_ingestion`) gains one additional call for `File -[:USES_DEPENDENCY]-> DependencyPackage` edges, driven by the code map's already-captured, currently-unconsumed `imports` field (`docs/llds/code-map.md § Symbol Extraction`).
 - `Commit` and `Fix` are reused as-is. A merged Dependabot PR is already ingested as a `Fix` with `kind="dependency-update"` (`docs/llds/github-ingestion.md § Field mapping — Fix`) — this component does not introduce a new `PullRequest` node type; `MERGED_VIA` points at the existing `Fix` node.
 - The Diagnostic Retrieval Engine's recent-commit evidence path (`docs/llds/diagnostic-retrieval-engine.md § Recent commits`, § Evidence Sources) gains a sibling: recent *dependency* changes, scored the same corroborating way `element_anchor_match`/`function_anchor_match` are — never a standalone recency signal.
 
@@ -29,7 +29,7 @@ Two separable questions, addressed by different mechanisms:
 | Priority | Source | Availability | What it adds |
 |---|---|---|---|
 | 1 | GitHub dependency-review compare API (`GET /repos/{owner}/{repo}/dependency-graph/compare/{base}...{head}`) | Requires Dependency Graph enabled on the repo; commonly 403/404/422 on repos without it | Resolved version, `package_url` (purl), best-effort direct/transitive `relationship` |
-| 2 | Dependabot PR metadata (title `Bump {package} from {old} to {new}`) | Available whenever the PR is Dependabot-authored — zero new API scope beyond existing issue/PR sync | Exact resolved from/to version, even when the manifest itself only expresses a range |
+| 2 | Dependabot PR metadata (title `Bump {package} from {old} to {new}`, or pip's `Update {package} requirement from {old} to {new} in {path}` — Dependabot's wording varies by ecosystem/updater, not just by package; both are recognized) | Available whenever the PR is Dependabot-authored — zero new API scope beyond existing issue/PR sync | Exact resolved from/to version, even when the manifest itself only expresses a range |
 | 3 | Raw manifest-declared text captured by the snapshot diff itself | Always available | Whatever the manifest literally says (exact pin or bare constraint) |
 
 Source 1 failing (any non-2xx) is treated as "unavailable for this PR," logged once, and never aborts the poll cycle — per the HLD non-goal, an unavailable GitHub dependency API must not fail unrelated polling. Source 2 is attempted only when source 1 didn't resolve this specific package (including the common case of a grouped Dependabot update, whose title doesn't enumerate every package in the group — those fall through to source 3 per package). Source 3 is the floor: it is what the snapshot diff already captured to *detect* the change in the first place, so there is always a value to record even when 1 and 2 both come up empty.
@@ -144,8 +144,8 @@ For each `.modok/code-map.yml` entry with `role: source` and `language: python`,
 1. For each import, take the top-level module name (`bleak.backends.scanner` → `bleak`).
 2. Skip it if it's a standard-library module (`sys.stdlib_module_names`, deterministic, no LLM).
 3. Resolve to a package name: an explicit override from `.modok/dependency-map.yml` (new, opt-in, checked-in, human-maintained — `import_overrides: {cv2: opencv-python}` shape) if present for that import name, else the import name itself (identity mapping — correct for the overwhelming majority of cases, including `bleak` → `bleak`).
-4. PEP 503–normalize, build `pkg:pypi/{name}`. **Only if a `DependencyPackage` node with that purl already exists** (`node_exists_by_parts`) is it added to this file's target set — a file importing a package MODOK has never seen declared in any tracked manifest gets no edge yet; it self-heals the next time dependency ingestion (or `ingest-docs`) runs after that package is discovered.
-5. Reconcile (`replace_edges_by_parts`) the `File`'s `USES_DEPENDENCY` edges to exactly that target set, so a file that stops importing a package loses the edge on the next `ingest-docs` run.
+4. PEP 503–normalize, build `pkg:pypi/{name}`. **Only if a `DependencyPackage` node with that purl already exists** (`node_exists_by_parts`) is it added to this file's target set — a file importing a package MODOK has never seen declared in any tracked manifest gets no edge yet; it self-heals the next time dependency ingestion (or `modok ingest`) runs after that package is discovered.
+5. Reconcile (`replace_edges_by_parts`) the `File`'s `USES_DEPENDENCY` edges to exactly that target set, so a file that stops importing a package loses the edge on the next `modok ingest` run.
 
 v1 scope: `File` only, not `TestFile` — matches the acceptance scenario's shape (a provisioning *source* file). Python only, matching § File Format Parsing.
 
@@ -192,7 +192,7 @@ class RecentDependencyChange:
 | Malformed manifest line | That line is skipped and logged (`parse_error`); the rest of the file still parses — same tolerance as the code map's own per-file parse-error handling. |
 | Rate limit (429) | Reuses `GithubIngester`'s existing `Retry-After`-aware handling (`docs/llds/github-ingestion.md § Rate Limiting`), extended to the new endpoints — same phrase and precedent continuous CI ingestion used for its own Actions-API extension. |
 | `Commit`/`Fix` absent when a `DependencyChange` is first written | Edge silently skipped; picked up by the reconciliation sweep (§ Polling and Checkpoint Behavior) once the target exists. |
-| `DependencyPackage` absent when `File` usage mapping runs | That file gets no `USES_DEPENDENCY` edge for that import yet; self-heals on a later `ingest-docs` run after the package is discovered. Never invents the package node. |
+| `DependencyPackage` absent when `File` usage mapping runs | That file gets no `USES_DEPENDENCY` edge for that import yet; self-heals on a later `modok ingest` run after the package is discovered. Never invents the package node. |
 
 ---
 
@@ -220,7 +220,7 @@ class RecentDependencyChange:
 | `MERGED_VIA` target | Existing `Fix` node | New `PullRequest` node type | "Use existing vocabulary where available" — `Fix` already carries `pr_url`, `kind`, and Dependabot detection for exactly this case |
 | Cursor/failure-isolation model | Single coupled discovery+processing cursor, advanced per-PR after that PR completes | CI ingestion's decoupled discovery cursor + per-node expansion-state machine | Dependency processing per PR is one bounded operation, not multi-stage/artifact-heavy — the added complexity of a separate backlog structure isn't justified here |
 | `INTRODUCED_BY`/`MERGED_VIA` reconciliation | Periodic sweep, once per cycle, for gaps whose target now exists | No sweep; accept permanent gaps if the target didn't exist yet | Same failure mode `TARGETED_COMMIT`/`TESTED_COMMIT` hit and fixed (`docs/llds/continuous-ci-ingestion.md`) — `Commit` nodes arrive via an independently-scheduled, local process |
-| File→Package mapping location | Local `ingest-docs` path, reading the code map | Fold into the GitHub poller | Imports are local source facts, not GitHub data; keeps the poller's API surface limited to package/version/manifest/change |
+| File→Package mapping location | Local `modok ingest` path, reading the code map | Fold into the GitHub poller | Imports are local source facts, not GitHub data; keeps the poller's API surface limited to package/version/manifest/change |
 | First snapshot for a manifest | No `DependencyChange` records written | Record every existing dependency as an "added" change on first sight | Avoids flooding the graph with spurious change records the moment a repo starts being tracked; only real deltas between two observed snapshots count |
 | `dependency_change` evidence weight | Flat 5.0, corroborating-only, target-file-gated | Recency-weighted (like `recent_commit`'s 1.5, decaying) | Flat + gated-to-already-anchored-files makes "no ranking on recency alone" and "unrelated newer update doesn't outrank" true by construction, not by tuning a decay curve |
 | Import-name overrides | New checked-in `.modok/dependency-map.yml`, opt-in | LLM-assisted or PyPI-metadata-lookup resolution | Deterministic, offline, no LLM — matches every other "explicit mapping over inference" precedent in this codebase (registry `source_roots`, label-based `ticket_kind`) |

@@ -2,7 +2,7 @@
 
 ## Context and Design Philosophy
 
-The webhook receiver is MODOK's streaming ingestion surface. It runs as a small HTTP server (`modok serve`) that accepts push events from external tools — GitHub webhooks, trouble ticket systems, automation platforms — and routes them into the existing ingestion pipeline. No new graph logic. No new node types. The write path is identical to `ingest-github` and `ingest-tickets`; the webhook receiver is purely a new *entry point* into that path.
+The webhook receiver is MODOK's streaming ingestion surface. It runs as a small HTTP server (`modok serve`) that accepts push events from external tools — GitHub webhooks, trouble ticket systems, automation platforms — and routes them into the existing ingestion pipeline. No new graph logic. No new node types. The write path is identical to `modok ingest-github` and `modok ingest`'s ticket-file path; the webhook receiver is purely a new *entry point* into that path.
 
 The same design principle as the CLI and MCP server applies: **this layer is a thin adapter.** Each handler is ≤ 40 lines: verify the request → normalize the payload → call existing core → return a response. All graph logic lives downstream.
 

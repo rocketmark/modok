@@ -9,16 +9,21 @@ MODOK_HOOK_END = "# >>> MODOK END <<<"
 
 def hook_content(project_slug: str, ingestion_paths: list[str]) -> str:
     paths_pattern = "|".join(re.escape(p) for p in ingestion_paths)
-    guards = "\n".join(f'  "{p}"' for p in ingestion_paths)
     return f"""\
 {MODOK_HOOK_START}
 # Auto-installed by modok init — do not edit this section manually.
 
-# ingest-docs: only when doc/registry files changed
+# modok ingest: only when doc/registry files changed. Bare "--project" only —
+# modok ingest takes no directory arguments; it operates on the project's
+# full registered doc/registry set via the Registry, not a path list. An
+# earlier version appended the registered paths as trailing positional
+# arguments here, which (via the line-continuation backslash) silently
+# became a bogus `ticket_file` argument to `modok ingest` on every qualifying
+# commit, crashing it — found live running this for real, not caught by any
+# test since none exercised the generated shell script's actual execution.
 _modok_changed=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -E '^({paths_pattern})')
 if [ -n "$_modok_changed" ]; then
-  modok ingest --project {project_slug} \\
-{guards}
+  modok ingest --project {project_slug}
 fi
 
 # ingest-git: unconditional — registered-file filter is inside the command

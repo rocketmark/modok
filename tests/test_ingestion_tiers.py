@@ -725,7 +725,8 @@ def test_report_str_includes_unregistered_count():
 
 
 # ---------------------------------------------------------------------------
-# SI-HOOK-002 — hook always invokes modok ingest-git; early-exit only for ingest-docs
+# SI-HOOK-002 — hook always invokes modok ingest-git; the doc/registry
+# `modok ingest` call is gated on a path-guard early-exit
 # ---------------------------------------------------------------------------
 
 
@@ -760,8 +761,9 @@ def test_hook_ingest_git_outside_path_guard(tmp_path):
 # @spec SI-HOOK-002
 def test_hook_ingest_docs_gated_ingest_git_is_not(tmp_path):
     content = hook_content("stagehand", ["docs/", "registries/"])
-    # ingest-docs should appear inside a conditional; ingest-git should not
-    # Structural: both "ingest-docs" and "ingest-git" appear; only "ingest-docs"
-    # is preceded by an if guard referencing the registered paths.
-    assert "ingest-docs" in content
-    assert "ingest-git" in content
+    # The doc/registry ingest call ("modok ingest --project", no ticket_file
+    # argument) should appear inside a conditional; "modok ingest-git" should
+    # not — it runs unconditionally (its own registered-file filter handles
+    # skipping irrelevant commits internally, per SI-GIT-004/SI-GIT-008).
+    assert "modok ingest --project" in content
+    assert "modok ingest-git --project" in content

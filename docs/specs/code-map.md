@@ -95,12 +95,12 @@ LLD: `docs/llds/code-map.md`
 
 ---
 
-## Auto-generation from ingest-docs
+## Auto-generation from `modok ingest`
 
-- [ ] **CM-AUTO-001** [U]: When `modok ingest-docs` is invoked and `.modok/code-map.yml` does not exist, the system shall print a warning to stderr and run `extract-code-map` before proceeding.
-- [ ] **CM-AUTO-002** [U]: When `modok ingest-docs --strict` is invoked and `.modok/code-map.yml` does not exist, the command shall exit non-zero with the message `No code map found. Run 'modok extract-code-map --project <slug>' first.` No auto-generation shall occur.
-- [ ] **CM-AUTO-003** [U]: When `modok ingest-docs --no-code-map` is invoked, the system shall skip the code map check entirely and proceed without code-map validation.
-- [ ] **CM-AUTO-004** [U]: When auto-generation fails (non-zero exit from `extract-code-map`), `modok ingest-docs` shall abort with a non-zero exit and surface the extraction error.
+- [ ] **CM-AUTO-001** [U]: When `modok ingest` is invoked and `.modok/code-map.yml` does not exist, the system shall print a warning to stderr and run `extract-code-map` before proceeding.
+- [ ] **CM-AUTO-002** [U]: When `modok ingest --strict` is invoked and `.modok/code-map.yml` does not exist, the command shall exit non-zero with the message `No code map found. Run 'modok extract-code-map --project <slug>' first.` No auto-generation shall occur.
+- [ ] **CM-AUTO-003** [U]: When `modok ingest --no-code-map` is invoked, the system shall skip the code map check entirely and proceed without code-map validation.
+- [ ] **CM-AUTO-004** [U]: When auto-generation fails (non-zero exit from `extract-code-map`), `modok ingest` shall abort with a non-zero exit and surface the extraction error.
 
 ---
 

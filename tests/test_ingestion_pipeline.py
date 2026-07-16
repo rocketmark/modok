@@ -923,6 +923,34 @@ def test_hook_content_includes_path_guard():
     assert "ingest" in content
 
 
+# @spec SI-HOOK-002
+def test_hook_content_ingest_line_takes_no_positional_arguments():
+    """Regression test — found live running a real hook: an earlier version
+    appended the registered ingestion paths as trailing positional arguments
+    to `modok ingest` via a line-continuation backslash. `modok ingest` takes
+    no positional path arguments (only an optional single ticket_file), so
+    that silently passed a directory name as `ticket_file` and crashed the
+    hook on every qualifying commit. The `modok ingest --project <slug>` line
+    must stand alone — no trailing backslash, no directory names appended."""
+    content = hook_content("stagehand", ["docs/", "registries/"])
+    lines = content.splitlines()
+    ingest_lines = [line for line in lines if "modok ingest --project" in line]
+    assert ingest_lines, "expected a 'modok ingest --project' line in hook content"
+    for line in ingest_lines:
+        assert not line.rstrip().endswith("\\"), (
+            f"'modok ingest --project' line must not continue onto further "
+            f"lines via a trailing backslash: {line!r}"
+        )
+    # No registered path should appear as its own bare-quoted line — that
+    # would execute as an independent (nonexistent) shell command.
+    for line in lines:
+        stripped = line.strip()
+        assert not (stripped.startswith('"') and stripped.endswith('"')), (
+            f"line is a bare quoted string, which the shell would try to "
+            f"execute as a command: {line!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # SI-HOOK-003 — existing hook → append MODOK section
 # ---------------------------------------------------------------------------

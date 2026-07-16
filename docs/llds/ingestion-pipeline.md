@@ -23,9 +23,9 @@ The hook is opt-in — `modok init --project stagehand --repo ./` installs it. I
 Manual invocation is always available:
 
 ```bash
-modok ingest-docs --project stagehand ./docs
-modok ingest-tickets --project stagehand ./tickets
-modok ingest-code-map --project stagehand ./src ./tests
+modok ingest --project stagehand                    # docs and registries
+modok ingest --project stagehand tickets/T-001.md    # a single customer ticket file
+modok extract-code-map --project stagehand           # code map (source tree facts)
 ```
 
 A CI step can be added later to keep the shared Mac mini's graph in sync with the remote repo.

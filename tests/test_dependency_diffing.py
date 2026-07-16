@@ -159,6 +159,30 @@ def test_parse_dependabot_bump_title_returns_none_for_different_package():
 
 
 # @spec DEPG-SRC-003
+def test_parse_dependabot_bump_title_recognizes_pip_requirement_wording():
+    """Found live against a real repo: pip-ecosystem Dependabot PRs read
+    "Update X requirement from A to B in /path", not "Bump X from A to B" —
+    Dependabot's title wording varies by ecosystem/updater, not just by
+    which package changed."""
+    from modok.ingestion.dependency_ingestion import parse_dependabot_bump_title
+
+    result = parse_dependabot_bump_title(
+        "Update numpy requirement from >=1.24 to >=2.4.6 in /client", "numpy"
+    )
+    assert result == (">=1.24", ">=2.4.6")
+
+
+# @spec DEPG-SRC-003
+def test_parse_dependabot_bump_title_pip_requirement_wording_handles_comma_ranges():
+    from modok.ingestion.dependency_ingestion import parse_dependabot_bump_title
+
+    result = parse_dependabot_bump_title(
+        "Update cbor2 requirement from <6,>=5.4.6 to >=6.1.2,<7 in /client", "cbor2"
+    )
+    assert result == ("<6,>=5.4.6", ">=6.1.2,<7")
+
+
+# @spec DEPG-SRC-003
 def test_dependabot_title_not_consulted_for_non_dependabot_pr():
     from modok.ingestion.dependency_ingestion import resolve_version_for_change
 

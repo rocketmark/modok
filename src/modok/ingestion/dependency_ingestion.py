@@ -183,19 +183,34 @@ def parse_manifest(path: str, content: str) -> dict[str, str] | None:
 # DEPG-SRC-001/002/003/004 — version-fidelity source priority
 # ---------------------------------------------------------------------------
 
-_DEPENDABOT_BUMP_RE = re.compile(
-    r"^Bump\s+(?P<package>[A-Za-z0-9][A-Za-z0-9._-]*)\s+from\s+(?P<from>\S+)\s+to\s+(?P<to>\S+)",
-    re.IGNORECASE,
-)
+# Dependabot's title wording varies by ecosystem/updater, not just by
+# package — found live against a real repo's pip-ecosystem PRs, which read
+# "Update X requirement from A to B in /path" rather than "Bump X from A to
+# B" (the format most other ecosystems use). Both are checked; the pip
+# "Update ... requirement" form only fires when Dependabot couldn't resolve
+# an exact pinned version and is instead reporting the requirement range
+# itself changing.
+_DEPENDABOT_TITLE_PATTERNS = [
+    re.compile(
+        r"^Bump\s+(?P<package>[A-Za-z0-9][A-Za-z0-9._-]*)\s+from\s+(?P<from>\S+)\s+to\s+(?P<to>\S+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^Update\s+(?P<package>[A-Za-z0-9][A-Za-z0-9._-]*)\s+requirement\s+from\s+"
+        r"(?P<from>\S+)\s+to\s+(?P<to>\S+)",
+        re.IGNORECASE,
+    ),
+]
 
 
 def parse_dependabot_bump_title(title: str, package_name: str) -> tuple[str, str] | None:
-    match = _DEPENDABOT_BUMP_RE.match((title or "").strip())
-    if not match:
-        return None
-    if normalize_package_name(match.group("package")) != normalize_package_name(package_name):
-        return None
-    return match.group("from"), match.group("to")
+    stripped = (title or "").strip()
+    normalized_target = normalize_package_name(package_name)
+    for pattern in _DEPENDABOT_TITLE_PATTERNS:
+        match = pattern.match(stripped)
+        if match and normalize_package_name(match.group("package")) == normalized_target:
+            return match.group("from"), match.group("to")
+    return None
 
 
 def resolve_version_for_change(

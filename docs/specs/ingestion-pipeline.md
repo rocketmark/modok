@@ -126,7 +126,7 @@ See `docs/testing-standard.md` for full definitions.
 ## Ingestion Trigger — git hook
 
 - [x] **SI-HOOK-001** [U]: When `modok init --project {slug} --repo {path}` is run, the system shall install a post-commit hook in the project repo that runs ingestion after any commit touching registered ingestion paths.
-- [x] **SI-HOOK-002** [U]: The post-commit hook shall skip the `modok ingest-docs` step when no changed file in the commit matches the project's registered doc and registry paths. The hook shall always invoke `modok ingest-git` regardless — the registered-file filter inside that command handles skipping commits with no relevant file changes (SI-GIT-004, SI-GIT-008).
+- [x] **SI-HOOK-002** [U]: The post-commit hook shall skip the `modok ingest` step when no changed file in the commit matches the project's registered doc and registry paths. The hook shall always invoke `modok ingest-git` regardless — the registered-file filter inside that command handles skipping commits with no relevant file changes (SI-GIT-004, SI-GIT-008).
 - [x] **SI-HOOK-003** [U]: When a post-commit hook already exists in the target repo, `modok init` shall append a clearly marked MODOK section rather than overwriting the existing hook.
 - [x] **SI-HOOK-004** [U]: When a MODOK section already exists in the post-commit hook, `modok init` shall replace only that section, leaving all other hook content unchanged.
 

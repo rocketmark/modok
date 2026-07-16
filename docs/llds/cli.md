@@ -353,8 +353,10 @@ modok = "modok.cli.main:cli"
 ### Deferred
 1. **`$MODOK_CONFIG` env var** — config path override for multi-config setups (e.g. staging vs. prod Quine). Defer until someone needs it.
 2. **`--output json` as global flag** — currently `--json` is per-command where tabular is the default. A global flag may be cleaner once all commands support JSON. Revisit after v1.
-3. **`modok ingest-code-map`** — code map ingestion (file/module discovery from source tree). Referenced in `project-setup.md` but the ingestion pipeline only handles docs today. Separate command when code map ingestion is built.
-4. **`modok find-issue`** — look up a CustomerIssue node ID by source + ticket without running retrieval. Not needed given `retrieve` now accepts `--source` + `--ticket` directly.
+3. **`modok find-issue`** — look up a CustomerIssue node ID by source + ticket without running retrieval. Not needed given `retrieve` now accepts `--source` + `--ticket` directly.
+
+### Resolved
+1. ✅ Code map ingestion (file/module discovery from source tree) — shipped as its own command, `modok extract-code-map` (`docs/llds/code-map.md`), not folded into `modok ingest`.
 
 ## References
 
