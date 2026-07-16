@@ -72,24 +72,41 @@ async def _with_retry_async(
 async def _fetch_workflow_runs_page(
     github_repo: str, token: str, since: str | None
 ) -> list[dict]:
-    """Fetch the most recent page of workflow runs — not a full historical
-    backfill; the discovery cursor (last_workflow_sync) catches up
-    incrementally. If this page is full (_RUNS_PAGE_SIZE items), older runs
-    may exist that this cycle didn't check — logged so that's visible rather
-    than a silent gap, not treated as an error."""
-    params: dict[str, Any] = {"per_page": _RUNS_PAGE_SIZE}
-    if since:
-        params["created"] = f">={since}"
+    """Fetch the most recent page of workflow runs (GitHub returns these
+    created-descending by default) and filter client-side by `since` —
+    mirroring GithubIngester._fetch_prs_incremental's proven pattern for PRs
+    — rather than relying on the server-side `created` qualifier, which in
+    practice did not appear to reduce results cycle over cycle (found live:
+    the same 100 most-recent runs kept coming back every cycle regardless of
+    how far last_workflow_sync had advanced). Not a full historical backfill;
+    the discovery cursor catches up incrementally. Warns (not silently) only
+    when the page is full AND every item on it is still newer than `since`
+    — meaning genuinely new activity may extend beyond this one page — not
+    on every cycle regardless of whether anything changed.
+    """
     async with httpx.AsyncClient(headers=_gh_headers(token), timeout=30) as http:
         resp = await _with_retry_async(
-            http, f"{_API_BASE}/repos/{github_repo}/actions/runs", params
+            http,
+            f"{_API_BASE}/repos/{github_repo}/actions/runs",
+            {"per_page": _RUNS_PAGE_SIZE},
         )
         resp.raise_for_status()
-        runs = resp.json().get("workflow_runs", [])
-    if len(runs) >= _RUNS_PAGE_SIZE:
+        page = resp.json().get("workflow_runs", [])
+
+    if since:
+        runs = [r for r in page if r.get("created_at", "") > since]
+        page_all_newer_than_since = bool(page) and all(
+            r.get("created_at", "") > since for r in page
+        )
+    else:
+        runs = page
+        page_all_newer_than_since = True
+
+    if len(page) >= _RUNS_PAGE_SIZE and page_all_newer_than_since:
         print(
-            f"ci-ingestion: {github_repo} — fetched {len(runs)} workflow run(s) "
-            "(page limit); older/additional runs may not have been checked this cycle",
+            f"ci-ingestion: {github_repo} — fetched {len(page)} workflow run(s) "
+            "(page limit) and all were newer than the last check; "
+            "older/additional new runs may not have been checked this cycle",
             file=sys.stderr,
         )
     return runs

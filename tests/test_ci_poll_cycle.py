@@ -429,3 +429,87 @@ async def test_fetch_workflow_runs_page_no_warning_when_under_page_limit(capsys)
         await _fetch_workflow_runs_page("owner/repo", "tok", since=None)
 
     assert capsys.readouterr().err == ""
+
+
+# ---------------------------------------------------------------------------
+# CIING-POLL-001 — client-side `since` filtering (found live: GitHub's own
+# `created` query parameter did not reduce results cycle over cycle — the
+# same 100 most-recent runs kept coming back regardless of the cursor)
+# ---------------------------------------------------------------------------
+
+
+def _run_at(created_at: str, run_id: str = "1") -> dict:
+    return {"id": run_id, "created_at": created_at}
+
+
+# @spec CIING-POLL-001
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_filters_out_items_at_or_before_since():
+    from modok.ingestion.ci_ingestion import _fetch_workflow_runs_page
+
+    page = [
+        _run_at("2026-07-16T10:00:00Z", "new"),
+        _run_at("2026-07-14T09:00:00Z", "old"),
+        _run_at("2026-07-15T08:00:00Z", "same-as-cursor"),
+    ]
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(
+            return_value=httpx.Response(200, json={"workflow_runs": page}, request=fake_request)
+        )
+        runs = await _fetch_workflow_runs_page(
+            "owner/repo", "tok", since="2026-07-15T08:00:00Z"
+        )
+
+    assert [r["id"] for r in runs] == ["new"]
+
+
+# @spec CIING-POLL-001
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_no_warning_when_since_catches_up(capsys):
+    """A full raw page (the API's page cap) that `since` filters down to
+    nothing new must not warn — this is the steady-state case (nothing new
+    happened since last cycle), not a truncated-history case."""
+    from modok.ingestion.ci_ingestion import _RUNS_PAGE_SIZE, _fetch_workflow_runs_page
+
+    stale_page = [_run_at("2020-01-01T00:00:00Z", str(i)) for i in range(_RUNS_PAGE_SIZE)]
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(
+            return_value=httpx.Response(200, json={"workflow_runs": stale_page}, request=fake_request)
+        )
+        runs = await _fetch_workflow_runs_page(
+            "owner/repo", "tok", since="2026-07-15T00:00:00Z"
+        )
+
+    assert runs == []
+    assert capsys.readouterr().err == ""
+
+
+# @spec CIING-POLL-001
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_warns_when_since_set_but_all_items_still_newer(capsys):
+    """If every item on a full page is still newer than `since`, there may be
+    even more new activity beyond this one page — this is the genuine
+    truncation case and must still warn even with `since` set."""
+    from modok.ingestion.ci_ingestion import _RUNS_PAGE_SIZE, _fetch_workflow_runs_page
+
+    fresh_page = [_run_at("2026-07-16T12:00:00Z", str(i)) for i in range(_RUNS_PAGE_SIZE)]
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(
+            return_value=httpx.Response(200, json={"workflow_runs": fresh_page}, request=fake_request)
+        )
+        runs = await _fetch_workflow_runs_page(
+            "owner/repo", "tok", since="2026-07-15T00:00:00Z"
+        )
+
+    assert len(runs) == _RUNS_PAGE_SIZE
+    err = capsys.readouterr().err
+    assert "page limit" in err
