@@ -350,6 +350,12 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
         DiagnosticNote,
         Commit,
         Investigation,
+        WorkflowRun,
+        WorkflowJob,
+        WorkflowJobStep,
+        TestExecution,
+        TestFailure,
+        InvestigationMilestone,
     )
 
     if isinstance(node, Doc):
@@ -448,6 +454,73 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
             {
                 "idf_project_slug": node.project_slug,
                 "idf_investigation_id": node.investigation_id,
+            },
+        )
+    if isinstance(node, WorkflowRun):
+        return (
+            "'workflow-run', $idf_project_slug, $idf_run_id",
+            {"idf_project_slug": node.project_slug, "idf_run_id": node.run_id},
+        )
+    if isinstance(node, WorkflowJob):
+        # run_attempt is part of the natural key — see § Workflow Job Identity.
+        return (
+            "'workflow-job', $idf_project_slug, $idf_run_id, $idf_run_attempt, $idf_github_job_id",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_run_id": node.run_id,
+                "idf_run_attempt": node.run_attempt,
+                "idf_github_job_id": node.github_job_id,
+            },
+        )
+    if isinstance(node, WorkflowJobStep):
+        return (
+            "'workflow-job-step', $idf_project_slug, $idf_run_id, $idf_run_attempt, "
+            "$idf_github_job_id, $idf_step_number",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_run_id": node.run_id,
+                "idf_run_attempt": node.run_attempt,
+                "idf_github_job_id": node.github_job_id,
+                "idf_step_number": node.step_number,
+            },
+        )
+    if isinstance(node, TestExecution):
+        return (
+            "'test-execution', $idf_project_slug, $idf_run_id, $idf_run_attempt, "
+            "$idf_classname, $idf_test_name",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_run_id": node.run_id,
+                "idf_run_attempt": node.run_attempt,
+                "idf_classname": node.classname,
+                "idf_test_name": node.test_name,
+            },
+        )
+    if isinstance(node, TestFailure):
+        return (
+            "'test-failure', $idf_project_slug, $idf_run_id, $idf_run_attempt, "
+            "$idf_classname, $idf_test_name",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_run_id": node.run_id,
+                "idf_run_attempt": node.run_attempt,
+                "idf_classname": node.classname,
+                "idf_test_name": node.test_name,
+            },
+        )
+    if isinstance(node, InvestigationMilestone):
+        # Distinct, evidence-free identity scheme (not the Investigation
+        # scheme above) — see docs/llds/standing-queries.md § Investigation
+        # and Milestone Model.
+        return (
+            "'investigation-milestone', $idf_project_slug, $idf_investigation_id, "
+            "$idf_milestone_kind, $idf_test_failure_id, $idf_error_signature",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_investigation_id": node.investigation_id,
+                "idf_milestone_kind": node.milestone_kind,
+                "idf_test_failure_id": node.test_failure_id or "",
+                "idf_error_signature": node.error_signature or "",
             },
         )
     raise ValueError(f"No idFrom() scheme for node type {type(node).__name__}")

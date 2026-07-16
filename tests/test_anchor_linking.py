@@ -216,6 +216,26 @@ async def test_replace_edges_reconciles_stale_anchor_on_edited_text(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# @spec SQ-ANCH-001, CIING-MATCH-004
+@pytest.mark.asyncio
+async def test_links_multiple_errors_mentioned_in_same_raw_text(tmp_path):
+    """Characterizes today's behavior before the CIING-MATCH-004/005 extraction
+    into ErrorSignatureMatcher: multiple registered errors can match the same
+    raw_text simultaneously, and all of them are linked, not just the first."""
+    repo_root = make_registries(
+        tmp_path, errors={"gss-failure": "GSS_FAILURE", "db-timeout": "DB_TIMEOUT"}
+    )
+    client = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
+
+    linked = await link_customer_issue_error_anchors(
+        client, "stagehand", repo_root, "github", "42",
+        "Saw both GSS_FAILURE and a DB_TIMEOUT in the logs.",
+    )
+    assert set(linked) == {"GSS_FAILURE", "DB_TIMEOUT"}
+
+
 # @spec SQ-ANCH-004
 @pytest.mark.asyncio
 async def test_none_raw_text_performs_no_matching(tmp_path):

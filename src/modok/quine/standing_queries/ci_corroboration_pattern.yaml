@@ -1,0 +1,22 @@
+name: ci-corroboration-pattern
+mode: DistinctId
+pattern: |
+  MATCH (ci)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(tf)-[:OCCURRED_IN]->(te)-[:RAN_IN]->(wr)-[:TESTED_COMMIT]->(c)
+  WHERE ci.node_type = 'CustomerIssue' AND e.node_type = 'ErrorSignature'
+    AND tf.node_type = 'TestFailure' AND te.node_type = 'TestExecution'
+    AND wr.node_type = 'WorkflowRun' AND c.node_type = 'Commit'
+  RETURN DISTINCT id(tf) AS id
+enrichment_query: |
+  MATCH (tf) WHERE id(tf) = $that.data.id
+  MATCH (ci)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(tf)
+  MATCH (tf)-[:OCCURRED_IN]->(te)-[:RAN_IN]->(wr)
+  WHERE ci.node_type = 'CustomerIssue' AND e.node_type = 'ErrorSignature'
+    AND te.node_type = 'TestExecution' AND wr.node_type = 'WorkflowRun'
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, wr.run_id AS workflow_run_id,
+         tf.classname + '::' + tf.test_name AS test_failure_id,
+         e.normalized_error AS error_signature,
+         'ci-corroborated' AS milestone_kind,
+         'ci-corroboration-pattern' AS standing_query_name,
+         wr.workflow_name AS workflow_name, wr.head_sha AS head_sha
+output_name: milestone-trigger

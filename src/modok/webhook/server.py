@@ -18,16 +18,17 @@ from modok.ingestion.anchor_linking import (
     link_customer_issue_error_anchors,
     link_customer_issue_feature_anchors,
 )
+from modok.ingestion.github import post_issue_comment
 from modok.quine.client import QuineClient
-from modok.quine.models import CustomerIssue, Fix, Investigation
+from modok.quine.models import CustomerIssue, Investigation, InvestigationMilestone
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import (
-    CustomerIssueData,
-    FixData,
     IngestEvent,
     InvestigationData,
+    MilestoneData,
     WebhookConfig,
 )
+from modok.webhook.pipeline import run_ingest_event
 from modok.webhook.router import PULL_ADAPTERS, PUSH_ADAPTERS
 
 _UNCONFIGURED_REPO_ROOT = Path("/dev/null/modok-unconfigured-project")
@@ -40,52 +41,13 @@ _REQUIRED_MATCH_FIELDS = (
 
 
 # ---------------------------------------------------------------------------
-# Pipeline entry point
+# Pipeline entry point — run_ingest_event itself lives in modok.webhook.pipeline
+# (imported above) to avoid a circular import with modok.ingestion.github; the
+# per-kind helpers below stay here since existing tests patch their leaf
+# dependencies (link_customer_issue_error_anchors, post_issue_comment, etc.)
+# via modok.webhook.server.
 # @spec WH-IDEM-003, WH-EXT-003
 # ---------------------------------------------------------------------------
-
-
-def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
-    """Write an IngestEvent to Quine. Returns number of nodes written.
-
-    Sync — called via asyncio.to_thread from the async route handler.
-    Routes purely on event.kind; no branching on adapter identity, source
-    system, or origin (WH-EXT-003, WH-EXT-004).
-    """
-    # @spec WH-IDEM-003, WH-EXT-003
-    if event.kind == "customer_issue":
-        assert isinstance(event.data, CustomerIssueData)
-        node = CustomerIssue(
-            node_type="CustomerIssue",
-            project_slug=event.project_slug,
-            source_system=event.data.source_system,
-            ticket_id=event.data.ticket_id,
-            summary=event.data.summary,
-            raw_text=event.data.raw_text,
-            status=event.data.status,
-            ticket_kind=event.data.ticket_kind,
-        )
-        asyncio.run(quine_client.upsert_node(node))
-        asyncio.run(_link_anchors_resilient(quine_client, event.project_slug, node))
-        return 1
-
-    if event.kind == "fix":
-        assert isinstance(event.data, FixData)
-        node = Fix(
-            node_type="Fix",
-            project_slug=event.project_slug,
-            fix_id=event.data.fix_id,
-            summary=event.data.summary,
-            kind=event.data.kind,
-        )
-        asyncio.run(quine_client.upsert_node(node))
-        return 1
-
-    if event.kind == "investigation":
-        assert isinstance(event.data, InvestigationData)
-        return asyncio.run(_process_investigation(event, quine_client))
-
-    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +157,139 @@ async def _process_investigation(event: IngestEvent, quine_client: Any) -> int:
         investigation_id=investigation_id,
         standing_query_name=data.standing_query_name,
     )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# milestone — accumulating Investigation/InvestigationMilestone evidence model
+# @spec SQ-MILE-001 through SQ-MILE-012
+# ---------------------------------------------------------------------------
+
+
+def _milestone_investigation_id(data: MilestoneData) -> str:
+    """Stable regardless of evidence (SQ-MILE-001) — a deliberately different,
+    evidence-free identity scheme from _investigation_id above; the two
+    coexist (see docs/llds/standing-queries.md § multiple-Investigation
+    compatibility invariant)."""
+    return f"{data.source_system}-{data.ticket_id}"
+
+
+async def _investigation_has_milestone_kind(
+    client: Any, project_slug: str, investigation_id: str, milestone_kind: str
+) -> bool:
+    rows = await client.query(
+        "MATCH (i)-[:HAS_MILESTONE]->(m) WHERE id(i) = idFrom('investigation', $p, $inv) "
+        "AND m.milestone_kind = $kind RETURN m LIMIT 1",
+        {"p": project_slug, "inv": investigation_id, "kind": milestone_kind},
+    )
+    return bool(rows and rows[0])
+
+
+async def _maybe_post_ci_corroboration_comment(
+    client: Any, project_slug: str, data: MilestoneData
+) -> None:
+    """Best-effort: post a standalone GitHub comment noting additional
+    evidence for the same issue. Never raises — same degrade-gracefully
+    discipline as _maybe_notify_github (SQ-GH-001/004), applied to milestones
+    per SQ-MILE-009/010/011."""
+    if data.source_system != "github":
+        return
+    try:
+        from modok.cli.config import ModokConfig
+
+        project = ModokConfig.load().project(project_slug)
+        github_repo = getattr(project, "github_repo", None)
+
+        import os
+
+        token = os.environ.get("GITHUB_TOKEN")
+        if not github_repo or not token:
+            return
+
+        from modok.retrieval.formatting import format_ci_corroboration_milestone_markdown
+
+        body = format_ci_corroboration_milestone_markdown(
+            error_signature=data.error_signature,
+            test_failure_id=data.test_failure_id,
+            workflow_name=data.workflow_name,
+            head_sha=data.head_sha,
+            workflow_run_id=data.workflow_run_id,
+        )
+        await post_issue_comment(github_repo, token, data.ticket_id, body)
+    except Exception as exc:
+        print(
+            f"CI-corroboration write-back failed for {project_slug}#{data.ticket_id}: {exc}",
+            file=sys.stderr,
+        )
+
+
+async def _process_milestone(event: IngestEvent, quine_client: Any) -> int:
+    data = event.data
+    assert isinstance(data, MilestoneData)
+    investigation_id = _milestone_investigation_id(data)
+
+    # @spec SQ-MILE-001, SQ-MILE-002 — stable identity, unconditional get-or-create
+    inv_node = Investigation(
+        node_type="Investigation",
+        project_slug=event.project_slug,
+        investigation_id=investigation_id,
+        status="open",
+        trigger_type="standing_query",
+        triggered_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        standing_query_name=data.standing_query_name,
+    )
+    await quine_client.upsert_node(inv_node)
+    await quine_client.write_edge_by_parts(
+        ("investigation", event.project_slug, investigation_id),
+        "INVESTIGATES",
+        ("customer-issue", event.project_slug, data.source_system, data.ticket_id),
+    )
+
+    # @spec SQ-MILE-003, SQ-MILE-004 — distinct milestone identity, dedup by it
+    milestone_parts = (
+        "investigation-milestone",
+        event.project_slug,
+        investigation_id,
+        data.milestone_kind,
+        data.test_failure_id,
+        data.error_signature,
+    )
+    if await quine_client.node_exists_by_parts(milestone_parts):
+        return 0
+
+    # @spec SQ-MILE-009 — first-transition check runs before this milestone is recorded
+    is_first_transition = not await _investigation_has_milestone_kind(
+        quine_client, event.project_slug, investigation_id, data.milestone_kind
+    )
+
+    # @spec SQ-MILE-005 — milestone/evidence write always happens for a new milestone
+    milestone_node = InvestigationMilestone(
+        node_type="InvestigationMilestone",
+        project_slug=event.project_slug,
+        investigation_id=investigation_id,
+        milestone_kind=data.milestone_kind,
+        standing_query_name=data.standing_query_name,
+        test_failure_id=data.test_failure_id,
+        error_signature=data.error_signature,
+        workflow_run_id=data.workflow_run_id,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    await quine_client.upsert_node(milestone_node)
+    await quine_client.write_edge_by_parts(
+        ("investigation", event.project_slug, investigation_id),
+        "HAS_MILESTONE",
+        milestone_parts,
+    )
+    await quine_client.write_edge_by_parts(
+        milestone_parts,
+        "EVIDENCED_BY",
+        ("test-failure", event.project_slug, data.workflow_run_id, data.test_failure_id),
+    )
+
+    # @spec SQ-MILE-009 — comment posted only on the first CI-corroboration transition
+    if is_first_transition:
+        await _maybe_post_ci_corroboration_comment(quine_client, event.project_slug, data)
+
     return 1
 
 
@@ -491,17 +586,42 @@ def build_app(
             if slugs is not None and project_slug not in slugs:
                 return JSONResponse({"detail": f"Unknown project: {project_slug}"}, status_code=404)
 
-            event = IngestEvent(
-                kind="investigation",
-                project_slug=project_slug,
-                data=InvestigationData(
-                    source_system=match["source_system"],
-                    ticket_id=match["ticket_id"],
-                    known_issue_id=match.get("known_issue_id", ""),
-                    fix_id=match.get("fix_id", ""),
-                    standing_query_name=match.get("standing_query_name", "actionable-issue-pattern"),
-                ),
-            )
+            # @spec SQ-ROUTE-007 — dispatch on payload shape, not a second route:
+            # the ci-corroboration-pattern's enrichment includes milestone_kind,
+            # existing patterns' enrichments don't.
+            milestone_kind = match.get("milestone_kind")
+            if milestone_kind:
+                event = IngestEvent(
+                    kind="milestone",
+                    project_slug=project_slug,
+                    data=MilestoneData(
+                        source_system=match["source_system"],
+                        ticket_id=match["ticket_id"],
+                        milestone_kind=milestone_kind,
+                        standing_query_name=match.get(
+                            "standing_query_name", "ci-corroboration-pattern"
+                        ),
+                        workflow_run_id=match.get("workflow_run_id", ""),
+                        test_failure_id=match.get("test_failure_id", ""),
+                        error_signature=match.get("error_signature", ""),
+                        workflow_name=match.get("workflow_name", ""),
+                        head_sha=match.get("head_sha", ""),
+                    ),
+                )
+            else:
+                event = IngestEvent(
+                    kind="investigation",
+                    project_slug=project_slug,
+                    data=InvestigationData(
+                        source_system=match["source_system"],
+                        ticket_id=match["ticket_id"],
+                        known_issue_id=match.get("known_issue_id", ""),
+                        fix_id=match.get("fix_id", ""),
+                        standing_query_name=match.get(
+                            "standing_query_name", "actionable-issue-pattern"
+                        ),
+                    ),
+                )
             investigations_written += await asyncio.to_thread(run_ingest_event, event, quine_client)
 
         return JSONResponse({"status": "ok", "investigations_written": investigations_written})

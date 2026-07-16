@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-from modok.ingestion.github import ticket_kind_from_labels
+from modok.ingestion.github import _parse_closing_refs, ticket_kind_from_labels
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import CustomerIssueData, FixData, IngestEvent, WebhookConfig
 
@@ -66,12 +66,18 @@ class GitHubAdapter:
             merged = payload.get("merged", False)
             if action == "closed" and merged:
                 pr = payload.get("pull_request", {})
+                is_dependabot = pr.get("user", {}).get("login") == "dependabot[bot]"
                 return IngestEvent(
                     kind="fix",
                     project_slug=project_slug,
                     data=FixData(
                         fix_id="gh-" + str(pr.get("number", "")),
                         summary=pr.get("title", ""),
+                        kind="dependency-update" if is_dependabot else "pull-request",
+                        pr_url=pr.get("html_url"),
+                        merge_commit_sha=pr.get("merge_commit_sha"),
+                        closing_issue_numbers=[str(n) for n in _parse_closing_refs(pr.get("body"))],
+                        is_open_dependabot=False,
                     ),
                 )
             return IngestEvent(kind="skip", project_slug=project_slug, data=None)

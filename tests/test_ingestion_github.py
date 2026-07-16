@@ -354,24 +354,6 @@ def test_ticket_kind_from_labels_bug_takes_precedence():
 # ---------------------------------------------------------------------------
 
 
-# @spec SQ-ANCH-006
-@pytest.mark.asyncio
-async def test_ingest_issue_invokes_anchor_linking(ingester, mock_client):
-    issue = make_issue(number=11, body="GSS_FAILURE observed during resolve")
-
-    fake_project = type("P", (), {"slug": "stagehand", "repo": "/fake/repo"})()
-    fake_config = type("C", (), {"projects": [fake_project]})()
-    fake_config.project = lambda slug: fake_project  # instance attr — no self binding
-
-    with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), patch(
-        "modok.ingestion.github.link_customer_issue_error_anchors",
-        new=AsyncMock(return_value=[]),
-    ) as mock_link:
-        await ingester.ingest_issue(issue)
-
-    mock_link.assert_called_once()
-
-
 # @spec SQ-ANCH-006 (resilience half — same contract as SQ-ANCH-007)
 @pytest.mark.asyncio
 async def test_ingest_issue_survives_repo_root_resolution_failure(ingester, mock_client):
@@ -385,93 +367,7 @@ async def test_ingest_issue_survives_repo_root_resolution_failure(ingester, mock
     mock_client.upsert_node.assert_awaited_once()
 
 
-# ---------------------------------------------------------------------------
-# SQ-ANCH-006 (feature half) / SQ-LLMANCH-001 / SQ-LLMANCH-002
-# ---------------------------------------------------------------------------
-
-
-def _fake_config():
-    fake_project = type("P", (), {"slug": "stagehand", "repo": "/fake/repo"})()
-    fake_config = type("C", (), {"projects": [fake_project]})()
-    fake_config.project = lambda slug: fake_project
-    return fake_config
-
-
-# @spec SQ-ANCH-006
-@pytest.mark.asyncio
-async def test_ingest_issue_invokes_feature_anchor_linking(ingester, mock_client):
-    issue = make_issue(number=13, body="wifi keeps dropping")
-
-    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
-        "modok.ingestion.github.link_customer_issue_error_anchors",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "modok.ingestion.github.link_customer_issue_feature_anchors",
-        new=AsyncMock(return_value=[]),
-    ) as mock_link_features:
-        await ingester.ingest_issue(issue)
-
-    mock_link_features.assert_called_once()
-
-
-# @spec SQ-LLMANCH-001
-@pytest.mark.asyncio
-async def test_ingest_issue_calls_llm_fallback_when_both_mechanical_empty(ingester, mock_client):
-    issue = make_issue(number=14, body="something odd happened")
-
-    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
-        "modok.ingestion.github.link_customer_issue_error_anchors",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "modok.ingestion.github.link_customer_issue_feature_anchors",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
-    ) as mock_classify:
-        await ingester.ingest_issue(issue)
-
-    mock_classify.assert_called_once()
-
-
-# @spec SQ-LLMANCH-002
-@pytest.mark.asyncio
-async def test_ingest_issue_skips_llm_fallback_when_error_matched(ingester, mock_client):
-    issue = make_issue(number=15, body="GSS_FAILURE seen")
-
-    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
-        "modok.ingestion.github.link_customer_issue_error_anchors",
-        new=AsyncMock(return_value=["GSS_FAILURE"]),
-    ), patch(
-        "modok.ingestion.github.link_customer_issue_feature_anchors",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
-    ) as mock_classify:
-        await ingester.ingest_issue(issue)
-
-    mock_classify.assert_not_called()
-
-
-# @spec SQ-LLMANCH-002
-@pytest.mark.asyncio
-async def test_ingest_issue_skips_llm_fallback_when_feature_matched(ingester, mock_client):
-    issue = make_issue(number=16, body="wifi keeps dropping")
-
-    with patch("modok.cli.config.ModokConfig.load", return_value=_fake_config()), patch(
-        "modok.ingestion.github.link_customer_issue_error_anchors",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "modok.ingestion.github.link_customer_issue_feature_anchors",
-        new=AsyncMock(return_value=["wifi-provisioning"]),
-    ), patch(
-        "modok.ingestion.github.classify_customer_issue_anchors", new=AsyncMock()
-    ) as mock_classify:
-        await ingester.ingest_issue(issue)
-
-    mock_classify.assert_not_called()
-
-
-# @spec GHING-PR-001
+# @spec GHING-PR-001, GHING-ROUTE-006, GHING-ROUTE-007
 @pytest.mark.asyncio
 async def test_ingest_merged_pr(ingester, mock_client):
     pr = make_pr(
@@ -516,7 +412,7 @@ async def test_ingest_open_non_dependabot_pr_skipped(ingester, mock_client):
     mock_client.upsert_node.assert_not_awaited()
 
 
-# @spec GHING-PR-005
+# @spec GHING-PR-005, GHING-ROUTE-006, GHING-ROUTE-007
 @pytest.mark.asyncio
 async def test_ingest_open_dependabot_pr_becomes_customer_issue(ingester, mock_client):
     pr = make_pr(number=77, login="dependabot[bot]", merged_at=None, title="Bump lodash")
@@ -540,7 +436,7 @@ async def test_dependabot_pr_no_customer_issue(ingester, mock_client):
     assert "CustomerIssue" not in upserted_types
 
 
-# @spec GHING-RES-001
+# @spec GHING-RES-001, GHING-ROUTE-006, GHING-ROUTE-007
 @pytest.mark.asyncio
 async def test_implemented_in_edge_written(ingester, mock_client):
     mock_client.node_exists_by_parts = AsyncMock(return_value=True)
@@ -561,7 +457,7 @@ async def test_implemented_in_edge_skipped_when_commit_absent(ingester, mock_cli
     assert not any("IMPLEMENTED_IN" in c for c in calls)
 
 
-# @spec GHING-RES-003
+# @spec GHING-RES-003, GHING-ROUTE-006, GHING-ROUTE-007
 @pytest.mark.asyncio
 async def test_resolved_by_edge_written(ingester, mock_client):
     mock_client.node_exists_by_parts = AsyncMock(return_value=True)

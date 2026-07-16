@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 import time
@@ -15,13 +16,9 @@ from typing import Any
 
 import httpx
 
-from modok.ingestion.anchor_linking import (
-    classify_customer_issue_anchors,
-    link_customer_issue_error_anchors,
-    link_customer_issue_feature_anchors,
-)
 from modok.ingestion.git_history import _update_project_config_field
-from modok.quine.models import CustomerIssue, Fix
+from modok.webhook.models import CustomerIssueData, FixData, IngestEvent
+from modok.webhook.pipeline import run_ingest_event
 
 _CLOSING_RE = re.compile(r"(?:closes?|fix(?:es)?|resolves?)\s+#(\d+)", re.IGNORECASE)
 _API_BASE = "https://api.github.com"
@@ -139,83 +136,33 @@ class GithubIngester:
     # Issue ingestion
     # ------------------------------------------------------------------
 
-    # @spec GHING-ISSUE-001, GHING-ISSUE-002, GHING-ISSUE-003
+    # @spec GHING-ISSUE-001, GHING-ISSUE-002, GHING-ISSUE-003, GHING-ROUTE-001, GHING-ROUTE-008
     async def ingest_issue(self, issue: dict[str, Any]) -> bool:
         if "pull_request" in issue:
             return False
         label_names = [label.get("name", "") for label in issue.get("labels", [])]
-        node = CustomerIssue(
-            node_type="CustomerIssue",
+        event = IngestEvent(
+            kind="customer_issue",
             project_slug=self._project_slug,
-            source_system="github",
-            ticket_id=str(issue["number"]),
-            summary=issue["title"],
-            raw_text=issue.get("body") or "",
-            status="open" if issue["state"] == "open" else "closed",
-            ticket_kind=ticket_kind_from_labels(label_names),
+            data=CustomerIssueData(
+                ticket_id=str(issue["number"]),
+                summary=issue["title"],
+                raw_text=issue.get("body") or "",
+                status="open" if issue["state"] == "open" else "closed",
+                source_system="github",
+                ticket_kind=ticket_kind_from_labels(label_names),
+            ),
         )
-        await self._quine.upsert_node(node)
-        await self._link_anchors(node)
+        await asyncio.to_thread(run_ingest_event, event, self._quine)
         return True
-
-    # @spec SQ-ANCH-006, SQ-ANCH-007, SQ-LLMANCH-001, SQ-LLMANCH-002
-    async def _link_anchors(self, node: CustomerIssue) -> None:
-        """Resolve repo_root and run mechanical anchor linking, then the LLM
-        fallback classifier if both mechanical linkers found nothing.
-
-        The calls to link_customer_issue_error_anchors and
-        link_customer_issue_feature_anchors always happen (SQ-ANCH-006) — a
-        repo_root resolution failure (project not configured, config file
-        absent, etc.) falls back to an intentionally-invalid path rather than
-        skipping the calls outright; each linker's own RegistryNotFoundError
-        handling (SQ-ANCH-005) is the actual safety net. classify_customer_issue_anchors
-        only runs when both linkers returned no matches (SQ-LLMANCH-001,
-        SQ-LLMANCH-002). Matches _link_anchors_resilient in modok.webhook.server.
-        """
-        try:
-            from modok.cli.config import ModokConfig
-
-            repo_root = Path(ModokConfig.load().project(self._project_slug).repo)
-        except Exception as exc:
-            print(
-                f"anchor linking: could not resolve repo_root for {self._project_slug}: {exc}",
-                file=sys.stderr,
-            )
-            repo_root = Path("/dev/null/modok-unconfigured-project")
-
-        matched_errors = await link_customer_issue_error_anchors(
-            self._quine,
-            self._project_slug,
-            repo_root,
-            node.source_system,
-            node.ticket_id,
-            node.raw_text,
-        )
-        matched_features = await link_customer_issue_feature_anchors(
-            self._quine,
-            self._project_slug,
-            repo_root,
-            node.source_system,
-            node.ticket_id,
-            node.raw_text,
-        )
-        # @spec SQ-LLMANCH-001, SQ-LLMANCH-002
-        if not matched_errors and not matched_features:
-            await classify_customer_issue_anchors(
-                self._quine,
-                self._project_slug,
-                repo_root,
-                node.source_system,
-                node.ticket_id,
-                node.raw_text,
-            )
 
     # ------------------------------------------------------------------
     # PR ingestion
     # ------------------------------------------------------------------
 
     # @spec GHING-PR-001, GHING-PR-002, GHING-PR-003, GHING-PR-004, GHING-PR-005,
-    #       GHING-RES-001, GHING-RES-002, GHING-RES-003, GHING-RES-004
+    #       GHING-RES-001, GHING-RES-002, GHING-RES-003, GHING-RES-004,
+    #       GHING-ROUTE-002, GHING-ROUTE-008
     async def ingest_pr(self, pr: dict[str, Any]) -> bool:
         is_dependabot = pr.get("user", {}).get("login") == "dependabot[bot]"
         is_merged = bool(pr.get("merged_at"))
@@ -223,51 +170,35 @@ class GithubIngester:
 
         # Open Dependabot PRs → CustomerIssue (pending dependency update)
         if is_open and is_dependabot:
-            node = CustomerIssue(
-                node_type="CustomerIssue",
+            event = IngestEvent(
+                kind="fix",
                 project_slug=self._project_slug,
-                source_system="github",
-                ticket_id=str(pr["number"]),
-                summary=pr["title"],
-                raw_text=pr.get("body") or "",
-                status="open",
+                data=FixData(
+                    fix_id=f"gh-{pr['number']}",
+                    summary=pr["title"],
+                    kind="dependency-update",
+                    is_open_dependabot=True,
+                ),
             )
-            await self._quine.upsert_node(node)
+            await asyncio.to_thread(run_ingest_event, event, self._quine)
             return True
 
         if not is_merged:
             return False
 
-        node = Fix(
-            node_type="Fix",
+        event = IngestEvent(
+            kind="fix",
             project_slug=self._project_slug,
-            fix_id=f"gh-{pr['number']}",
-            summary=pr["title"],
-            kind="dependency-update" if is_dependabot else "pull-request",
-            pr_url=pr.get("html_url"),
+            data=FixData(
+                fix_id=f"gh-{pr['number']}",
+                summary=pr["title"],
+                kind="dependency-update" if is_dependabot else "pull-request",
+                pr_url=pr.get("html_url"),
+                merge_commit_sha=pr.get("merge_commit_sha"),
+                closing_issue_numbers=[str(n) for n in _parse_closing_refs(pr.get("body"))],
+            ),
         )
-        await self._quine.upsert_node(node)
-
-        # IMPLEMENTED_IN edge
-        merge_sha = pr.get("merge_commit_sha")
-        if merge_sha:
-            if await self._quine.node_exists_by_parts(("commit", self._project_slug, merge_sha)):
-                await self._quine.write_edge_by_parts(
-                    ("fix", self._project_slug, f"gh-{pr['number']}"),
-                    "IMPLEMENTED_IN",
-                    ("commit", self._project_slug, merge_sha),
-                )
-
-        # RESOLVED_BY edges from closing references
-        for issue_num in _parse_closing_refs(pr.get("body")):
-            ci_parts = ("customer-issue", self._project_slug, "github", str(issue_num))
-            if await self._quine.node_exists_by_parts(ci_parts):
-                await self._quine.write_edge_by_parts(
-                    ci_parts,
-                    "RESOLVED_BY",
-                    ("fix", self._project_slug, f"gh-{pr['number']}"),
-                )
-
+        await asyncio.to_thread(run_ingest_event, event, self._quine)
         return True
 
     # ------------------------------------------------------------------

@@ -6,6 +6,8 @@
 
 No LLM is involved. All data is mechanical: GitHub's API returns structured fields that map directly to node properties. The write path is idempotent — re-running produces the same graph.
 
+**`ingest_issue`/`ingest_pr` are normalize-and-dispatch wrappers, not the mutation owners.** As of `docs/llds/continuous-ci-ingestion.md § Prerequisite: Unified GitHub Event Routing`, both methods build a normalized `IngestEvent` (`CustomerIssueData`/`FixData`) from the raw GitHub API dict and call `run_ingest_event` (`src/modok/webhook/server.py`) — the same function the webhook push path already used — rather than upserting nodes and writing edges inline. Their public signatures (`issue: dict -> bool`, `pr: dict -> bool`) and all three current callers (`GithubIngester.run()`, the GitHub poll adapter, `modok ingest-github`) are unchanged; only the internals moved. This is why the sections below describe *what gets written*, not *which function writes it* — the mutations described here now happen inside `run_ingest_event`, shared with the webhook path, rather than being duplicated in this module.
+
 ## Data Model
 
 ### Node mapping
@@ -13,7 +15,8 @@ No LLM is involved. All data is mechanical: GitHub's API returns structured fiel
 | GitHub object | Graph node | Conditions |
 |---|---|---|
 | Issue | `CustomerIssue` | All states (open + closed) |
-| Merged PR | `Fix` | Merged only; unmerged PRs are skipped |
+| Merged PR | `Fix` | Merged only; unmerged, non-Dependabot PRs are skipped |
+| Open Dependabot PR | `CustomerIssue` | `state == "open"` and `user.login == "dependabot[bot]"` — treated as a pending dependency-update ticket, not a `Fix`, until merged. This row was previously undocumented here despite being live in `ingest_pr` — added as part of bringing this file's data model back in sync with the code before extending it (`docs/llds/continuous-ci-ingestion.md`). |
 
 ### Edge mapping
 
@@ -21,6 +24,8 @@ No LLM is involved. All data is mechanical: GitHub's API returns structured fiel
 |---|---|---|
 | Merged PR → merge commit | `Fix -[:IMPLEMENTED_IN]-> Commit` | Only if Commit node exists in graph |
 | Closed issue ← PR that closed it | `CustomerIssue -[:RESOLVED_BY]-> Fix` | Only if PR is merged |
+
+These two edges are now written by `run_ingest_event`'s `fix` branch (extended for this purpose — see `docs/llds/continuous-ci-ingestion.md`), not inline in `ingest_pr`. `FixData` (`src/modok/webhook/models.py`) carries the fields needed to write them: `merge_commit_sha`, `closing_issue_numbers`, `pr_url`, `is_open_dependabot`.
 
 ### Field mapping — CustomerIssue
 
@@ -110,10 +115,12 @@ Authenticated requests have a 5,000 request/hour limit. For most projects this i
 
 ## Write Order
 
-1. `CustomerIssue` nodes (issues)
-2. `Fix` nodes (merged PRs)
+1. `CustomerIssue` nodes (issues, and open Dependabot PRs)
+2. `Fix` nodes (merged, non-Dependabot PRs)
 3. `Fix -[:IMPLEMENTED_IN]-> Commit` edges (merge commit link — silently skipped if Commit absent)
 4. `CustomerIssue -[:RESOLVED_BY]-> Fix` edges (closing references)
+
+Steps 2–4 all happen inside `run_ingest_event`'s `fix` branch now (`docs/llds/continuous-ci-ingestion.md`); `ingest_pr` only builds the `FixData` and dispatches.
 
 ## Module Layout
 
@@ -147,6 +154,7 @@ src/modok/cli/commands/
 | Closing references | Body parsing + API | API only | GitHub's `closing_issues_references` field isn't available on all API versions; body parsing is a reliable fallback |
 | Dependabot detection | `user.login == "dependabot[bot]"` | Label-based | Login is stable; labels vary per repo |
 | HTTP client | `httpx` (async) | `requests` (sync) | Consistent with the rest of modok's async pattern |
+| `ingest_issue`/`ingest_pr` internals | Normalize to `IngestEvent`, dispatch to `run_ingest_event` | Keep inline `upsert_node`/edge-writing logic, duplicated from the webhook path | Discovered live that the poll/batch path (this module) and the webhook path (`GitHubAdapter` + `run_ingest_event`) had drifted into two independently-maintained implementations, one of them (webhook's PR handling) meaningfully less complete than the other — see `docs/llds/continuous-ci-ingestion.md § Prerequisite` for the full finding and the parity-test discipline gating this change |
 
 ## Open Questions
 

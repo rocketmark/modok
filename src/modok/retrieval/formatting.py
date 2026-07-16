@@ -72,6 +72,39 @@ def format_investigation_triggered_markdown(summary: str, standing_query_name: s
     return "\n".join(lines)
 
 
+def format_ci_corroboration_milestone_markdown(
+    *,
+    error_signature: str,
+    test_failure_id: str,
+    workflow_name: str,
+    head_sha: str,
+    workflow_run_id: str,
+) -> str:
+    """Standalone comment for a first CI-corroboration milestone on an issue
+    (SQ-MILE-009) — deliberately worded as additional evidence for the same
+    issue, not a new investigation and not a supersession of any earlier
+    comment (SQ-MILE-010, SQ-MILE-011); no comment-scraping/linking exists in
+    this slice, so this never references another comment."""
+    lines = [
+        "## 🧪 Additional evidence: CI test failure matches this issue",
+        "",
+        f"A CI test failure was linked to this issue via a shared error signature: `{error_signature}`.",
+        "",
+        f"- Test: `{test_failure_id}`",
+    ]
+    if workflow_name:
+        lines.append(f"- Workflow: {workflow_name}")
+    if head_sha:
+        lines.append(f"- Commit: {head_sha[:7]}")
+    if workflow_run_id:
+        lines.append(f"- Workflow run: {workflow_run_id}")
+    lines.append("")
+    lines.append(
+        "This is additional evidence for the same issue, gathered from continuous CI ingestion."
+    )
+    return "\n".join(lines)
+
+
 def format_debug_packet_markdown(
     packet: DebugPacket, investigation_id: str, standing_query_name: str
 ) -> str:

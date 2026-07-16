@@ -47,6 +47,8 @@ Quine Memory Graph  ──(incremental evaluation, every write)──►  Standi
                                                                               posts packet as a GitHub issue comment
 ```
 
+`ci-corroboration-pattern` (below) evaluates over the same Quine Memory Graph but is completed by a different write than the ones diagrammed above: `TestFailure -[:HAS_ERROR]-> ErrorSignature`, written by Continuous CI Ingestion (`docs/llds/continuous-ci-ingestion.md`), not by a `CustomerIssue` write. Everything from "Quine Memory Graph" downward in this diagram is unchanged for it — same incremental evaluation, same enrichment/`PostToEndpoint`/webhook-server route, same `Investigation`-node dedup.
+
 ## Standing Query Definition
 
 Standing query definitions are YAML artifacts, one file per query, under `src/modok/quine/standing_queries/`. Each is loaded by name, never hand-built as an inline string.
@@ -58,17 +60,19 @@ src/modok/quine/standing_queries/
     actionable_issue_pattern.yaml   # known, already-fixed defect rediscovered
     new_bug_report_pattern.yaml     # any ticket_kind='bug' CustomerIssue
     error_flagged_pattern.yaml      # any CustomerIssue with an error anchor
+    ci_corroboration_pattern.yaml   # a CustomerIssue's error signature also produced a CI test failure
 ```
 
-Three patterns exist because they represent three genuinely different strengths of evidence, not three ways of saying the same thing:
+Four patterns exist because they represent four genuinely different strengths or *kinds* of evidence, not four ways of saying the same thing:
 
 | Pattern | Fires when | Strength |
 |---|---|---|
 | `actionable-issue-pattern` | Full chain: error anchor traces to a `KnownIssue` that already has a `Fix` | Strongest — this is *definitely* the same defect as something already resolved |
-| `error-flagged-pattern` | `CustomerIssue` has any `HAS_ERROR` anchor at all | Medium — a real, identifiable error signature, but not (yet, or ever) matched to a known fix |
+| `ci-corroboration-pattern` | `CustomerIssue`'s error anchor is also carried by a `TestFailure` from an ingested CI run | Strong, and independent of the other three — the corroborating evidence comes from CI, not from prior-ticket history |
+| `error-flagged-pattern` | `CustomerIssue` has any `HAS_ERROR` anchor at all | Medium — a real, identifiable error signature, but not (yet, or ever) matched to a known fix or a test failure |
 | `new-bug-report-pattern` | `CustomerIssue.ticket_kind == 'bug'` | Broadest — the reporter said it's a bug (via GitHub label, `docs/llds/github-ingestion.md § Ticket Kind from Labels`); no anchor required at all |
 
-All three post a debug-packet comment via the same downstream machinery (`run_ingest_event`'s `investigation` branch, `_maybe_notify_github`) — they differ only in *when* they trigger it, not in what happens afterward. A single ticket can fire more than one of these over its lifetime (e.g. `new-bug-report-pattern` on arrival, then `actionable-issue-pattern` later if a matching `KnownIssue`+`Fix` is subsequently ingested) — each produces its own `Investigation` node and its own comment, which is intended: an immediate "we're looking into this" followed later by a stronger "this is the same thing we already fixed."
+All four post a debug-packet-or-milestone comment via the same downstream machinery (`run_ingest_event`'s `investigation` branch, `_maybe_notify_github`) — they differ only in *when* they trigger and what evidence they cite, not in the mechanics of what happens afterward. A single ticket can fire more than one of these over its lifetime (e.g. `new-bug-report-pattern` on arrival, then `ci-corroboration-pattern` later if a matching CI test failure is subsequently ingested, then `actionable-issue-pattern` later still if a `KnownIssue`+`Fix` is ingested) — each produces its own `Investigation` node and its own comment, which is intended: progressively stronger evidence gets its own notification rather than silently upgrading a prior one.
 
 ### `actionable_issue_pattern.yaml`
 
@@ -135,6 +139,38 @@ output_name: investigation-trigger
 ```
 
 Same two-hop shape `actionable-issue-pattern`'s first segment already uses, just without continuing on to `KnownIssue`/`Fix` — fires on *any* `HAS_ERROR` anchor, mechanical or LLM-derived (`docs/llds/standing-queries.md § LLM Fallback Anchor Classification`), whether or not that `ErrorSignature` happens to already be linked to a resolved `KnownIssue`.
+
+### `ci_corroboration_pattern.yaml`
+
+```yaml
+name: ci-corroboration-pattern
+mode: DistinctId
+pattern: |
+  MATCH (tf)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(ci)
+  WHERE tf.node_type = 'TestFailure' AND e.node_type = 'ErrorSignature' AND ci.node_type = 'CustomerIssue'
+  RETURN DISTINCT id(tf) AS id
+enrichment_query: |
+  MATCH (tf) WHERE id(tf) = $that.data.id
+  MATCH (tf)-[:HAS_ERROR]->(e)<-[:HAS_ERROR]-(ci)
+  WHERE e.node_type = 'ErrorSignature' AND ci.node_type = 'CustomerIssue'
+  MATCH (tf)-[:OCCURRED_IN]->(te)-[:RAN_IN]->(wr)
+  WHERE te.node_type = 'TestExecution' AND wr.node_type = 'WorkflowRun'
+  RETURN ci.project_slug AS project_slug, ci.source_system AS source_system,
+         ci.ticket_id AS ticket_id, wr.run_id AS workflow_run_id, tf.test_name AS test_failure_id,
+         e.normalized_error AS error_signature, 'ci-corroboration-pattern' AS standing_query_name
+  LIMIT 1
+output_name: milestone-trigger
+```
+
+**`DistinctId` is keyed on the `TestFailure`, not the `CustomerIssue` — this is the load-bearing choice in this pattern, not a stylistic detail.** Quine's `DistinctId` mode fires *at most once per distinct id value, ever* (`https://docs.quine.io/components/writing-standing-queries.html`) — once a given id has produced a result, the same id will never re-fire, even if the underlying data that satisfies the pattern changes later. An earlier version of this pattern keyed on `id(ci)`, matching the other three patterns' convention. Found during the Phase 2 review to be wrong for this specific pattern: keying on `id(ci)` means the *first* `TestFailure` that ever corroborates a given `CustomerIssue` is the *only* one that can ever fire this standing query for that ticket — a second, later, independently-arriving corroborating `TestFailure` would never produce a new match at all, because `id(ci)` already fired once. Keying on `id(tf)` instead means every distinct qualifying `TestFailure` is its own id, and Quine's incremental evaluation fires once per `TestFailure`, independent of how many other test failures have already corroborated the same ticket. This is what actually enables "one investigation may accumulate multiple CI corroborations" (`docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`) — the accumulation is a property of the standing query's own keying, not something the enrichment or write-back logic has to work around.
+
+Order-independence is unaffected by this change: whichever half of the join — the `CustomerIssue`'s `HAS_ERROR` edge, or the `TestFailure`'s — is written second is what completes the match for that specific `tf`, regardless of which arrived first.
+
+**`LIMIT 1` here is a defensive convenience for the enrichment payload's shape, not an evidence-collapsing mechanism.** Because `tf` is already bound to a single node by `$that.data.id`, and each `TestFailure` has exactly one `OCCURRED_IN`→`RAN_IN` chain to a single `WorkflowRun`, this enrichment query cannot structurally return more than one row in practice — `LIMIT 1` is insurance against an unexpected future schema change (e.g. a `TestFailure` someday gaining more than one `HAS_ERROR` edge), not something doing real work today. Nothing about the graph's evidence model depends on it: every qualifying `TestFailure` still gets its own firing, its own `PostToEndpoint` delivery, and — per the Investigation/Milestone handling below — its own `InvestigationMilestone`. Adding a second, different corroborating `TestFailure` later creates an *additional* milestone; it never overwrites or is discarded in favor of the first.
+
+**`output_name: milestone-trigger`, not `investigation-trigger`.** This pattern's payload is handled by a new `IngestEvent.kind == "milestone"` branch (`docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`), distinct from the existing `investigation-trigger` sink the other three patterns share — the handling differs enough (get-or-create a stable `Investigation`, then create-if-new an `InvestigationMilestone`, versus the existing branch's create-once-and-dedup-by-composite-ID) that overloading the same sink and `InvestigationData` shape would have been more confusing than a second, clearly-named sink.
+
+**Depends on `ErrorSignatureMatcher` producing the *same* canonical `ErrorSignature` node for both the ticket and the test failure** (`docs/llds/continuous-ci-ingestion.md § ErrorSignatureMatcher`) — this pattern's correctness is inherited entirely from that matcher's correctness. A near-miss (similar but not canonically identical error text) must not produce two different `ErrorSignature` nodes that happen to look related; it must produce either the same node (a real match) or no `HAS_ERROR` edge at all (no match) — never a false connection.
 
 ### Live Verification Findings
 
@@ -263,9 +299,8 @@ Both linkers are deliberately narrower than the Diagnostic Retrieval Engine's LL
 
 **Call sites** (every place a `CustomerIssue` node is written runs both linkers immediately after the `upsert_node`, then conditionally the LLM fallback classifier below):
 
-- `run_ingest_event`'s `customer_issue` branch (`src/modok/webhook/server.py`) — covers the webhook push path (`GitHubAdapter`, `GenericTicketAdapter`) and the GitHub poll adapter (both call `on_event`, which wraps `run_ingest_event`).
-- `GithubIngester.ingest_issue` (`src/modok/ingestion/github.py`) — covers the batch `ingest-github` CLI path, which writes `CustomerIssue` nodes directly without going through `IngestEvent`/`on_event`. This is a small, additive, single-call touch to a different LLD's segment (`docs/llds/github-ingestion.md`) — flagged per LID cascade discipline; no other change to that file's interfaces.
-- `_ingest_customer_ticket` (`src/modok/cli/commands/ingest.py`), the `modok ingest <ticket_file>` path — covers direct single-ticket-file ingestion via the CLI. Unlike the other two call sites, `repo_root` here needs no resilient-fallback resolution: `ingest_cmd` already calls `config.project(project)` before reaching this branch, so a project that doesn't resolve has already caused the command to exit before this point. A small, additive touch to the CLI LLD segment (`docs/llds/cli.md`) — flagged per LID cascade discipline.
+- `run_ingest_event`'s `customer_issue` branch (`src/modok/webhook/server.py`) — covers the webhook push path (`GitHubAdapter`, `GenericTicketAdapter`) **and, since `docs/llds/continuous-ci-ingestion.md § Prerequisite: Unified GitHub Event Routing`, the GitHub poll adapter**. This line previously claimed the poll adapter already routed through `on_event`/`run_ingest_event` — that was inaccurate at the time it was written (the poll adapter called `GithubIngester.run()` directly, a documented and deliberate choice — see `§ GitHub Poll Adapter` below for the superseded rationale) and is only true as of the routing unification. `GithubIngester._link_anchors`, the poll/batch path's previously-separate copy of this same sequence, is deleted once parity tests confirm both paths agree — there is exactly one anchor-linking implementation now, not two.
+- `_ingest_customer_ticket` (`src/modok/cli/commands/ingest.py`), the `modok ingest <ticket_file>` path — covers direct single-ticket-file ingestion via the CLI. Unlike the other call sites, `repo_root` here needs no resilient-fallback resolution: `ingest_cmd` already calls `config.project(project)` before reaching this branch, so a project that doesn't resolve has already caused the command to exit before this point. A small, additive touch to the CLI LLD segment (`docs/llds/cli.md`) — flagged per LID cascade discipline.
 
 Both call sites need `repo_root`, resolved via `ModokConfig.load()` → the matching `ProjectConfig.repo` for `project_slug`. This resolution step is wrapped in a broad `try/except` at the call site itself (not inside either linker, which only handles `RegistryNotFoundError`) — a project not present in config, a missing config file, or any other resolution failure logs a warning and is otherwise ignored. This matters concretely: `run_ingest_event`'s pre-existing test coverage calls it directly with a bare mock client and no config file on disk, and must keep working unchanged.
 
@@ -340,9 +375,13 @@ This keeps the node schema to exactly the five fields the task's schema guidance
 
 `known_issue_id`/`fix_id` default to `""` (`InvestigationData`, `src/modok/webhook/models.py`) — only `actionable-issue-pattern`'s enrichment query returns them; `new-bug-report-pattern` and `error-flagged-pattern` fire on a `CustomerIssue` alone and leave both blank. The formula above still produces a valid, unique `investigation_id` with empty segments in that case (e.g. `"github-42------new-bug-report-pattern"`) — uniqueness per ticket per pattern comes from `standing_query_name`, not from `known_issue_id`/`fix_id` being non-empty.
 
+**`ci-corroboration-pattern` does not use this formula at all.** An earlier version of this design tried to fold `workflow_run_id`/`test_failure_id` into `investigation_id` above, to give each corroborating test failure its own `Investigation`. Found during the Phase 2 review to be the wrong shape for the long-term model: MODOK's investigation concept is meant to support *one* stable, accumulating `Investigation` per `(project, ticket)` with *many* independent pieces of evidence hanging off it over time — not a proliferation of single-purpose `Investigation` nodes, one per (pattern, evidence-tuple). `ci-corroboration-pattern` is the first user of that accumulating model — see `docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`. The three patterns on this page keep today's one-`Investigation`-per-firing behavior unchanged; unifying all four onto the accumulating model is flagged there as a deliberate, deferred follow-up, not done in this slice.
+
 Edge: `Investigation -[:INVESTIGATES]-> CustomerIssue`.
 
 Because `investigation_id` fully encodes the evidence identity, redelivery of the same match — Quine retrying a `PostToEndpoint` call, or a caller replaying a captured payload — always resolves to the same node address. `upsert_node` on an unchanged address is a no-op in effect (same properties re-set); the `INVESTIGATES` edge write is idempotent via `MERGE`. This satisfies "duplicate events do not create duplicate investigations" without any deduplication logic beyond the ID scheme itself.
+
+**A `CustomerIssue` is not guaranteed to have only one `Investigation`.** This section's identity scheme (SQ-INV-001/002) is per-*firing*, not per-ticket — a ticket that matches `actionable-issue-pattern` via two distinct `(known_issue_id, fix_id)` combinations gets two `Investigation` nodes (SQ-INV-006), and a ticket that also accumulates `ci-corroboration-pattern` milestones gets yet another `Investigation`, on a completely different identity scheme (`docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`, which states this compatibility invariant in full). Do not write a consumer that traverses `INVESTIGATES` expecting exactly one result.
 
 ## Standing Query Result Route
 
@@ -365,6 +404,8 @@ Behavior:
 2. For each row: validate required fields present (400 if not); look up `project_slug` against `known_project_slugs` (404 if unknown, same as the existing push route).
 3. Build `IngestEvent(kind="investigation", project_slug=..., data=InvestigationData(...))` and run it through `run_ingest_event` in a thread pool, same pattern as the push route.
 4. Return `{"status": "ok", "investigations_written": N}`.
+
+**Dispatch on payload shape, not a second route.** `ci-corroboration-pattern`'s `output_name: milestone-trigger` (`docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`) is a label inside the standing query's own YAML, not a distinct HTTP endpoint — Quine's `PostToEndpoint` posts every pattern's enrichment result to this same `/standing-query/result` URL regardless of `output_name`, confirmed by the identical `url` field across all four patterns' `andThen` config. The route distinguishes the two shapes by payload content: a row containing `milestone_kind` is built into `IngestEvent(kind="milestone", data=MilestoneData(...))`; a row without it is built into `IngestEvent(kind="investigation", data=InvestigationData(...))` as before. Both go through `run_ingest_event`, which branches on `event.kind` same as it already does for `customer_issue`/`fix`/`investigation`.
 
 **No authentication on this route in v1.** Every other push adapter verifies a signature or bearer token; this one doesn't, because the caller is Quine itself, co-located on `127.0.0.1` with MODOK's webhook server in the only deployment MODOK supports today (HLD Non-Goals: "MODOK does not enforce access control in v1. It is a single-user or trusted-team tool"). Documented here as an explicit, accepted decision rather than an oversight — revisit if Quine and MODOK are ever split across hosts.
 
@@ -478,7 +519,9 @@ class GitHubPollAdapter:
         # cancels and awaits the task(s)
 ```
 
-Design choice: the adapter does **not** convert issues to `IngestEvent` and push them through `on_event` — it constructs a `GithubIngester` per opted-in project (same class `ingest-github` already uses, unmodified) and calls `await ingester.run(since=proj.last_github_sync)` on an interval, then persists the new `last_github_sync` the same way the CLI command does. This reuses 100% of `GithubIngester`'s existing, tested pagination/incremental-fetch/edge-writing logic (`IMPLEMENTED_IN`, `RESOLVED_BY` on the PR side) with zero refactor to `ingestion/github.py`'s public shape — the only change to that file is the one-line anchor-linking call inside `ingest_issue` described above. The trade-off: this adapter's `on_event` parameter goes unused (the `PullAdapter` protocol still requires the signature; `GithubIngester` writes directly via its own `QuineClient` reference, constructed the same way the CLI command constructs one). Both push (webhook) and pull (poll) ticket-ingestion paths converge on the same `CustomerIssue` write and the same mechanical anchor-linking call, so the standing query fires identically regardless of which path an issue arrived through.
+**Superseded design choice** (kept here for context; see `docs/llds/continuous-ci-ingestion.md § Prerequisite: Unified GitHub Event Routing` for the current state): the adapter originally did **not** convert issues to `IngestEvent` and push them through `on_event` — it constructed a `GithubIngester` per opted-in project and called `await ingester.run(since=proj.last_github_sync)` directly, reusing 100% of `GithubIngester`'s existing pagination/incremental-fetch/edge-writing logic with zero refactor to `ingestion/github.py`'s public shape. This adapter's `on_event` parameter went unused — the `PullAdapter` protocol still required the signature, but `GithubIngester` wrote directly via its own `QuineClient` reference. The trade-off accepted at the time: fast to build, but the poll path and the webhook path were two independently-maintained ingestion patterns (three, counting the CLI batch command) rather than one.
+
+**Current design**: `GithubIngester.ingest_issue`/`ingest_pr` now build a normalized `IngestEvent` from the raw polled dict and call `run_ingest_event` — the same function the webhook push path already used — rather than mutating the graph inline. `GitHubPollAdapter._poll_once` itself is unchanged (still calls `ingester.run(since=...)`); the consolidation happens inside `GithubIngester`'s methods, not in the adapter. This means `run_ingest_event` is now the single place that decides what happens when a GitHub issue or PR is ingested, regardless of whether it arrived via webhook push, the 30-second poll, or the `modok ingest-github` CLI batch command (all three call the same underlying methods). Both push and pull ticket-ingestion paths converge on the same `CustomerIssue`/`Fix` write and the same mechanical anchor-linking call, so the standing query fires identically regardless of which path an issue arrived through — this was already true in practice before the unification (both paths independently implemented equivalent logic), but it is now true because there is only one implementation, not two that happen to agree.
 
 Registered in `PULL_ADAPTERS` (`src/modok/webhook/router.py`):
 

@@ -1,0 +1,46 @@
+# Continuous CI Ingestion
+
+See `docs/llds/continuous-ci-ingestion.md`. Test Level Convention matches `docs/specs/quine-client.md § Test Level Convention`: `[U]` unit-testable against a mocked client; `[C]` requires confirmation against a live Quine instance; `[P]` a property that must hold regardless of ordering/repetition.
+
+---
+
+## New Node Types
+
+- [ ] **CIING-NODE-001** [U]: The system shall address `WorkflowRun` nodes with `idFrom('workflow-run', project_slug, run_id)`, carrying `run_id`, `workflow_name`, `head_sha`, `head_branch`, `event`, `status`, `conclusion`, `run_number`, `latest_run_attempt`, `created_at`, `updated_at`, `url`, `expansion_state`, `expansion_attempts`, `expansion_last_error`, `expansion_last_attempted_at`.
+- [ ] **CIING-NODE-002** [U]: The system shall address `WorkflowJob` nodes with `idFrom('workflow-job', project_slug, run_id, run_attempt, github_job_id)` — `run_attempt` included in the key regardless of whether GitHub's own job IDs are independently confirmed to be attempt-unique (Open Questions).
+- [ ] **CIING-NODE-003** [U]: The system shall address `WorkflowJobStep` nodes with `idFrom('workflow-job-step', project_slug, run_id, run_attempt, github_job_id, step_number)`, scoped beneath the full `WorkflowJob` identity.
+- [ ] **CIING-NODE-004** [U]: The system shall address `TestExecution` and `TestFailure` nodes with `idFrom('test-execution'|'test-failure', project_slug, run_id, run_attempt, classname, test_name)` — `run_attempt` included so that a rerun (a new `run_attempt` under the same `run_id`) produces new nodes rather than overwriting the original attempt's recorded outcome.
+- [ ] **CIING-NODE-005** [U]: `TestFailure` shall carry `observed_at` and `run_attempt` as populated fields at creation. `latest_outcome`, `superseded_by`, `resolved_at`, and `is_current` are reserved field names; this slice does not populate them, and no behavior in this slice depends on their being populated.
+- [ ] **CIING-NODE-006** [U]: The system shall not create a `WorkflowAttempt` node. Attempt identity shall be represented only as the `run_attempt` property on `WorkflowJob`, `WorkflowJobStep`, `TestExecution`, and `TestFailure`, and as `latest_run_attempt` on `WorkflowRun`.
+
+## New Edges
+
+- [ ] **CIING-EDGE-001** [U]: The system shall write `WorkflowRun -[:HAS_JOB]-> WorkflowJob`, `WorkflowJob -[:HAS_STEP]-> WorkflowJobStep`, `TestExecution -[:RAN_IN]-> WorkflowRun`, and `TestFailure -[:OCCURRED_IN]-> TestExecution` for every ingested entity of the corresponding type.
+- [ ] **CIING-EDGE-002** [U]: The system shall write `TestFailure -[:HAS_ERROR]-> ErrorSignature` only when `ErrorSignatureMatcher` resolves a match for that `TestFailure`'s candidate fields (§ ErrorSignatureMatcher), and only to an `ErrorSignature` node already present in the graph — never inventing one.
+- [ ] **CIING-EDGE-003** [U]: The system shall write `WorkflowRun -[:TARGETED_COMMIT]-> Commit` whenever the run's `head_sha` resolves to an existing `Commit` node, regardless of the run's `status` or `conclusion`.
+- [ ] **CIING-EDGE-004** [U]: The system shall write `WorkflowRun -[:TESTED_COMMIT]-> Commit` only when, additionally, the run's `conclusion` is not `"cancelled"`, `"startup_failure"`, or `"action_required"`.
+- [ ] **CIING-EDGE-005** [U, P]: Once per poll cycle, per project, the system shall run a reconciliation step that (a) adds `TARGETED_COMMIT`/`TESTED_COMMIT` for any `WorkflowRun` whose `head_sha` now matches an existing `Commit` node but is missing the edge(s) its current `conclusion` qualifies for, and (b) removes a previously-written `TESTED_COMMIT` edge, via `replace_edges_by_parts`, if the run's `conclusion` — re-read from GitHub — no longer qualifies. This reconciliation shall not depend on either cursor (`last_github_sync`, `last_workflow_sync`) or on `expansion_state`.
+
+## ErrorSignatureMatcher
+
+- [ ] **CIING-MATCH-001** [U]: `ErrorSignatureMatcher.match` shall check each candidate field, in a fixed priority order, against every registered error signature's `normalized_error` string using the same word-boundary algorithm as `link_customer_issue_error_anchors` (`docs/llds/standing-queries.md § Error linking algorithm`), returning one `ErrorSignatureMatch` per distinct `error_slug` matched, recording which field and fragment matched it.
+- [ ] **CIING-MATCH-002** [U]: For a customer issue, candidate fields shall be `title`, `body`, and `explicit_error_text` (populated only when the LLM fallback ran). For a JUnit failure, candidate fields shall be `failure_type`, `message`, `assertion_text`, `stack_trace`, and `stderr` (only when provided by the artifact and under a bounded size).
+- [ ] **CIING-MATCH-003** [U]: `ErrorSignatureMatcher` shall never invent an `ErrorSignature` node — only `normalized_error` values already present in the registry are checked against, and the caller confirms the corresponding node exists in the graph before writing any `HAS_ERROR` edge.
+- [ ] **CIING-MATCH-004** [U]: Before `link_customer_issue_error_anchors`'s production call site is repointed at `ErrorSignatureMatcher`, characterization tests shall exist capturing its current (pre-extraction) behavior across: exact registered matches, normalization behavior, no match, multiple possible matches, title-only matches, body-only matches, duplicate text appearing in both title and body, and bounded/malformed input.
+- [ ] **CIING-MATCH-005** [P]: For the same customer-issue inputs and registry state, `ErrorSignatureMatcher` shall return the same canonical `ErrorSignature` identities — and the resulting `HAS_ERROR` relationships shall be identical — to the pre-extraction `link_customer_issue_error_anchors` implementation. This parity requirement applies to authoritative matching output only; internal implementation details and logging are not required to match. `link_customer_issue_error_anchors`'s production call site shall not be switched to `ErrorSignatureMatcher` until this parity is demonstrated.
+
+## Poll Cycle Extension
+
+- [ ] **CIING-POLL-001** [U]: The system shall maintain `last_workflow_sync` as a per-project cursor tracking workflow-run *discovery* only, advanced immediately after each discovery fetch, independent of the discovered runs' subsequent expansion outcomes.
+- [ ] **CIING-POLL-002** [U]: The system shall maintain `expansion_state` on each `WorkflowRun` node as one of `discovered`, `expansion_pending`, `partially_ingested`, `retryable_failure`, `terminal_failure`, `complete`.
+- [ ] **CIING-POLL-003** [U]: Each poll cycle, independent of what that cycle's discovery step (CIING-POLL-001) found, the system shall query for `WorkflowRun` nodes whose `expansion_state` is not `complete` or `terminal_failure` and attempt (or retry) their expansion.
+- [ ] **CIING-POLL-004** [U]: A successfully-fetched `WorkflowJob`, `WorkflowJobStep`, `TestExecution`, `TestFailure`, or commit edge shall be written to Quine immediately upon being obtained, not buffered and discarded if a later sub-step in the same run's expansion fails.
+- [ ] **CIING-POLL-005** [U]: A failure expanding one `WorkflowRun` shall not prevent other `WorkflowRun`s, or unrelated issues/PRs, from being processed in the same poll cycle.
+- [ ] **CIING-POLL-006** [U]: The system shall log, distinctly, at least these four expansion-failure causes: Actions API error, no artifact matching the configured pattern, corrupt/unparseable artifact, and rate limit (429) — never a single undifferentiated failure log line.
+- [ ] **CIING-POLL-007** [U]: A `WorkflowRun` reprocessed after a prior `retryable_failure`/`partially_ingested` state shall not duplicate already-written `WorkflowJob`/`WorkflowJobStep`/`TestExecution`/`TestFailure` nodes or edges — retrying is a re-run of the same idempotent fetch-and-upsert sequence.
+- [ ] **CIING-POLL-008** [U]: When expansion of a `WorkflowRun` begins, the system shall set `expansion_state = "expansion_pending"`, increment `expansion_attempts`, and set `expansion_last_attempted_at`, before attempting any sub-step. When expansion for that attempt concludes, the system shall set `expansion_state` to exactly one of: `complete` (every applicable sub-step succeeded), `partially_ingested` (at least one sub-step succeeded and at least one failed), `retryable_failure` (nothing new written this attempt, failure classified transient), or `terminal_failure` (failure classified permanent — e.g. artifact confirmed corrupt after a bounded number of attempts).
+- [ ] **CIING-POLL-009** [U]: For a project with no test-result artifact pattern configured, a `WorkflowRun` shall reach `expansion_state = "complete"` once jobs/steps and the commit-edge sub-steps succeed, without attempting artifact fetch/parse — this is not treated as a failure or a `partially_ingested` state.
+
+## Open Questions & Future Decisions
+
+Traced to `docs/llds/continuous-ci-ingestion.md § Open Questions & Future Decisions` — not independently spec'd, since none are behavioral requirements yet (artifact-selection config shape, JUnit dialect coverage, rate-limit headroom, `terminal_failure` threshold, GitHub job-ID stability confirmation, deleted-run detection, migration of the three pre-existing standing queries onto the `Investigation`+`InvestigationMilestone` model).
