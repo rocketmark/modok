@@ -185,17 +185,19 @@ def test_milestone_branch_upserts_investigation_unconditionally():
 
 # @spec SQ-MILE-003
 def test_milestone_identity_includes_error_signature_and_test_failure_key():
+    """The parts tuple checked for dedup (and later used to address the
+    InvestigationMilestone node) must vary with test_failure_id and
+    error_signature, not just milestone_kind — otherwise two distinct
+    corroborating failures on the same issue would collide on one identity."""
     from modok.webhook.server import run_ingest_event
 
     client = _mock_client(milestone_exists=False)
     run_ingest_event(_milestone_event(), client)
 
-    milestone_upserts = [
-        c[0][0] for c in client.upsert_node.call_args_list
-        if type(c[0][0]).__name__ == "InvestigationMilestone"
-    ]
-    assert len(milestone_upserts) == 1
-    assert milestone_upserts[0].milestone_kind == "ci-corroborated"
+    milestone_parts = client.node_exists_by_parts.call_args[0][0]
+    assert milestone_parts[0] == "investigation-milestone"
+    assert "TestDb::test_connect" in milestone_parts  # test_failure_id
+    assert "DB_TIMEOUT" in milestone_parts  # error_signature
 
 
 # @spec SQ-MILE-004
@@ -275,12 +277,14 @@ def test_two_distinct_corroborating_failures_produce_two_milestones_one_investig
 
 # @spec SQ-MILE-007
 def test_milestone_data_fields_not_part_of_investigation_identity():
+    """Two MilestoneData instances differing in workflow_run_id/test_failure_id/
+    error_signature must still resolve to the SAME investigation_id via the
+    real _milestone_investigation_id function (source_system + ticket_id
+    only) — those three fields play no role in Investigation identity, only
+    in the (possibly-posted) comment text."""
     from modok.webhook.models import MilestoneData
+    from modok.webhook.server import _milestone_investigation_id
 
-    # Two MilestoneData instances differing only in workflow_run_id/
-    # test_failure_id must still resolve to the SAME investigation_id
-    # (source_system + ticket_id only) — those two fields play no role in
-    # Investigation identity, only in the (possibly-posted) comment text.
     a = MilestoneData(
         source_system="github", ticket_id="42", milestone_kind="ci-corroborated",
         standing_query_name="ci-corroboration-pattern", workflow_run_id="100",
@@ -289,9 +293,9 @@ def test_milestone_data_fields_not_part_of_investigation_identity():
     b = MilestoneData(
         source_system="github", ticket_id="42", milestone_kind="ci-corroborated",
         standing_query_name="ci-corroboration-pattern", workflow_run_id="999",
-        test_failure_id="TestDb::test_other", error_signature="DB_TIMEOUT",
+        test_failure_id="TestDb::test_other", error_signature="CONN_RESET",
     )
-    assert f"{a.source_system}-{a.ticket_id}" == f"{b.source_system}-{b.ticket_id}"
+    assert _milestone_investigation_id(a) == _milestone_investigation_id(b) == "github-42"
 
 
 # ---------------------------------------------------------------------------

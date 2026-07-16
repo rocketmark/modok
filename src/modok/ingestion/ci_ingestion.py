@@ -8,16 +8,19 @@ results into the graph. See docs/llds/continuous-ci-ingestion.md."""
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import io
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from modok.ingestion.git_history import _update_project_config_field
 from modok.quine.models import TestExecution, TestFailure, WorkflowJob, WorkflowJobStep, WorkflowRun
 
 _API_BASE = "https://api.github.com"
@@ -28,6 +31,12 @@ _API_BASE = "https://api.github.com"
 _TESTED_COMMIT_CONCLUSIONS = {"success", "failure", "timed_out"}
 
 _DEFAULT_ARTIFACT_PATTERN = "**/junit*.xml"
+
+# Deliberately one page (most-recent-first) per discovery cycle, not a full
+# historical backfill — the discovery cursor (last_workflow_sync) catches up
+# incrementally cycle over cycle. See discover_workflow_runs' page-limit
+# warning below for why hitting this cap is surfaced, not silent.
+_RUNS_PAGE_SIZE = 100
 
 
 def _gh_headers(token: str) -> dict[str, str]:
@@ -43,23 +52,55 @@ def _gh_headers(token: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+async def _with_retry_async(
+    http: httpx.AsyncClient, url: str, params: dict | None = None
+) -> httpx.Response:
+    """GET with one retry on 429, honoring Retry-After — mirrors
+    GithubIngester._with_retry's semantics for the new Actions API calls
+    (CIING-POLL-006's rate-limit handling)."""
+    resp = await http.get(url, params=params)
+    if resp.status_code == 429:
+        wait = int(resp.headers.get("Retry-After", "60"))
+        await asyncio.sleep(wait)
+        resp = await http.get(url, params=params)
+        if resp.status_code == 429:
+            wait2 = int(resp.headers.get("Retry-After", wait))
+            raise RuntimeError(f"GitHub API rate limit exceeded — retry after {wait2} seconds")
+    return resp
+
+
 async def _fetch_workflow_runs_page(
     github_repo: str, token: str, since: str | None
 ) -> list[dict]:
-    params: dict[str, Any] = {"per_page": 100}
+    """Fetch the most recent page of workflow runs — not a full historical
+    backfill; the discovery cursor (last_workflow_sync) catches up
+    incrementally. If this page is full (_RUNS_PAGE_SIZE items), older runs
+    may exist that this cycle didn't check — logged so that's visible rather
+    than a silent gap, not treated as an error."""
+    params: dict[str, Any] = {"per_page": _RUNS_PAGE_SIZE}
     if since:
         params["created"] = f">={since}"
     async with httpx.AsyncClient(headers=_gh_headers(token), timeout=30) as http:
-        resp = await http.get(f"{_API_BASE}/repos/{github_repo}/actions/runs", params=params)
+        resp = await _with_retry_async(
+            http, f"{_API_BASE}/repos/{github_repo}/actions/runs", params
+        )
         resp.raise_for_status()
-        return resp.json().get("workflow_runs", [])
+        runs = resp.json().get("workflow_runs", [])
+    if len(runs) >= _RUNS_PAGE_SIZE:
+        print(
+            f"ci-ingestion: {github_repo} — fetched {len(runs)} workflow run(s) "
+            "(page limit); older/additional runs may not have been checked this cycle",
+            file=sys.stderr,
+        )
+    return runs
 
 
 async def _fetch_jobs(github_repo: str, run_id: str, token: str) -> list[dict]:
     async with httpx.AsyncClient(headers=_gh_headers(token), timeout=30) as http:
-        resp = await http.get(
+        resp = await _with_retry_async(
+            http,
             f"{_API_BASE}/repos/{github_repo}/actions/runs/{run_id}/jobs",
-            params={"per_page": 100},
+            {"per_page": 100},
         )
         resp.raise_for_status()
         return resp.json().get("jobs", [])
@@ -67,7 +108,9 @@ async def _fetch_jobs(github_repo: str, run_id: str, token: str) -> list[dict]:
 
 async def _fetch_artifact(github_repo: str, run_id: str, token: str, artifact_pattern: str) -> bytes:
     async with httpx.AsyncClient(headers=_gh_headers(token), timeout=30) as http:
-        resp = await http.get(f"{_API_BASE}/repos/{github_repo}/actions/runs/{run_id}/artifacts")
+        resp = await _with_retry_async(
+            http, f"{_API_BASE}/repos/{github_repo}/actions/runs/{run_id}/artifacts"
+        )
         resp.raise_for_status()
         artifacts = resp.json().get("artifacts", [])
         match = next(
@@ -75,7 +118,7 @@ async def _fetch_artifact(github_repo: str, run_id: str, token: str, artifact_pa
         )
         if not match:
             return b""
-        download_resp = await http.get(match["archive_download_url"])
+        download_resp = await _with_retry_async(http, match["archive_download_url"])
         download_resp.raise_for_status()
         return download_resp.content
 
@@ -380,6 +423,13 @@ async def find_expansion_backlog(client: Any, project_slug: str) -> list[str]:
         {"p": project_slug},
     )
     return [row[0].get("properties", {}).get("run_id") for row in rows if row]
+
+
+def save_last_workflow_sync(config_path: Path, project_slug: str, timestamp: str) -> None:
+    """Write last_workflow_sync for a project to the TOML config file
+    in-place — the discovery high-water mark, independent of
+    last_github_sync (see § Poll Cycle Extension)."""
+    _update_project_config_field(config_path, project_slug, "last_workflow_sync", timestamp)
 
 
 # ---------------------------------------------------------------------------

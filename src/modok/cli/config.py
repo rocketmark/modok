@@ -110,6 +110,13 @@ class ProjectConfig(BaseModel):
     repo: str
     github_repo: str | None = None
     last_github_sync: str | None = None
+    # Continuous CI ingestion — discovery has its own cursor, independent of
+    # last_github_sync (see docs/llds/continuous-ci-ingestion.md § Poll Cycle
+    # Extension). ci_artifact_pattern is opt-in per project; None means test
+    # results are never fetched for this project (jobs/steps/commit edges
+    # still are), not a failure.
+    last_workflow_sync: str | None = None
+    ci_artifact_pattern: str | None = None
 
     @field_validator("repo", mode="after")
     @classmethod

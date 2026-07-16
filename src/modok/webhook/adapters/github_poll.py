@@ -12,7 +12,14 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
-from modok.cli.config import CONFIG_PATH, ModokConfig
+from modok.cli.config import CONFIG_PATH, ModokConfig, ProjectConfig
+from modok.ingestion.ci_ingestion import (
+    discover_workflow_runs,
+    expand_workflow_run,
+    find_expansion_backlog,
+    reconcile_commit_edges,
+    save_last_workflow_sync,
+)
 from modok.ingestion.github import GithubIngester, save_last_github_sync
 from modok.quine.client import QuineClient
 from modok.webhook.models import IngestEvent, WebhookConfig
@@ -86,8 +93,83 @@ class GitHubPollAdapter:
                 continue
 
             save_last_github_sync(CONFIG_PATH, project.slug, sync_start)
+
+            ci_summary = await _run_ci_ingestion_cycle(quine_client, project, token)
+
             # @spec SQ-POLL-006
             print(
                 f"github-poll: {project.slug} — synced {report.issues_written} issue(s), "
-                f"{report.prs_written} PR(s)"
+                f"{report.prs_written} PR(s){ci_summary}"
             )
+
+
+# @spec CIING-POLL-001, CIING-POLL-002, CIING-POLL-003, CIING-POLL-005, CIING-EDGE-005
+async def _run_ci_ingestion_cycle(quine_client: QuineClient, project: ProjectConfig, token: str) -> str:
+    """Continuous CI ingestion, extending the existing per-project poll cycle
+    (§ Poll Cycle Extension). Each of the three steps is isolated from the
+    others and from the issue/PR sync above — a failure discovering workflow
+    runs, expanding one run, or reconciling commit edges must not prevent the
+    other steps, other projects, or later cycles from proceeding. Returns a
+    trailing summary fragment for the existing one-line log (empty when
+    nothing happened, so a project with no CI activity doesn't add noise).
+    """
+    workflow_sync_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    discovered = 0
+    expanded = 0
+
+    try:
+        runs = await discover_workflow_runs(
+            quine_client,
+            project.slug,
+            project.github_repo,
+            token,
+            since=project.last_workflow_sync or None,
+        )
+        discovered = len(runs)
+        # @spec CIING-POLL-001 — advance the discovery cursor immediately after
+        # discovery, independent of whether any run below finishes expanding.
+        save_last_workflow_sync(CONFIG_PATH, project.slug, workflow_sync_start)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — workflow run discovery failed: {exc}",
+            file=sys.stderr,
+        )
+
+    try:
+        backlog = await find_expansion_backlog(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — expansion backlog query failed: {exc}",
+            file=sys.stderr,
+        )
+        backlog = []
+
+    for run_id in backlog:
+        # @spec CIING-POLL-005 — one run's expansion failure must not block the rest
+        try:
+            await expand_workflow_run(
+                quine_client,
+                project.slug,
+                run_id=run_id,
+                token=token,
+                github_repo=project.github_repo,
+                artifact_pattern=project.ci_artifact_pattern,
+            )
+            expanded += 1
+        except Exception as exc:
+            print(
+                f"github-poll: {project.slug} — expansion failed for run {run_id}: {exc}",
+                file=sys.stderr,
+            )
+
+    try:
+        await reconcile_commit_edges(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — commit edge reconciliation failed: {exc}",
+            file=sys.stderr,
+        )
+
+    if not discovered and not expanded:
+        return ""
+    return f", {discovered} workflow run(s) checked, {expanded} expanded"

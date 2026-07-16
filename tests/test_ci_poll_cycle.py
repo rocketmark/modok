@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 
@@ -221,14 +222,32 @@ async def test_retrying_a_run_does_not_duplicate_already_written_jobs():
         new=AsyncMock(return_value=[{"id": "1", "name": "build", "status": "completed"}]),
     ):
         await expand_workflow_run(client, "stagehand", run_id="100", token="tok")
-        await expand_workflow_run(client, "stagehand", run_id="100", token="tok")
+        first_call_job_upserts = [
+            c[0][0] for c in client.upsert_node.call_args_list if type(c[0][0]).__name__ == "WorkflowJob"
+        ]
+        client.upsert_node.reset_mock()
 
-    # upsert_node is idempotent by deterministic key — calling twice is safe,
-    # not asserted-not-called-twice, but must not error and must leave the
-    # same WorkflowJob identity both times.
-    job_upserts = [c[0][0] for c in client.upsert_node.call_args_list if type(c[0][0]).__name__ == "WorkflowJob"]
-    assert len(job_upserts) == 2
-    assert job_upserts[0].github_job_id == job_upserts[1].github_job_id
+        await expand_workflow_run(client, "stagehand", run_id="100", token="tok")
+        second_call_job_upserts = [
+            c[0][0] for c in client.upsert_node.call_args_list if type(c[0][0]).__name__ == "WorkflowJob"
+        ]
+
+    # Exactly one WorkflowJob upsert per call (matching the one job _fetch_jobs
+    # returned) — a retry must not re-process the same job multiple times
+    # within a single expand_workflow_run call.
+    assert len(first_call_job_upserts) == 1
+    assert len(second_call_job_upserts) == 1
+
+    # upsert_node is idempotent by deterministic idFrom() key — the full
+    # natural key, not just github_job_id, must be identical across both
+    # calls, otherwise a real Quine upsert_node would target two different
+    # node addresses instead of merging onto the same one.
+    first, second = first_call_job_upserts[0], second_call_job_upserts[0]
+    assert (first.run_id, first.run_attempt, first.github_job_id) == (
+        second.run_id,
+        second.run_attempt,
+        second.github_job_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -262,19 +281,41 @@ async def test_expansion_state_set_to_pending_before_fetch_attempted():
 # @spec CIING-POLL-008
 @pytest.mark.asyncio
 async def test_expansion_attempts_increments_each_attempt():
+    """Calls expand_workflow_run twice against a fake store that persists
+    upserted WorkflowRun properties between calls (mirroring what a real
+    Quine round-trip would return), so the second call's expansion_attempts
+    is actually derived from the first call's — not merely >= 1 after a
+    single call, which a hardcoded constant would also satisfy."""
     from modok.ingestion.ci_ingestion import expand_workflow_run
 
     client = _mock_client()
+    stored: dict = {}
+
+    async def fake_upsert(node):
+        if type(node).__name__ == "WorkflowRun":
+            stored["expansion_attempts"] = node.expansion_attempts
+            stored["latest_run_attempt"] = node.latest_run_attempt
+
+    async def fake_query(cypher, params):
+        if not stored:
+            return []
+        return [[{"properties": dict(stored)}]]
+
+    client.upsert_node = AsyncMock(side_effect=fake_upsert)
+    client.query = AsyncMock(side_effect=fake_query)
+
     with patch(
         "modok.ingestion.ci_ingestion._fetch_jobs",
         new=AsyncMock(return_value=[]),
     ):
         await expand_workflow_run(client, "stagehand", run_id="100", token="tok")
+        first_attempts = stored["expansion_attempts"]
 
-    run_node_upserts = [
-        c[0][0] for c in client.upsert_node.call_args_list if type(c[0][0]).__name__ == "WorkflowRun"
-    ]
-    assert any(n.expansion_attempts >= 1 for n in run_node_upserts)
+        await expand_workflow_run(client, "stagehand", run_id="100", token="tok")
+        second_attempts = stored["expansion_attempts"]
+
+    assert first_attempts == 1
+    assert second_attempts == 2
 
 
 # ---------------------------------------------------------------------------
@@ -302,3 +343,89 @@ async def test_no_artifact_pattern_configured_reaches_complete_without_fetching(
         c[0][0] for c in client.upsert_node.call_args_list if type(c[0][0]).__name__ == "WorkflowRun"
     ]
     assert any(n.expansion_state == "complete" for n in run_node_upserts)
+
+
+# ---------------------------------------------------------------------------
+# CIING-POLL-006 — 429/Retry-After handling on the new Actions API calls
+# ---------------------------------------------------------------------------
+
+
+# @spec CIING-POLL-006
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_retries_once_on_429_then_succeeds():
+    from modok.ingestion.ci_ingestion import _fetch_workflow_runs_page
+
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+    responses = [
+        httpx.Response(429, headers={"Retry-After": "0"}, json={}, request=fake_request),
+        httpx.Response(200, json={"workflow_runs": [{"id": "100"}]}, request=fake_request),
+    ]
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(side_effect=responses)
+        runs = await _fetch_workflow_runs_page("owner/repo", "tok", since=None)
+
+    assert runs == [{"id": "100"}]
+    assert mock_instance.get.await_count == 2
+
+
+# @spec CIING-POLL-006
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_raises_after_second_consecutive_429():
+    from modok.ingestion.ci_ingestion import _fetch_workflow_runs_page
+
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+    responses = [
+        httpx.Response(429, headers={"Retry-After": "0"}, json={}, request=fake_request),
+        httpx.Response(429, headers={"Retry-After": "0"}, json={}, request=fake_request),
+    ]
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(side_effect=responses)
+        with pytest.raises(RuntimeError, match="rate limit"):
+            await _fetch_workflow_runs_page("owner/repo", "tok", since=None)
+
+
+# ---------------------------------------------------------------------------
+# CIING-POLL-001 — page-limit visibility: hitting the cap must be logged,
+# not a silent gap
+# ---------------------------------------------------------------------------
+
+
+# @spec CIING-POLL-001
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_warns_when_page_limit_hit(capsys):
+    from modok.ingestion.ci_ingestion import _RUNS_PAGE_SIZE, _fetch_workflow_runs_page
+
+    full_page = [{"id": str(i)} for i in range(_RUNS_PAGE_SIZE)]
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(
+            return_value=httpx.Response(200, json={"workflow_runs": full_page}, request=fake_request)
+        )
+        runs = await _fetch_workflow_runs_page("owner/repo", "tok", since=None)
+
+    assert len(runs) == _RUNS_PAGE_SIZE
+    err = capsys.readouterr().err
+    assert "page limit" in err
+    assert "owner/repo" in err
+
+
+# @spec CIING-POLL-001
+@pytest.mark.asyncio
+async def test_fetch_workflow_runs_page_no_warning_when_under_page_limit(capsys):
+    from modok.ingestion.ci_ingestion import _fetch_workflow_runs_page
+
+    fake_request = httpx.Request("GET", "https://api.github.com/x")
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.get = AsyncMock(
+            return_value=httpx.Response(200, json={"workflow_runs": [{"id": "1"}]}, request=fake_request)
+        )
+        await _fetch_workflow_runs_page("owner/repo", "tok", since=None)
+
+    assert capsys.readouterr().err == ""
