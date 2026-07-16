@@ -1382,8 +1382,15 @@ def _make_query_side_effect_cross_project_similarity(
 
 
 @pytest.mark.asyncio
-async def test_test_files_included_in_relevant_files():
-    """Test files reachable via Feature-[:HAS_TEST]->File must appear in relevant_files."""
+async def test_test_files_with_no_other_evidence_appear_in_covered_tests_not_relevant_tests():
+    """@spec DRE-TESTCOV-001, DRE-TESTCOV-002 — a test file reachable only via
+    Feature-[:HAS_TEST]->File (no other evidence tying it to this ticket) is
+    informational: it belongs in covered_tests, not relevant_tests/
+    scored_candidates. Revised from this test's original assertion (bare
+    coverage alone used to earn a scored test_coverage evidence item) after
+    a live GitHub issue showed a test file covering two features stacking
+    two test_coverage hits into a misleading MEDIUM-confidence score with
+    zero ticket-specific evidence behind it."""
     from modok.retrieval.engine import retrieve
 
     issue = make_customer_issue(raw_text=None)  # graph-anchored; no LLM call
@@ -1425,17 +1432,26 @@ async def test_test_files_included_in_relevant_files():
         packet = await retrieve("123", "stagehand", mock_client)
 
     assert "agent/src/shtp.c" in packet.relevant_files
-    assert "agent/tests/test_shtp.c" in packet.relevant_tests
+    assert "agent/tests/test_shtp.c" not in packet.relevant_tests
+    assert "agent/tests/test_shtp.c" not in [c.path for c in packet.scored_candidates]
+    covered_paths = [ct.path for ct in packet.covered_tests]
+    assert "agent/tests/test_shtp.c" in covered_paths
 
 
-# @spec DRE-TRAV-001
+# @spec DRE-TRAV-001, DRE-TESTCOV-002
 @pytest.mark.asyncio
 async def test_source_file_outranks_test_file_for_same_feature_anchor():
-    """A source file and its test, matched via the exact same feature anchor
-    and no other evidence, must not rank the test above the source — found
+    """A source file and its test, both touched by the same recent commit
+    (so both carry real, non-coverage evidence and both remain in
+    scored_candidates), must not rank the test above the source — found
     live: test_coverage (8.0) outscoring feature_anchor (7.0) meant every
     real bug report's "Top Suspects" list put test files above the likely
-    actual source of the bug."""
+    actual source of the bug. Revised to give the test file its own
+    non-coverage evidence (a commit touch) — bare HAS_TEST coverage alone no
+    longer keeps a test file in scored_candidates at all (DRE-TESTCOV-002),
+    so the original zero-other-evidence setup no longer exercises this
+    ordering; a covering test that also has real evidence still must not
+    outrank its source under equivalent-tier evidence."""
     from modok.retrieval.engine import retrieve
 
     issue = make_customer_issue(raw_text=None)
@@ -1456,7 +1472,18 @@ async def test_source_file_outranks_test_file_for_same_feature_anchor():
         if "HAS_TEST" in cypher:
             return [[{"properties": {"repo_path": "agent/tests/test_shtp.c"}}]]
         if "TOUCHES" in cypher:
-            return []
+            commit = {
+                "properties": {
+                    "sha": "abc123",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "author_name": "dev",
+                    "message": "unrelated touch",
+                    "file_hunks": "{}",
+                    "project_slug": "stagehand",
+                }
+            }
+            file_props = {"properties": {"project_slug": "stagehand"}}
+            return [[file_props, commit]]
         if "HAS_SIMILARITY_MATCH" in cypher:
             return []
         return []
@@ -1473,6 +1500,57 @@ async def test_source_file_outranks_test_file_for_same_feature_anchor():
 
     by_path = {c.path: c for c in packet.scored_candidates}
     assert by_path["agent/src/shtp.c"].score > by_path["agent/tests/test_shtp.c"].score
+    # Has real evidence (the commit touch), so it stays in scored_candidates
+    # rather than moving to the informational covered_tests list.
+    assert "agent/tests/test_shtp.c" not in [ct.path for ct in packet.covered_tests]
+
+
+# @spec DRE-TESTCOV-001
+@pytest.mark.asyncio
+async def test_test_file_covered_by_two_features_does_not_stack_into_scored_evidence():
+    """Found live (github.com/rocketmark/stagehand/issues/31): a test file
+    covering two features (lonet-sender, livelink) stacked two test_coverage
+    hits via geometric decay — 7.0 + 7.0*0.5 = 10.5 — pushing a file with
+    zero ticket-specific evidence into MEDIUM confidence, ahead of
+    genuinely relevant candidates. Under the new design it must not be a
+    scored candidate at all, and it must appear exactly once in
+    covered_tests listing both covering slugs, not duplicated."""
+    from modok.retrieval.engine import retrieve
+
+    issue = make_customer_issue(raw_text=None)
+
+    async def mock_query(cypher, params=None):
+        params = params or {}
+        if "AFFECTS" in cypher and "Feature" in cypher:
+            return [["lonet-sender"], ["livelink"]]
+        if "AFFECTS" in cypher and "ErrorSignature" in cypher:
+            return []
+        if "IMPLEMENTED_BY" in cypher and "DEFINED_IN" in cypher:
+            return []
+        if "HAS_TEST" in cypher:
+            return [[{"properties": {"repo_path": "client/tests/test_output_consistency.py"}}]]
+        if "TOUCHES" in cypher:
+            return []
+        if "HAS_SIMILARITY_MATCH" in cypher:
+            return []
+        return []
+
+    mock_client = AsyncMock()
+    mock_client.get_node = AsyncMock(return_value=issue)
+    mock_client.query = AsyncMock(side_effect=mock_query)
+
+    mock_gw = AsyncMock()
+    mock_gw.summarise_packet = AsyncMock(return_value=[])
+
+    with patch("modok.retrieval.engine.gateway", mock_gw):
+        packet = await retrieve("123", "stagehand", mock_client)
+
+    assert "client/tests/test_output_consistency.py" not in [
+        c.path for c in packet.scored_candidates
+    ]
+    matches = [ct for ct in packet.covered_tests if ct.path == "client/tests/test_output_consistency.py"]
+    assert len(matches) == 1
+    assert set(matches[0].covering_slugs) == {"lonet-sender", "livelink"}
 
 
 # ---------------------------------------------------------------------------
@@ -2394,7 +2472,21 @@ async def test_source_and_test_candidates_built_and_merged_separately():
                 ]
             return []
         if "TOUCHES" in cypher:
-            return []
+            # Real (non-coverage) evidence for the test file — bare HAS_TEST
+            # coverage alone no longer keeps a test file in scored_candidates
+            # (DRE-TESTCOV-002), so this fixture needs its own evidence to
+            # exercise DRE-CAND-004's no-cross-contamination guarantee.
+            commit = {
+                "properties": {
+                    "sha": "def456",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "author_name": "dev",
+                    "message": "touch",
+                    "file_hunks": "{}",
+                    "project_slug": proj,
+                }
+            }
+            return [[{"properties": {"project_slug": proj}}, commit]]
         if "HAS_SIMILARITY_MATCH" in cypher:
             return []
         return []

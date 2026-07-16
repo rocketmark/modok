@@ -311,6 +311,180 @@ async def write_test_failure(
 
 
 # ---------------------------------------------------------------------------
+# TCLINK-RESOLVE-001..006 — classname -> TestFile resolution
+# See docs/llds/test-coverage-ci-linking.md § classname -> TestFile Resolution
+# ---------------------------------------------------------------------------
+
+
+# @spec TCLINK-RESOLVE-001
+def _candidate_paths_for_classname(classname: str) -> list[str]:
+    """Most-specific candidate first: the full dotted path as a file path,
+    then progressively shorter prefixes (treating trailing segments as class
+    names, not path segments) — a class-grouped pytest test's classname has
+    one extra trailing segment that is a class name, e.g.
+    "test_classy.TestSomething" is really test_classy.py, not
+    test_classy/TestSomething.py."""
+    parts = classname.split(".")
+    return ["/".join(parts[:i]) + ".py" for i in range(len(parts), 0, -1)]
+
+
+# @spec TCLINK-RESOLVE-002
+async def _match_test_files_for_candidate(client: Any, project_slug: str, candidate: str) -> list[str]:
+    """Exact match always; suffix match (tolerating a missing leading
+    directory prefix — e.g. a subproject's own pytest rootdir) only for
+    candidates with two or more path segments. A single-segment candidate
+    (e.g. "conftest.py") is exact-match only — found live during the Phase 2
+    edge-case probe that a short, generic candidate suffix-matching against
+    an unrelated, deeply-nested file of the same name is a real
+    false-positive risk the ambiguity check cannot catch, since it produces
+    exactly one match."""
+    segments = candidate.count("/") + 1
+    if segments >= 2:
+        cypher = (
+            "MATCH (n) WHERE n.node_type = 'TestFile' AND n.project_slug = $project_slug "
+            "AND (n.repo_path = $exact OR n.repo_path ENDS WITH $suffix) RETURN n.repo_path"
+        )
+        params = {"project_slug": project_slug, "exact": candidate, "suffix": "/" + candidate}
+    else:
+        cypher = (
+            "MATCH (n) WHERE n.node_type = 'TestFile' AND n.project_slug = $project_slug "
+            "AND n.repo_path = $exact RETURN n.repo_path"
+        )
+        params = {"project_slug": project_slug, "exact": candidate}
+    rows = await client.query(cypher, params)
+    return sorted({row[0] for row in rows if row and row[0]})
+
+
+# @spec TCLINK-RESOLVE-003, TCLINK-RESOLVE-004, TCLINK-RESOLVE-005, TCLINK-RESOLVE-006
+async def resolve_test_execution_link(
+    client: Any, project_slug: str, classname: str
+) -> tuple[str, str | None]:
+    """Returns (link_state, path). link_state is "resolved" (path set),
+    "ambiguous", or "unresolved" (path always None for the latter two).
+    Stops at the first candidate (most specific first) that matches at
+    least one TestFile — never falls through to a less-specific candidate
+    once any match (even an ambiguous one) is found."""
+    for candidate in _candidate_paths_for_classname(classname):
+        matches = await _match_test_files_for_candidate(client, project_slug, candidate)
+        if not matches:
+            continue
+        if len(matches) == 1:
+            return "resolved", matches[0]
+        return "ambiguous", None
+    return "unresolved", None
+
+
+def _test_execution_from_props(project_slug: str, props: dict, **overrides: Any) -> TestExecution:
+    data: dict[str, Any] = {
+        "node_type": "TestExecution",
+        "project_slug": project_slug,
+        "run_id": props.get("run_id", ""),
+        "run_attempt": props.get("run_attempt", 1),
+        "suite_name": props.get("suite_name", ""),
+        "classname": props.get("classname", ""),
+        "test_name": props.get("test_name", ""),
+        "status": props.get("status", ""),
+        "duration_seconds": props.get("duration_seconds"),
+        "link_state": props.get("link_state"),
+    }
+    data.update(overrides)
+    return TestExecution(**data)
+
+
+# @spec TCLINK-EDGE-001, TCLINK-EDGE-002, TCLINK-EDGE-003, TCLINK-POLL-001,
+#       TCLINK-ERR-001, TCLINK-ERR-002, TCLINK-SCOPE-001
+async def link_test_execution_to_file(
+    client: Any,
+    project_slug: str,
+    *,
+    run_id: str,
+    run_attempt: int,
+    execution: dict,
+) -> None:
+    """Inline, best-effort resolution — called right after write_test_execution
+    at its call site (expand_workflow_run), not from inside that function, so
+    write_test_execution's own existing tested contract is untouched."""
+    classname = execution.get("classname", "")
+    test_name = execution.get("test_name", "")
+    link_state, path = await resolve_test_execution_link(client, project_slug, classname)
+    te_parts = ("test-execution", project_slug, run_id, run_attempt, classname, test_name)
+
+    if link_state == "resolved":
+        await client.write_edge_by_parts(te_parts, "EXECUTES", ("test-file", project_slug, path))
+    elif link_state == "ambiguous":
+        print(
+            f"test-coverage-ci-linking: {project_slug} — ambiguous TestFile match for "
+            f"classname={classname!r} (run {run_id}, attempt {run_attempt})",
+            file=sys.stderr,
+        )
+    # "unresolved" is the common, expected case for non-pytest classnames —
+    # not logged as an error.
+
+    persisted_state = link_state if link_state in ("resolved", "ambiguous") else None
+    node = TestExecution(
+        node_type="TestExecution",
+        project_slug=project_slug,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        suite_name=execution.get("suite_name", ""),
+        classname=classname,
+        test_name=test_name,
+        status=execution.get("status", ""),
+        duration_seconds=execution.get("duration_seconds"),
+        link_state=persisted_state,
+    )
+    await client.upsert_node(node)
+
+
+# @spec TCLINK-POLL-002, TCLINK-POLL-003, TCLINK-POLL-004, TCLINK-SCOPE-003
+async def reconcile_test_execution_links(client: Any, project_slug: str) -> None:
+    """Once per poll cycle, per project: retry resolution for every
+    TestExecution not yet "resolved" — link_state IS NULL or "ambiguous".
+    Deliberately unbounded, indefinite retry (no bounded-attempts give-up
+    state) — see docs/llds/test-coverage-ci-linking.md § Where Resolution
+    Runs, Cost caveat, for why a bounded-attempts exclusion was drafted and
+    rejected during the Phase 2 edge-case probe."""
+    rows = await client.query(
+        "MATCH (n) WHERE n.node_type = 'TestExecution' AND n.project_slug = $p "
+        "AND (n.link_state IS NULL OR n.link_state = 'ambiguous') RETURN n",
+        {"p": project_slug},
+    )
+    for row in rows:
+        if not row or not row[0]:
+            continue
+        props = row[0].get("properties", {})
+        classname = props.get("classname", "")
+        run_id = props.get("run_id", "")
+        run_attempt = props.get("run_attempt", 1)
+        test_name = props.get("test_name", "")
+
+        try:
+            link_state, path = await resolve_test_execution_link(client, project_slug, classname)
+        except Exception as exc:
+            print(
+                f"test-coverage-ci-linking: {project_slug} — reconciliation lookup "
+                f"failed for run {run_id}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+
+        te_parts = ("test-execution", project_slug, run_id, run_attempt, classname, test_name)
+        if link_state == "resolved":
+            await client.write_edge_by_parts(te_parts, "EXECUTES", ("test-file", project_slug, path))
+        elif link_state == "ambiguous":
+            print(
+                f"test-coverage-ci-linking: {project_slug} — ambiguous TestFile match for "
+                f"classname={classname!r} (run {run_id}, attempt {run_attempt})",
+                file=sys.stderr,
+            )
+
+        persisted_state = link_state if link_state in ("resolved", "ambiguous") else None
+        await client.upsert_node(
+            _test_execution_from_props(project_slug, props, link_state=persisted_state)
+        )
+
+
+# ---------------------------------------------------------------------------
 # CIING-EDGE-003/004/005 — Targeted vs. Tested Commit, reconciliation sweep
 # ---------------------------------------------------------------------------
 
@@ -515,6 +689,10 @@ async def expand_workflow_run(
             executions = _parse_junit(artifact_bytes)
             for execution in executions:
                 await write_test_execution(
+                    client, project_slug, run_id=run_id, run_attempt=run_attempt, execution=execution
+                )
+                # @spec TCLINK-POLL-001
+                await link_test_execution_to_file(
                     client, project_slug, run_id=run_id, run_attempt=run_attempt, execution=execution
                 )
                 if execution.get("status") == "failed" and execution.get("failure"):

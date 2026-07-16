@@ -136,32 +136,27 @@ def format_debug_packet_markdown(
         lines.append(f"**Affected areas:** {', '.join(badges)}")
         lines.append("")
 
-    if packet.scored_candidates:
+    if packet.scored_candidates or packet.covered_tests:
         lines.append("**Top suspects:**")
         doc_penalized = [
             c for c in packet.scored_candidates if any(ev.type == "doc_penalty" for ev in c.evidence)
         ]
-        plain_tests = [
-            c
-            for c in packet.scored_candidates
-            if c not in doc_penalized
-            and c.kind == "test"
-            and len(c.evidence) == 1
-            and c.evidence[0].type == "test_coverage"
-        ]
-        regular = [c for c in packet.scored_candidates if c not in doc_penalized and c not in plain_tests]
+        regular = [c for c in packet.scored_candidates if c not in doc_penalized]
         commit_dates = {
             c.sha[:7]: c.timestamp[:10] for c in packet.recent_commits if c.sha and c.timestamp
         }
         for c in regular:
             lines.append(f"- `[{c.confidence.upper()}]` `{c.path}` (score {c.score})")
             _render_candidate_evidence(lines, c.evidence, commit_dates)
-        if plain_tests:
-            count = len(plain_tests)
+        # DRE-TESTCOV-002 — tests reached via HAS_TEST with no other evidence
+        # tying them to this ticket are informational, not ranked; a test
+        # with real evidence is in `regular` above instead, not listed twice.
+        if packet.covered_tests:
+            count = len(packet.covered_tests)
             noun = "file" if count == 1 else "files"
             lines.append(f"- `[LOW]` {count} test {noun} covering this feature (no other evidence):")
-            for c in plain_tests:
-                lines.append(f"  - `{c.path}`")
+            for ct in packet.covered_tests:
+                lines.append(f"  - `{ct.path}`")
         if doc_penalized:
             count = len(doc_penalized)
             noun = "file" if count == 1 else "files"

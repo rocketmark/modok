@@ -18,6 +18,7 @@ from modok.ingestion.ci_ingestion import (
     expand_workflow_run,
     find_expansion_backlog,
     reconcile_commit_edges,
+    reconcile_test_execution_links,
     save_last_workflow_sync,
 )
 from modok.ingestion.dependency_ingestion import (
@@ -172,6 +173,15 @@ async def _run_ci_ingestion_cycle(quine_client: QuineClient, project: ProjectCon
     except Exception as exc:
         print(
             f"github-poll: {project.slug} — commit edge reconciliation failed: {exc}",
+            file=sys.stderr,
+        )
+
+    # @spec TCLINK-POLL-005
+    try:
+        await reconcile_test_execution_links(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — test-execution link reconciliation failed: {exc}",
             file=sys.stderr,
         )
 

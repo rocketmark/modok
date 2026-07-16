@@ -58,6 +58,29 @@ class RecentDependencyChange:
 
 
 @dataclass
+class CoveredTest:
+    """A test file reached via Feature/Module HAS_TEST traversal with no
+    other evidence tying it to this specific ticket — informational only,
+    not part of scored_candidates/relevant_tests. A test file that also
+    earns real evidence (ticket_mention, a matching recent commit, ...)
+    appears in scored_candidates instead, not here (see DRE-TESTCOV-002)."""
+    path: str
+    covering_slugs: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RecentTestFailure:
+    test_path: str
+    classname: str
+    test_name: str
+    run_id: str
+    failure_type: str
+    message: str
+    observed_at: str
+    explanation: str = ""
+
+
+@dataclass
 class EvidenceItem:
     type: str
     score: float
@@ -87,5 +110,7 @@ class DebugPacket:
     prior_fixes: list[PriorFix]
     recent_commits: list[RecentCommit] = field(default_factory=list)
     recent_dependency_changes: list[RecentDependencyChange] = field(default_factory=list)
+    recent_test_failures: list[RecentTestFailure] = field(default_factory=list)
+    covered_tests: list[CoveredTest] = field(default_factory=list)
     scored_candidates: list[ScoredCandidate] = field(default_factory=list)
     summary: str = ""

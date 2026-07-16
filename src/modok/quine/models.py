@@ -216,6 +216,12 @@ class TestExecution(QuineNode):
     test_name: str
     status: str
     duration_seconds: float | None = None
+    # @spec TCLINK-EDGE-003 — "resolved" | "ambiguous" | unset. A no-match
+    # ("unresolved") classname->TestFile resolution result is never persisted
+    # here; it stays unset so the reconciliation sweep retries it
+    # indefinitely (docs/llds/test-coverage-ci-linking.md § Where Resolution
+    # Runs, Cost caveat).
+    link_state: str | None = None
 
 
 # @spec CIING-NODE-005

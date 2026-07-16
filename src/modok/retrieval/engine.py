@@ -18,6 +18,7 @@ from modok.retrieval.errors import (
 )
 from modok.retrieval.models import (
     AffectedArea,
+    CoveredTest,
     DebugPacket,
     EvidenceItem,
     IssueAnchors,
@@ -26,6 +27,7 @@ from modok.retrieval.models import (
     PriorFix,
     RecentCommit,
     RecentDependencyChange,
+    RecentTestFailure,
     ScoredCandidate,
 )
 from modok.text_utils import extract_text_tokens
@@ -460,6 +462,55 @@ def _format_dependency_change_explanation(
     return f"{package} {version_part} ({manifest_path}), used by {files_part}"
 
 
+# @spec TCLINK-DRE-002
+async def _traverse_test_files_to_recent_failures(
+    test_paths: list[str],
+    project_slug: str,
+    client: QuineClient,
+) -> list[dict]:
+    """Return TestFailures reachable from the given test paths via
+    TestFile <-[:EXECUTES]- TestExecution <-[:OCCURRED_IN]- TestFailure.
+    Deduplicated by TestFailure id. Not sorted or capped by recency — same
+    rationale as _traverse_files_to_recent_dependency_changes: a candidate
+    only ever reaches this traversal by already being an anchored test file,
+    so recency isn't the relevance signal here."""
+    seen: dict[Any, dict] = {}
+    for test_path in test_paths:
+        rows = await client.query(
+            "MATCH (tf) WHERE id(tf) = idFrom('test-file', $project_slug, $file_path) "
+            "MATCH (tf)<-[:EXECUTES]-(te)<-[:OCCURRED_IN]-(failure) "
+            "RETURN failure, te",
+            {"project_slug": project_slug, "file_path": test_path},
+        )
+        for row in rows:
+            if not row or not row[0] or not isinstance(row[0], dict):
+                continue
+            failure_id = row[0].get("id")
+            if failure_id in seen:
+                continue
+            failure_props = row[0].get("properties", {})
+            te_props = row[1].get("properties", {}) if len(row) > 1 and row[1] and isinstance(row[1], dict) else {}
+            seen[failure_id] = {
+                "test_path": test_path,
+                "classname": failure_props.get("classname") or te_props.get("classname", ""),
+                "test_name": failure_props.get("test_name") or te_props.get("test_name", ""),
+                "run_id": failure_props.get("run_id") or te_props.get("run_id", ""),
+                "failure_type": failure_props.get("failure_type", ""),
+                "message": failure_props.get("message", ""),
+                "observed_at": failure_props.get("observed_at", ""),
+            }
+    return list(seen.values())
+
+
+# @spec TCLINK-DRE-004
+def _format_test_failure_explanation(
+    classname: str, test_name: str, run_id: str, message: str
+) -> str:
+    """Mechanical string template — no LLM call, same discipline as
+    _format_dependency_change_explanation."""
+    return f"{classname}::{test_name} failed in run {run_id}: {message}"
+
+
 # @spec DRE-TRAV-008
 async def _traverse_feature_to_files(
     feature_slug: str,
@@ -753,6 +804,9 @@ async def retrieve(
     fix_meta: dict[str, dict[str, str]] = {}
     file_evidence: dict[str, list[EvidenceItem]] = {}  # source files
     test_file_evidence: dict[str, list[EvidenceItem]] = {}  # test files
+    # @spec DRE-TESTCOV-001 — HAS_TEST coverage tracked informationally, not
+    # as scored evidence; see the covered_tests filtering step below.
+    covered_tests_map: dict[str, list[str]] = {}
     matched_anchors = 0
     resolved_module_slugs: list[str] = []
     resolved_feature_slugs: list[str] = []
@@ -787,16 +841,22 @@ async def retrieve(
                         explanation=slug,
                     ),
                 )
+            # @spec DRE-TESTCOV-001 — bare HAS_TEST coverage no longer earns
+            # a scored EvidenceItem (found live: a test file covered by
+            # multiple features stacked one test_coverage hit per feature via
+            # geometric decay — e.g. two hits at 7.0 + 7.0*0.5 = 10.5 — which
+            # promoted a file with zero ticket-specific evidence into MEDIUM
+            # confidence, ahead of genuinely relevant candidates). Coverage
+            # is tracked here for the informational covered_tests field
+            # instead; test_file_evidence[path] is still seeded (empty) so
+            # the file remains eligible for real evidence — ticket_mention,
+            # recent_commit, commit_message_match, function_anchor_match —
+            # from later steps in this pipeline.
             for path in tst_paths:
-                _add_evidence(
-                    test_file_evidence,
-                    path,
-                    EvidenceItem(
-                        type="test_coverage",
-                        score=7.0,
-                        explanation=slug,
-                    ),
-                )
+                test_file_evidence.setdefault(path, [])
+                slugs = covered_tests_map.setdefault(path, [])
+                if slug not in slugs:
+                    slugs.append(slug)
             if resolved_as == "module":
                 resolved_module_slugs.append(slug)
             else:
@@ -1016,6 +1076,43 @@ async def retrieve(
                 ),
             )
 
+    # @spec TCLINK-DRE-001, TCLINK-DRE-002, TCLINK-DRE-005, TCLINK-SCOPE-002
+    raw_test_failures = await _traverse_test_files_to_recent_failures(
+        list(test_file_evidence.keys()), project_slug, client
+    )
+    for tf in raw_test_failures:
+        test_path = tf.get("test_path", "")
+        if test_path not in test_file_evidence:
+            # TCLINK-DRE-005 — scoped to the TestFile candidate only; never
+            # discovers a new file or propagates to a source file.
+            continue
+        _add_evidence(
+            test_file_evidence,
+            test_path,
+            EvidenceItem(
+                type="recent_test_failure",
+                score=9.0,
+                explanation=_format_test_failure_explanation(
+                    classname=tf.get("classname", ""),
+                    test_name=tf.get("test_name", ""),
+                    run_id=tf.get("run_id", ""),
+                    message=tf.get("message", ""),
+                ),
+            ),
+        )
+
+    # @spec DRE-TESTCOV-002 — a test file that earned real evidence elsewhere
+    # in this pipeline (test_file_evidence[path] non-empty) stays a scored
+    # candidate; a covered-but-otherwise-unevidenced test file is pulled out
+    # of test_file_evidence (so it doesn't appear as a zero-score entry in
+    # scored_candidates/relevant_tests) and reported only in covered_tests.
+    covered_tests_list: list[CoveredTest] = []
+    for path in sorted(covered_tests_map):
+        if test_file_evidence.get(path):
+            continue
+        test_file_evidence.pop(path, None)
+        covered_tests_list.append(CoveredTest(path=path, covering_slugs=covered_tests_map[path]))
+
     # Build scored candidates and derive ordered file lists
     source_candidates = _build_scored_candidates(file_evidence, "source", _FILE_CAP)
     test_candidates = _build_scored_candidates(test_file_evidence, "test", _FILE_CAP)
@@ -1065,6 +1162,25 @@ async def retrieve(
         )
         for d in raw_dependency_changes
     ]
+    # @spec TCLINK-DRE-003, TCLINK-DRE-004
+    recent_test_failures_list = [
+        RecentTestFailure(
+            test_path=tf.get("test_path", ""),
+            classname=tf.get("classname", ""),
+            test_name=tf.get("test_name", ""),
+            run_id=tf.get("run_id", ""),
+            failure_type=tf.get("failure_type", ""),
+            message=tf.get("message", ""),
+            observed_at=tf.get("observed_at", ""),
+            explanation=_format_test_failure_explanation(
+                classname=tf.get("classname", ""),
+                test_name=tf.get("test_name", ""),
+                run_id=tf.get("run_id", ""),
+                message=tf.get("message", ""),
+            ),
+        )
+        for tf in raw_test_failures
+    ]
 
     # @spec DRE-STREAM-002
     if on_progress is not None:
@@ -1079,6 +1195,8 @@ async def retrieve(
                 prior_fixes=prior_fixes,
                 recent_commits=recent_commits_list,
                 recent_dependency_changes=recent_dependency_changes_list,
+                recent_test_failures=recent_test_failures_list,
+                covered_tests=covered_tests_list,
                 scored_candidates=scored_candidates,
                 summary="",
             ),
@@ -1121,6 +1239,8 @@ async def retrieve(
         prior_fixes=prior_fixes,
         recent_commits=recent_commits_list,
         recent_dependency_changes=recent_dependency_changes_list,
+        recent_test_failures=recent_test_failures_list,
+        covered_tests=covered_tests_list,
         scored_candidates=scored_candidates,
         summary=summary,
     )

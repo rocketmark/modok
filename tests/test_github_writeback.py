@@ -20,6 +20,7 @@ from modok.retrieval.formatting import (
 )
 from modok.retrieval.models import (
     AffectedArea,
+    CoveredTest,
     DebugPacket,
     EvidenceItem,
     IssueAnchors,
@@ -215,8 +216,12 @@ def test_markdown_groups_doc_penalized_candidates_into_single_low():
     assert "doc_penalty" not in md
 
 
-# @spec SQ-GH-002
-def test_markdown_groups_plain_test_coverage_candidates_into_single_low():
+# @spec SQ-GH-002, DRE-TESTCOV-002
+def test_markdown_groups_covered_tests_into_single_low():
+    """covered_tests (informational — no other evidence tying the test to
+    this ticket) render as a single collapsed [LOW] bucket; a test with real
+    evidence beyond bare coverage is a scored_candidates entry instead and
+    stays listed individually, not duplicated into the collapsed bucket."""
     packet = make_packet(
         scored_candidates=[
             ScoredCandidate(
@@ -226,32 +231,19 @@ def test_markdown_groups_plain_test_coverage_candidates_into_single_low():
                 confidence="high",
                 evidence=[EvidenceItem(type="feature_anchor", score=7.0, explanation="shtp-receiver")],
             ),
-            ScoredCandidate(
-                path="agent/tests/test_shtp_a.py",
-                kind="test",
-                score=7.0,
-                confidence="low",
-                evidence=[EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver")],
-            ),
-            ScoredCandidate(
-                path="agent/tests/test_shtp_b.py",
-                kind="test",
-                score=7.0,
-                confidence="low",
-                evidence=[EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver")],
-            ),
-            # A test file with *more* than bare test_coverage evidence is a
+            # A test file with real evidence beyond bare coverage is a
             # more interesting candidate and must stay listed individually.
             ScoredCandidate(
                 path="agent/tests/test_shtp_relevant.py",
                 kind="test",
-                score=11.0,
+                score=10.0,
                 confidence="medium",
-                evidence=[
-                    EvidenceItem(type="test_coverage", score=7.0, explanation="shtp-receiver"),
-                    EvidenceItem(type="ticket_mention", score=10.0, explanation="named in ticket"),
-                ],
+                evidence=[EvidenceItem(type="ticket_mention", score=10.0, explanation="named in ticket")],
             ),
+        ],
+        covered_tests=[
+            CoveredTest(path="agent/tests/test_shtp_a.py", covering_slugs=["shtp-receiver"]),
+            CoveredTest(path="agent/tests/test_shtp_b.py", covering_slugs=["shtp-receiver"]),
         ],
     )
     md = format_debug_packet_markdown(packet, "inv-42", "actionable-issue-pattern")
