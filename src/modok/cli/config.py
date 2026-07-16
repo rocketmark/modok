@@ -117,6 +117,13 @@ class ProjectConfig(BaseModel):
     # still are), not a failure.
     last_workflow_sync: str | None = None
     ci_artifact_pattern: str | None = None
+    # Dependency-graph ingestion — its own cursor, independent of the two
+    # above (see docs/llds/dependency-graph-ingestion.md § Polling and
+    # Checkpoint Behavior). dependency_manifest_globs is opt-in, same shape
+    # as ci_artifact_pattern: None tracks every statically-detected manifest
+    # path in a diff; set it to narrow a monorepo to specific subtrees.
+    last_dependency_sync: str | None = None
+    dependency_manifest_globs: list[str] | None = None
 
     @field_validator("repo", mode="after")
     @classmethod

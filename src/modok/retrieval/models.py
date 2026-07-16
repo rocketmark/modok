@@ -45,6 +45,19 @@ class RecentCommit:
 
 
 @dataclass
+class RecentDependencyChange:
+    package: str  # purl, e.g. "pkg:pypi/bleak"
+    from_version: str | None
+    to_version: str
+    manifest_path: str
+    commit_sha: str | None
+    fix_id: str | None
+    relationship: str
+    files: list[str] = field(default_factory=list)
+    explanation: str = ""
+
+
+@dataclass
 class EvidenceItem:
     type: str
     score: float
@@ -73,5 +86,6 @@ class DebugPacket:
     known_issues: list[KnownIssueRef]
     prior_fixes: list[PriorFix]
     recent_commits: list[RecentCommit] = field(default_factory=list)
+    recent_dependency_changes: list[RecentDependencyChange] = field(default_factory=list)
     scored_candidates: list[ScoredCandidate] = field(default_factory=list)
     summary: str = ""

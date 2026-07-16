@@ -8,6 +8,11 @@ import uuid
 import yaml
 
 from modok.ingestion.confidence import confidence_band
+from modok.ingestion.dependency_usage import (
+    load_code_map,
+    load_dependency_map_overrides,
+    write_file_dependency_usage_edges,
+)
 from modok.ingestion.errors import (
     InvalidSlugReferenceError,
     MissingCommitShaError,
@@ -780,6 +785,18 @@ async def run_ingestion(
             report.unregistered_paths.append(str(record.path))
         except Exception as exc:
             report.errors.append(f"{record.path}: {exc}")
+
+    # @spec DEPG-USAGE-001 — runs once, after the per-doc loop above, from the
+    # already-captured code map (docs/llds/dependency-graph-ingestion.md
+    # § File-to-Dependency Usage Mapping). A missing code map is a silent
+    # no-op, not an error — this ingestion pass is additive, not a gate.
+    code_map = load_code_map(repo_root)
+    if code_map is not None:
+        overrides = load_dependency_map_overrides(repo_root)
+        try:
+            await write_file_dependency_usage_edges(client, project_slug, code_map, overrides)
+        except Exception as exc:
+            report.warnings.append(f"dependency usage mapping failed: {exc}")
 
     report.nodes_written = ctx.nodes_written
     report.edges_written = ctx.edges_written

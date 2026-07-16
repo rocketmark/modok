@@ -20,6 +20,10 @@ from modok.ingestion.ci_ingestion import (
     reconcile_commit_edges,
     save_last_workflow_sync,
 )
+from modok.ingestion.dependency_ingestion import (
+    reconcile_dependency_change_edges,
+    run_dependency_ingestion_cycle,
+)
 from modok.ingestion.github import GithubIngester, save_last_github_sync
 from modok.quine.client import QuineClient
 from modok.webhook.models import IngestEvent, WebhookConfig
@@ -95,11 +99,12 @@ class GitHubPollAdapter:
             save_last_github_sync(CONFIG_PATH, project.slug, sync_start)
 
             ci_summary = await _run_ci_ingestion_cycle(quine_client, project, token)
+            dependency_summary = await _run_dependency_ingestion_cycle(quine_client, project, token)
 
             # @spec SQ-POLL-006
             print(
                 f"github-poll: {project.slug} — synced {report.issues_written} issue(s), "
-                f"{report.prs_written} PR(s){ci_summary}"
+                f"{report.prs_written} PR(s){ci_summary}{dependency_summary}"
             )
 
 
@@ -173,3 +178,38 @@ async def _run_ci_ingestion_cycle(quine_client: QuineClient, project: ProjectCon
     if not discovered and not expanded:
         return ""
     return f", {discovered} workflow run(s) checked, {expanded} expanded"
+
+
+# @spec DEPG-POLL-001, DEPG-POLL-006
+async def _run_dependency_ingestion_cycle(
+    quine_client: QuineClient, project: ProjectConfig, token: str
+) -> str:
+    """Dependency-graph ingestion, on its own cursor, isolated from issue/PR
+    sync and CI ingestion above — a failure here must not prevent either of
+    those, or a later cycle, from proceeding (docs/llds/dependency-graph-
+    ingestion.md § Polling and Checkpoint Behavior)."""
+    try:
+        summary = await run_dependency_ingestion_cycle(
+            quine_client,
+            project.slug,
+            project.github_repo,
+            token,
+            since=project.last_dependency_sync or None,
+            config_path=CONFIG_PATH,
+        )
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — dependency ingestion failed: {exc}",
+            file=sys.stderr,
+        )
+        return ""
+
+    try:
+        await reconcile_dependency_change_edges(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — dependency edge reconciliation failed: {exc}",
+            file=sys.stderr,
+        )
+
+    return summary

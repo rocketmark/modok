@@ -381,7 +381,15 @@ def _update_project_config_field(
         if line.strip() == "[[projects]]":
             i += 1
             block: list[str] = []
-            while i < n and not lines[i].strip().startswith("[["):
+            # Stop at the next TOML table header of any kind — a single-bracket
+            # [section] (e.g. [webhook]) ends the block just as much as another
+            # [[projects]] entry does. Checking only "[[" let a following
+            # [section] silently get absorbed into this block, so a brand-new
+            # key with no existing line to replace was inserted at the end of
+            # that merged block — landing inside [section] instead of
+            # [[projects]] (found live: last_workflow_sync ended up under
+            # [webhook] instead of the stagehand project block).
+            while i < n and not lines[i].strip().startswith("["):
                 block.append(lines[i])
                 i += 1
 

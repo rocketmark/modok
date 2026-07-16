@@ -25,6 +25,7 @@ from modok.retrieval.models import (
     KnownIssueRef,
     PriorFix,
     RecentCommit,
+    RecentDependencyChange,
     ScoredCandidate,
 )
 from modok.text_utils import extract_text_tokens
@@ -383,6 +384,80 @@ async def _traverse_files_to_recent_commits(
     all_commits = list(seen.values())
     all_commits.sort(key=lambda c: c.get("timestamp", ""), reverse=True)
     return all_commits[:limit]
+
+
+# @spec DEPG-DRE-003
+async def _traverse_files_to_recent_dependency_changes(
+    file_paths: list[str],
+    project_slug: str,
+    client: QuineClient,
+) -> list[dict]:
+    """Return dependency changes reachable from the given (already-anchored)
+    file paths via USES_DEPENDENCY -> CHANGED_PACKAGE. Deduplicated by
+    DependencyChange id. Deliberately not sorted or capped by recency, unlike
+    _traverse_files_to_recent_commits — a candidate only ever reaches this
+    traversal by already being an anchored file, so "recency" isn't the
+    relevance signal here (docs/llds/dependency-graph-ingestion.md
+    § Existing Retrieval Integration)."""
+    seen: dict[Any, dict] = {}
+    for file_path in file_paths:
+        node_kind = "test-file" if _is_test_path(file_path) else "file"
+        rows = await client.query(
+            f"MATCH (f) WHERE id(f) = idFrom('{node_kind}', $project_slug, $file_path) "
+            "MATCH (f)-[:USES_DEPENDENCY]->(pkg) "
+            "MATCH (pkg)<-[:CHANGED_PACKAGE]-(dc) "
+            "MATCH (dc)-[:TO_VERSION]->(tv) "
+            "OPTIONAL MATCH (dc)-[:FROM_VERSION]->(fv) "
+            "OPTIONAL MATCH (dc)-[:INTRODUCED_BY]->(c) "
+            "OPTIONAL MATCH (dc)-[:MERGED_VIA]->(fix) "
+            "RETURN dc, pkg, fv, tv, c, fix",
+            {"project_slug": project_slug, "file_path": file_path},
+        )
+        for row in rows:
+            if not row or not row[0] or not isinstance(row[0], dict):
+                continue
+            change_id = row[0].get("id")
+            if change_id in seen:
+                if file_path not in seen[change_id]["files"]:
+                    seen[change_id]["files"].append(file_path)
+                continue
+
+            def _props(node: Any) -> dict:
+                return node.get("properties", {}) if node and isinstance(node, dict) else {}
+
+            dc_props = _props(row[0])
+            pkg_props = _props(row[1]) if len(row) > 1 else {}
+            fv_props = _props(row[2]) if len(row) > 2 else {}
+            tv_props = _props(row[3]) if len(row) > 3 else {}
+            c_props = _props(row[4]) if len(row) > 4 else {}
+            fix_props = _props(row[5]) if len(row) > 5 else {}
+
+            seen[change_id] = {
+                "package": pkg_props.get("purl", ""),
+                "from_version": fv_props.get("version"),
+                "to_version": tv_props.get("version", ""),
+                "manifest_path": dc_props.get("manifest_path", ""),
+                "commit_sha": c_props.get("sha"),
+                "fix_id": fix_props.get("fix_id"),
+                "relationship": fv_props.get("relationship") or tv_props.get("relationship") or "unknown",
+                "files": [file_path],
+            }
+    return list(seen.values())
+
+
+# @spec DEPG-DRE-005
+def _format_dependency_change_explanation(
+    package: str,
+    from_version: str | None,
+    to_version: str,
+    manifest_path: str,
+    files: list[str],
+) -> str:
+    """Mechanical string template — deliberately not natural language, same
+    discipline quick_investigation_summary already applies (no LLM call)."""
+    version_part = f"{from_version} -> {to_version}" if from_version else to_version
+    files_part = ", ".join(files)
+    return f"{package} {version_part} ({manifest_path}), used by {files_part}"
 
 
 # @spec DRE-TRAV-008
@@ -910,6 +985,37 @@ async def retrieve(
                         ),
                     )
 
+    # @spec DEPG-DRE-001, DEPG-DRE-002, DEPG-DRE-003, DEPG-DRE-006
+    raw_dependency_changes = await _traverse_files_to_recent_dependency_changes(
+        all_file_paths, project_slug, client
+    )
+    for dep_change in raw_dependency_changes:
+        for fpath in dep_change.get("files", []):
+            evidence_map = (
+                test_file_evidence
+                if fpath in test_file_evidence
+                else (file_evidence if fpath in file_evidence else None)
+            )
+            if evidence_map is None:
+                # DEPG-DRE-002 — never discovers a new file; only files
+                # already anchored by feature/module resolution receive this.
+                continue
+            _add_evidence(
+                evidence_map,
+                fpath,
+                EvidenceItem(
+                    type="dependency_change",
+                    score=5.0,
+                    explanation=_format_dependency_change_explanation(
+                        package=dep_change.get("package", ""),
+                        from_version=dep_change.get("from_version"),
+                        to_version=dep_change.get("to_version", ""),
+                        manifest_path=dep_change.get("manifest_path", ""),
+                        files=dep_change.get("files", []),
+                    ),
+                ),
+            )
+
     # Build scored candidates and derive ordered file lists
     source_candidates = _build_scored_candidates(file_evidence, "source", _FILE_CAP)
     test_candidates = _build_scored_candidates(test_file_evidence, "test", _FILE_CAP)
@@ -938,6 +1044,27 @@ async def retrieve(
         )
         for c in raw_commits
     ]
+    # @spec DEPG-DRE-004
+    recent_dependency_changes_list = [
+        RecentDependencyChange(
+            package=d.get("package", ""),
+            from_version=d.get("from_version"),
+            to_version=d.get("to_version", ""),
+            manifest_path=d.get("manifest_path", ""),
+            commit_sha=d.get("commit_sha"),
+            fix_id=d.get("fix_id"),
+            relationship=d.get("relationship", "unknown"),
+            files=d.get("files", []),
+            explanation=_format_dependency_change_explanation(
+                package=d.get("package", ""),
+                from_version=d.get("from_version"),
+                to_version=d.get("to_version", ""),
+                manifest_path=d.get("manifest_path", ""),
+                files=d.get("files", []),
+            ),
+        )
+        for d in raw_dependency_changes
+    ]
 
     # @spec DRE-STREAM-002
     if on_progress is not None:
@@ -951,6 +1078,7 @@ async def retrieve(
                 known_issues=known_issues,
                 prior_fixes=prior_fixes,
                 recent_commits=recent_commits_list,
+                recent_dependency_changes=recent_dependency_changes_list,
                 scored_candidates=scored_candidates,
                 summary="",
             ),
@@ -992,6 +1120,7 @@ async def retrieve(
         known_issues=known_issues,
         prior_fixes=prior_fixes,
         recent_commits=recent_commits_list,
+        recent_dependency_changes=recent_dependency_changes_list,
         scored_candidates=scored_candidates,
         summary=summary,
     )

@@ -23,6 +23,7 @@ from modok.ingestion.git_history import (
     parse_commit_log,
     save_last_git_sha,
     _parse_diff,
+    _update_project_config_field,
 )
 from modok.ingestion.registry import Registry
 
@@ -472,6 +473,33 @@ def test_save_last_git_sha_writes_to_config(tmp_path):
     save_last_git_sha(config_path, "stagehand", "b" * 40)
     content = config_path.read_text()
     assert "b" * 40 in content
+
+
+def test_update_project_config_field_stops_at_following_single_bracket_section(tmp_path):
+    """A brand-new key (no existing line to replace) inserted into a
+    [[projects]] block that is directly followed by a single-bracket
+    [section] (e.g. [webhook]) must land inside the [[projects]] block, not
+    get silently absorbed past the section boundary and appended under
+    [webhook] instead — found live: last_workflow_sync ended up under
+    [webhook] because the block-collection loop only recognized "[[" as a
+    terminator, not a plain "[" table header."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[[projects]]\n'
+        'slug = "stagehand"\n'
+        'repo = "~/github/stagehand"\n'
+        'last_github_sync = "2026-07-16T12:00:00Z"\n'
+        '\n'
+        '[webhook]\n'
+        'github_poll_enabled = true\n'
+    )
+
+    _update_project_config_field(config_path, "stagehand", "last_workflow_sync", "2026-07-16T12:30:00Z")
+
+    content = config_path.read_text()
+    projects_block, _, webhook_block = content.partition("[webhook]")
+    assert "last_workflow_sync" in projects_block
+    assert "last_workflow_sync" not in webhook_block
 
 
 # @spec SI-GIT-007

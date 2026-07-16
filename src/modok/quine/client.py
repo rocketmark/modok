@@ -356,6 +356,11 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
         TestExecution,
         TestFailure,
         InvestigationMilestone,
+        DependencyPackage,
+        DependencyVersion,
+        DependencyManifest,
+        DependencySnapshot,
+        DependencyChange,
     )
 
     if isinstance(node, Doc):
@@ -521,6 +526,49 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
                 "idf_milestone_kind": node.milestone_kind,
                 "idf_test_failure_id": node.test_failure_id or "",
                 "idf_error_signature": node.error_signature or "",
+            },
+        )
+    if isinstance(node, DependencyPackage):
+        return (
+            "'dependency-package', $idf_project_slug, $idf_purl",
+            {"idf_project_slug": node.project_slug, "idf_purl": node.purl},
+        )
+    if isinstance(node, DependencyVersion):
+        return (
+            "'dependency-version', $idf_project_slug, $idf_package_purl, $idf_version",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_package_purl": node.package_purl,
+                "idf_version": node.version,
+            },
+        )
+    if isinstance(node, DependencyManifest):
+        return (
+            "'dependency-manifest', $idf_project_slug, $idf_manifest_path",
+            {"idf_project_slug": node.project_slug, "idf_manifest_path": node.manifest_path},
+        )
+    if isinstance(node, DependencySnapshot):
+        return (
+            "'dependency-snapshot', $idf_project_slug, $idf_manifest_path, $idf_commit_sha",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_manifest_path": node.manifest_path,
+                "idf_commit_sha": node.commit_sha,
+            },
+        )
+    if isinstance(node, DependencyChange):
+        # version_source/change_kind/observed_at are deliberately excluded from
+        # identity — re-ingesting the same (manifest, package, commit) must
+        # always address the same node regardless of which enrichment source
+        # resolved it or when it was (re)observed (DEPG-DIFF-005).
+        return (
+            "'dependency-change', $idf_project_slug, $idf_manifest_path, "
+            "$idf_package_purl, $idf_commit_sha",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_manifest_path": node.manifest_path,
+                "idf_package_purl": node.package_purl,
+                "idf_commit_sha": node.commit_sha,
             },
         )
     raise ValueError(f"No idFrom() scheme for node type {type(node).__name__}")

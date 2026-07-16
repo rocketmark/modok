@@ -51,6 +51,36 @@ Both must be present or write-back is silently skipped (not an error — useful 
 
 ---
 
+## Dependency-graph ingestion config
+
+Dependency-graph ingestion (package/version topology, manifest-change history, `File -[:USES_DEPENDENCY]-> DependencyPackage` mapping — see `docs/llds/dependency-graph-ingestion.md`) reuses the same `github_repo`/`GITHUB_TOKEN` already set up above for issue/PR polling. There's nothing extra to configure for the basic case: a merged PR touching a tracked manifest (`requirements*.txt` or `pyproject.toml`'s `[project.dependencies]` in v1 — other ecosystems are detected so a touching PR isn't silently ignored, but not yet parsed) is picked up automatically on the same 30-second poll cycle, on its own cursor (`last_dependency_sync`, written automatically — nothing to set by hand).
+
+Two optional knobs, both opt-in:
+
+- `dependency_manifest_globs` — a list of glob patterns on the project's `[[projects]]` entry in `~/.modok/config.toml`:
+
+  ```toml
+  [[projects]]
+  slug = "stagehand"
+  repo = "/Users/you/github/stagehand"
+  github_repo = "yourorg/stagehand"
+  dependency_manifest_globs = ["client/**"]
+  ```
+
+  Narrows which manifest paths are tracked — useful in a monorepo to skip vendored or unrelated manifests elsewhere in the tree. Unset (the default) tracks every manifest file the static detection table recognizes, anywhere in a touched PR's diff.
+
+- `.modok/dependency-map.yml` — a small, checked-in, human-maintained file at the repo root, for the cases where an import name doesn't match its package name (e.g. `cv2` → `opencv-python`, `yaml` → `PyYAML`):
+
+  ```yaml
+  import_overrides:
+    cv2: opencv-python
+    yaml: PyYAML
+  ```
+
+  Without an entry, MODOK assumes the import name *is* the package name — correct for the large majority of packages (`bleak` imports as `bleak`). This mapping is purely mechanical; MODOK never uses an LLM to guess it.
+
+---
+
 ## Webhook push vs. poll — pick one per project
 
 - **Push** (real GitHub webhook, requires a public endpoint or tunnel — ngrok, ngrok-alternative, or a real deployment): near-instant ingestion on issue events.

@@ -241,6 +241,54 @@ class TestFailure(QuineNode):
     is_current: bool | None = None
 
 
+# @spec DEPG-NODE-001
+class DependencyPackage(QuineNode):
+    node_type: Literal["DependencyPackage"]
+    project_slug: str
+    purl: str
+    ecosystem: str
+    name: str
+
+
+# @spec DEPG-NODE-002
+class DependencyVersion(QuineNode):
+    node_type: Literal["DependencyVersion"]
+    project_slug: str
+    package_purl: str
+    version: str
+    relationship: str = "unknown"
+
+
+# @spec DEPG-NODE-003
+class DependencyManifest(QuineNode):
+    node_type: Literal["DependencyManifest"]
+    project_slug: str
+    manifest_path: str
+    ecosystem: str
+    format: str
+
+
+# @spec DEPG-NODE-004
+class DependencySnapshot(QuineNode):
+    node_type: Literal["DependencySnapshot"]
+    project_slug: str
+    manifest_path: str
+    commit_sha: str
+    captured_at: str
+
+
+# @spec DEPG-NODE-005
+class DependencyChange(QuineNode):
+    node_type: Literal["DependencyChange"]
+    project_slug: str
+    manifest_path: str
+    package_purl: str
+    commit_sha: str
+    change_kind: str
+    version_source: str
+    observed_at: str
+
+
 # @spec SQ-MILE-003
 class InvestigationMilestone(QuineNode):
     node_type: Literal["InvestigationMilestone"]
@@ -276,4 +324,9 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "TestExecution": TestExecution,
     "TestFailure": TestFailure,
     "InvestigationMilestone": InvestigationMilestone,
+    "DependencyPackage": DependencyPackage,
+    "DependencyVersion": DependencyVersion,
+    "DependencyManifest": DependencyManifest,
+    "DependencySnapshot": DependencySnapshot,
+    "DependencyChange": DependencyChange,
 }

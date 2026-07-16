@@ -455,6 +455,7 @@ MODOK currently focuses on inspectable support/debugging context, static and liv
 - incremental pattern detection via Quine standing queries
 - automatic investigation triggering when connected evidence becomes actionable
 - GitHub issue write-back: an immediate acknowledgment comment, followed by the full resulting debug packet
+- dependency package/version tracking: manifest changes linked to their commit and PR, mapped to the source files that import them, surfaced as recall evidence — not a claim of root cause
 
 ---
 
