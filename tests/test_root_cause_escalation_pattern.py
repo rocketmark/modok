@@ -544,6 +544,101 @@ async def test_ci_cycle_isolates_root_cause_sweep_failure():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# RCESC-STATUS-* — status sync sweep
+# ---------------------------------------------------------------------------
+
+
+# @spec RCESC-STATUS-001, RCESC-STATUS-002, RCESC-STATUS-003
+@pytest.mark.asyncio
+async def test_status_sync_marks_closed_escalation():
+    from modok.ingestion.ci_ingestion import reconcile_root_cause_escalation_status
+
+    client = _mock_client(query_return=[["wifi-provisioning", 1, "32"]])
+    with patch("modok.ingestion.github.get_issue_state", new=AsyncMock(return_value="closed")):
+        count = await reconcile_root_cause_escalation_status(
+            client, "stagehand", "acme/stagehand", "tok"
+        )
+
+    assert count == 1
+    set_calls = [c for c in client.query.call_args_list if "SET" in c.args[0] and "status" in c.args[0]]
+    assert len(set_calls) == 1
+    assert set_calls[0].args[1]["seq"] == 1
+    assert set_calls[0].args[1]["f"] == "wifi-provisioning"
+
+
+# @spec RCESC-STATUS-004
+@pytest.mark.asyncio
+async def test_status_sync_no_write_when_still_open():
+    from modok.ingestion.ci_ingestion import reconcile_root_cause_escalation_status
+
+    client = _mock_client(query_return=[["wifi-provisioning", 1, "32"]])
+    with patch("modok.ingestion.github.get_issue_state", new=AsyncMock(return_value="open")):
+        count = await reconcile_root_cause_escalation_status(
+            client, "stagehand", "acme/stagehand", "tok"
+        )
+
+    assert count == 0
+    set_calls = [c for c in client.query.call_args_list if "SET" in c.args[0] and "status" in c.args[0]]
+    assert len(set_calls) == 0
+
+
+# @spec RCESC-STATUS-004
+@pytest.mark.asyncio
+async def test_status_sync_no_write_on_transient_failure():
+    from modok.ingestion.ci_ingestion import reconcile_root_cause_escalation_status
+
+    client = _mock_client(query_return=[["wifi-provisioning", 1, "32"]])
+    with patch("modok.ingestion.github.get_issue_state", new=AsyncMock(return_value=None)):
+        count = await reconcile_root_cause_escalation_status(
+            client, "stagehand", "acme/stagehand", "tok"
+        )
+
+    assert count == 0
+
+
+# @spec RCESC-STATUS-001, RCESC-STATUS-005
+def test_status_sync_query_excludes_already_closed():
+    import inspect
+    from modok.ingestion import ci_ingestion
+
+    source = inspect.getsource(ci_ingestion.reconcile_root_cause_escalation_status)
+    assert "status = 'open'" in source
+    assert "github_issue_number <> ''" in source
+
+
+# @spec RCESC-STATUS-006
+def test_decision_logic_never_reads_status():
+    import inspect
+    from modok.webhook import server
+
+    source = inspect.getsource(server._process_root_cause_escalation)
+    assert "rce.status" not in source
+    assert ".status ==" not in source.replace("ci.status ==", "")
+
+
+# @spec RCESC-STATUS-007
+@pytest.mark.asyncio
+async def test_ci_cycle_isolates_status_sync_failure():
+    from modok.webhook.adapters.github_poll import _run_ci_ingestion_cycle
+
+    project = type("P", (), {
+        "slug": "stagehand", "github_repo": "acme/stagehand",
+        "last_workflow_sync": None, "ci_artifact_pattern": None,
+    })()
+    client = _mock_client()
+    with patch("modok.webhook.adapters.github_poll.discover_workflow_runs", new=AsyncMock(return_value=[])), \
+         patch("modok.webhook.adapters.github_poll.find_expansion_backlog", new=AsyncMock(return_value=[])), \
+         patch("modok.webhook.adapters.github_poll.reconcile_commit_edges", new=AsyncMock()), \
+         patch("modok.webhook.adapters.github_poll.reconcile_test_execution_links", new=AsyncMock()), \
+         patch("modok.webhook.adapters.github_poll.reconcile_file_escalations", new=AsyncMock()), \
+         patch("modok.webhook.adapters.github_poll.reconcile_root_cause_escalations", new=AsyncMock()), \
+         patch("modok.webhook.adapters.github_poll.reconcile_root_cause_escalation_status",
+               new=AsyncMock(side_effect=Exception("boom"))), \
+         patch("modok.webhook.adapters.github_poll.save_last_workflow_sync"):
+        await _run_ci_ingestion_cycle(client, project, "tok")  # must not raise
+
+
 # @spec RCESC-SCOPE-001
 def test_no_error_signature_grouping_in_source():
     import inspect

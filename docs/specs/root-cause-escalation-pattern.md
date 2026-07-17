@@ -66,6 +66,18 @@ See `docs/llds/root-cause-escalation-pattern.md`. Test Level Convention matches 
 
 ---
 
+## Status Sync
+
+- [ ] **RCESC-STATUS-001** [U]: `reconcile_root_cause_escalation_status(client, project_slug, github_repo, token)` SHALL query every `RootCauseEscalation` for the project WHERE `status = 'open'` AND `github_issue_number <> ''`.
+- [ ] **RCESC-STATUS-002** [U]: For each queried escalation, THE SYSTEM SHALL call `get_issue_state(github_repo, token, github_issue_number)`.
+- [ ] **RCESC-STATUS-003** [U, P]: WHEN `get_issue_state` returns `"closed"`, THE SYSTEM SHALL `SET status = 'closed'` on that `RootCauseEscalation` via a targeted property update.
+- [ ] **RCESC-STATUS-004** [U]: WHEN `get_issue_state` returns `"open"` or `None`, THE SYSTEM SHALL NOT write anything for that escalation.
+- [ ] **RCESC-STATUS-005** [U]: A `RootCauseEscalation` already `status = 'closed'` SHALL be excluded from every subsequent run's query (RCESC-STATUS-001) — never re-checked or reverted.
+- [ ] **RCESC-STATUS-006** [U]: `status` written by this sweep SHALL NOT be read anywhere in `_process_root_cause_escalation`'s append-vs-new decision logic — that logic SHALL continue to call `get_issue_state` directly, independent of this sweep's writes.
+- [ ] **RCESC-STATUS-007** [U]: THE SYSTEM SHALL run `reconcile_root_cause_escalation_status` once per poll cycle, per project, isolated in its own `try`/`except` within `_run_ci_ingestion_cycle` — a failure SHALL NOT block any other per-cycle step, including `reconcile_root_cause_escalations`.
+
+---
+
 ## Scope Boundary
 
 - [ ] **RCESC-SCOPE-001** [U]: THE SYSTEM SHALL group only by `Feature` (`AFFECTS`) in this version — no `ErrorSignature`-based (`HAS_ERROR`) grouping.

@@ -784,3 +784,40 @@ async def reconcile_root_cause_escalations(client: Any, project_slug: str) -> No
             continue
         feature_slug = row[0]
         await _process_root_cause_escalation(client, project_slug, feature_slug)
+
+
+# @spec RCESC-STATUS-001 through 007
+async def reconcile_root_cause_escalation_status(
+    client: Any, project_slug: str, github_repo: str, token: str
+) -> int:
+    """Keeps RootCauseEscalation.status in sync with GitHub's real issue
+    state, for browsing/querying accuracy only — found live, after a user
+    closed a real escalation issue and the graph kept reporting it "open"
+    (docs/llds/root-cause-escalation-pattern.md § Status Sync). Completely
+    independent of _process_root_cause_escalation's append-vs-new decision
+    logic, which always calls get_issue_state directly and never reads this
+    property — nothing here can affect that decision's correctness."""
+    from modok.ingestion.github import get_issue_state
+
+    rows = await client.query(
+        "MATCH (rce) WHERE rce.node_type = 'RootCauseEscalation' AND rce.project_slug = $p "
+        "AND rce.status = 'open' AND rce.github_issue_number <> '' "
+        "RETURN rce.feature_slug AS feature_slug, rce.sequence AS sequence, "
+        "rce.github_issue_number AS github_issue_number",
+        {"p": project_slug},
+    )
+    closed_count = 0
+    for row in rows:
+        if not row:
+            continue
+        feature_slug, sequence, issue_number = row[0], row[1], row[2]
+        state = await get_issue_state(github_repo, token, issue_number)
+        if state != "closed":
+            continue
+        await client.query(
+            "MATCH (rce) WHERE id(rce) = idFrom('root-cause-escalation', $p, $f, $seq) "
+            "SET rce.status = 'closed'",
+            {"p": project_slug, "f": feature_slug, "seq": sequence},
+        )
+        closed_count += 1
+    return closed_count
