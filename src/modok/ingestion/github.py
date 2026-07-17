@@ -294,6 +294,48 @@ async def create_issue(
         return None
 
 
+# @spec GHING-DEL-001 through 010
+async def reconcile_deleted_tickets(
+    client: Any, project_slug: str, github_repo: str, token: str
+) -> int:
+    """Fetch every currently-visible GitHub issue number (full, unfiltered
+    state=all pagination — no `since`, the only way to positively confirm a
+    ticket no longer exists rather than merely hasn't changed recently) and
+    mark any CustomerIssue absent from that set status="deleted". See
+    docs/llds/github-ingestion.md § Deleted Ticket Detection: a genuinely
+    deleted issue produces no event and no longer appears in any incremental
+    fetch, so GithubIngester's normal since=-filtered sync can never learn
+    about it on its own."""
+    try:
+        ingester = GithubIngester(
+            project_slug=project_slug, github_repo=github_repo, token=token, client=client
+        )
+        items = await asyncio.to_thread(
+            ingester._paginate_sync,
+            f"{_API_BASE}/repos/{github_repo}/issues",
+            {"state": "all"},
+        )
+        current_numbers = {str(item["number"]) for item in items}
+    except Exception as exc:
+        print(f"deleted-ticket-reconciliation: fetch failed for {project_slug}: {exc}", file=sys.stderr)
+        return 0
+
+    rows = await client.query(
+        "MATCH (ci) WHERE ci.node_type = 'CustomerIssue' AND ci.project_slug = $p "
+        "AND ci.source_system = 'github' AND ci.status <> 'deleted' "
+        "RETURN ci.ticket_id AS ticket_id",
+        {"p": project_slug},
+    )
+    stale = [row[0] for row in rows if row[0] not in current_numbers]
+    for ticket_id in stale:
+        await client.query(
+            "MATCH (ci) WHERE id(ci) = idFrom('customer-issue', $p, 'github', $t) "
+            "SET ci.status = 'deleted'",
+            {"p": project_slug, "t": ticket_id},
+        )
+    return len(stale)
+
+
 # @spec RCESC-GH-001, RCESC-GH-002, RCESC-GH-003
 async def get_issue_state(github_repo: str, token: str, issue_number: str) -> str | None:
     """Best-effort: fetch a GitHub issue's current state ("open"/"closed",

@@ -27,7 +27,7 @@ from modok.ingestion.dependency_ingestion import (
     reconcile_dependency_change_edges,
     run_dependency_ingestion_cycle,
 )
-from modok.ingestion.github import GithubIngester, save_last_github_sync
+from modok.ingestion.github import GithubIngester, reconcile_deleted_tickets, save_last_github_sync
 from modok.quine.client import QuineClient
 from modok.webhook.models import IngestEvent, WebhookConfig
 
@@ -100,6 +100,15 @@ class GitHubPollAdapter:
                 continue
 
             save_last_github_sync(CONFIG_PATH, project.slug, sync_start)
+
+            # @spec GHING-DEL-009, GHING-DEL-010
+            try:
+                await reconcile_deleted_tickets(quine_client, project.slug, project.github_repo, token)
+            except Exception as exc:
+                print(
+                    f"github-poll: {project.slug} — deleted-ticket reconciliation failed: {exc}",
+                    file=sys.stderr,
+                )
 
             ci_summary = await _run_ci_ingestion_cycle(quine_client, project, token)
             dependency_summary = await _run_dependency_ingestion_cycle(quine_client, project, token)

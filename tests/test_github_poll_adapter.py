@@ -58,6 +58,7 @@ def _default_ci_ingestion(monkeypatch):
     monkeypatch.setattr(github_poll, "reconcile_test_execution_links", AsyncMock(return_value=None))
     monkeypatch.setattr(github_poll, "reconcile_file_escalations", AsyncMock(return_value=None))
     monkeypatch.setattr(github_poll, "reconcile_root_cause_escalations", AsyncMock(return_value=None))
+    monkeypatch.setattr(github_poll, "reconcile_deleted_tickets", AsyncMock(return_value=0))
 
 
 # ---------------------------------------------------------------------------

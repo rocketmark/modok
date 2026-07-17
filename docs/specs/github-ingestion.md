@@ -100,6 +100,21 @@ LLD: `docs/llds/github-ingestion.md`
 
 ---
 
+## Deleted Ticket Detection
+
+- [ ] **GHING-DEL-001** [U]: `reconcile_deleted_tickets(client, project_slug, github_repo, token)` SHALL fetch every currently-visible issue number from GitHub via full, paginated `GET /repos/{owner}/{repo}/issues?state=all` with **no** `since` parameter, regardless of any incremental sync cursor.
+- [ ] **GHING-DEL-002** [U]: PR-flavored entries (identified by the `pull_request` key) SHALL NOT be filtered out of the fetched number set — unlike `ingest_issue`'s skip rule, this check needs every currently-existing number, including open Dependabot PRs tracked as `CustomerIssue`.
+- [ ] **GHING-DEL-003** [U]: THE SYSTEM SHALL query the graph for every `CustomerIssue` in the project WHERE `source_system == "github"` AND `status != "deleted"`.
+- [ ] **GHING-DEL-004** [U, P]: A queried `CustomerIssue` whose `ticket_id` is absent from the fetched number set SHALL have its `status` set to `"deleted"` via a targeted property `SET` (not a full `upsert_node` rewrite of every field).
+- [ ] **GHING-DEL-005** [U]: A `CustomerIssue` whose `ticket_id` IS present in the fetched number set SHALL NOT be modified, regardless of its current `status` value.
+- [ ] **GHING-DEL-006** [U]: A `CustomerIssue` with `source_system != "github"` SHALL NOT be considered by this reconciliation at all — it never appears in GHING-DEL-003's query.
+- [ ] **GHING-DEL-007** [U]: A `CustomerIssue` already marked `status == "deleted"` SHALL be excluded from GHING-DEL-003's query on every subsequent run — it is never re-checked or un-marked.
+- [ ] **GHING-DEL-008** [U]: WHEN the full-list fetch (GHING-DEL-001) fails (network error, non-2xx response, exception), THE SYSTEM SHALL log the failure, mark no `CustomerIssue` as deleted this cycle, and SHALL NOT raise.
+- [ ] **GHING-DEL-009** [U]: `reconcile_deleted_tickets` SHALL be called once per poll cycle, per GitHub-configured project, isolated in its own `try`/`except` in `_poll_once` (`src/modok/webhook/adapters/github_poll.py`) — a failure SHALL NOT block issue/PR sync, CI ingestion, dependency ingestion, or either escalation pattern's reconciliation in the same cycle.
+- [ ] **GHING-DEL-010** [U]: WHEN `github_repo` is unconfigured or `GITHUB_TOKEN` is unset for a project, `reconcile_deleted_tickets` SHALL NOT be called for that project (mirrors the existing gate already applied to issue/PR sync itself).
+
+---
+
 ## Data Model
 
 - [x] **GHING-MODEL-001** [U]: The `Fix` model SHALL include a `pr_url: str | None = None` field.

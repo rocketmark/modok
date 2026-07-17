@@ -35,7 +35,7 @@ These two edges are now written by `run_ingest_event`'s `fix` branch (extended f
 | `source_system` | `"github"` |
 | `summary` | `issue.title` |
 | `raw_text` | `issue.body` (may be null → empty string) |
-| `status` | `"open"` or `"closed"` |
+| `status` | `"open"`, `"closed"`, or `"deleted"` (§ Deleted Ticket Detection — the third value is MODOK-synthesized, never a GitHub `state` value; GitHub has no native "deleted" issue state) |
 | `ticket_kind` | Derived from `issue.labels` — see § Ticket Kind from Labels |
 
 ## Ticket Kind from Labels
@@ -96,6 +96,22 @@ Matches are case-insensitive. Cross-repo references (`owner/repo#N`) are ignored
 
 If GitHub's API returns closing issues references directly (available on newer API versions), those are used instead of body parsing.
 
+## Deleted Ticket Detection
+
+**Found live, during Root-Cause Escalation Pattern testing against a real project — not designed speculatively.** Two real tickets were deleted (not closed) from GitHub; `CustomerIssue.status` stayed `"open"` for both indefinitely, since `GithubIngester`'s incremental sync (`state=all` + `since=<updated_at>`) only ever returns issues that currently exist. A deletion produces no event, no webhook delivery, and no row in any future `/issues` response — it is invisible to every mechanism that only ever asks "what's changed," because from GitHub's perspective nothing about a deleted issue's `updated_at` fires again; it simply isn't there to return.
+
+**The only way to positively confirm a ticket no longer exists is to compare the graph's known tickets against GitHub's *current full list*.** `reconcile_deleted_tickets(client, project_slug, github_repo, token)` (`src/modok/ingestion/github.py`):
+
+1. Fetch every currently-visible issue *number* from GitHub: `GET /repos/{owner}/{repo}/issues?state=all&per_page=100`, full pagination via the `Link` header (reusing the same cursor-pagination helper `GithubIngester` already uses for its own incremental fetch), **deliberately with no `since` filter** — an incremental fetch cannot answer "what no longer exists," only "what changed." PR-flavored entries are *not* filtered out of this set (unlike `ingest_issue`'s skip-if-`pull_request`-key rule) — an open Dependabot PR is tracked as a `CustomerIssue` under its PR number, and PR-flavored entries do appear in `/issues`, so leaving them in is what makes those tickets correctly "still exist" for this check.
+2. Query the graph for every `CustomerIssue` in this project where `source_system == "github"` and `status != "deleted"` (already-marked-deleted tickets are skipped — nothing to re-check).
+3. Any graph ticket whose number is absent from step 1's set gets `status` set to `"deleted"` via a targeted property `SET` (`client.query()` with `idFrom()` embedded — not a full `upsert_node`, which would require reconstructing every other field unnecessarily).
+
+**`"deleted"` is a new `status` value, not a new node property or a deletion of the node itself — chosen specifically so every existing `status == "open"` consumer excludes a deleted ticket automatically, with zero changes needed at any call site** (`docs/llds/root-cause-escalation-pattern.md`'s threshold query among them). The `CustomerIssue` node itself is never removed — MODOK's "never delete evidence, only add typed structure" discipline extends here: the ticket existed, was investigated against, and its history stays inspectable; only its *current-existence* claim changes.
+
+**Runs on the same poll cycle as everything else** (~30s), a deliberate simplicity choice over a separate, longer-interval cursor: a full unfiltered `/issues` fetch is real cost — a step up from the incremental `since=`-filtered fetch every other step here uses — but for a repo with dozens-to-low-hundreds of open+closed issues this is a handful of paginated requests, well within the existing rate-limit budget (§ Rate Limiting). Accepted, not measured against a specific issue count where this stops being negligible — revisit with its own interval and cursor if it ever is.
+
+**A `CustomerIssue` already marked `"deleted"` is excluded from future full-list comparisons but is never un-marked.** GitHub does not reuse issue numbers, so there is no scenario where a `"deleted"` ticket's number legitimately reappears as a different, real ticket — the mark is permanent by construction, not merely by choice.
+
 ## API Access Pattern
 
 All requests use the GitHub REST API v3 via `httpx` (async). The token is passed as `Authorization: Bearer <token>`.
@@ -104,6 +120,7 @@ All requests use the GitHub REST API v3 via `httpx` (async). The token is passed
 |---|---|---|
 | Issues | `GET /repos/{owner}/{repo}/issues?state=all&since=<ts>&per_page=100` | Cursor via `Link` header |
 | PRs | `GET /repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100` | Paginate until `updated_at ≤ last_github_sync` |
+| Deleted-ticket check (§ Deleted Ticket Detection) | `GET /repos/{owner}/{repo}/issues?state=all&per_page=100` | Cursor via `Link` header — deliberately **no** `since` param, full list every cycle |
 
 Note: GitHub's `/issues` endpoint returns both issues and PRs. PRs in the issue list are skipped (identified by presence of `pull_request` key) — they are fetched separately via `/pulls`.
 
@@ -119,6 +136,7 @@ Authenticated requests have a 5,000 request/hour limit. For most projects this i
 2. `Fix` nodes (merged, non-Dependabot PRs)
 3. `Fix -[:IMPLEMENTED_IN]-> Commit` edges (merge commit link — silently skipped if Commit absent)
 4. `CustomerIssue -[:RESOLVED_BY]-> Fix` edges (closing references)
+5. `reconcile_deleted_tickets` (§ Deleted Ticket Detection) — runs after the above, on its own pass over the full current ticket set, independent of the incremental sync cursor
 
 Steps 2–4 all happen inside `run_ingest_event`'s `fix` branch now (`docs/llds/continuous-ci-ingestion.md`); `ingest_pr` only builds the `FixData` and dispatches.
 
@@ -142,6 +160,7 @@ src/modok/cli/commands/
 | HTTP 5xx | Exit `2`: "GitHub API unavailable" |
 | Quine unreachable | Exit `2` (standard ping check on startup) |
 | Commit node absent for IMPLEMENTED_IN | Silently skip edge (matches TOUCHES behavior in ingest-git) |
+| `reconcile_deleted_tickets`'s full-list fetch fails (network, rate limit, 5xx) | Logged, isolated in its own `try`/`except`; no `CustomerIssue` is marked deleted this cycle — retried next cycle, never guesses |
 
 **Node existence checks use `node_exists_by_parts`, never a Python-computed `idFrom()`.** Both the `IMPLEMENTED_IN` (Commit) and `RESOLVED_BY` (CustomerIssue) existence gates were found live to be silently broken: they computed an ID via `modok.quine.ids.idFrom()` (a SHA-256 int64, test-harness-only) and passed it to `node_exists()`, which always returned `False` against real Quine — Quine's real node IDs are UUIDs computed by its own `idFrom()` Cypher function, not this Python value. This meant `IMPLEMENTED_IN`/`RESOLVED_BY` edges never actually got written against a real Quine instance, despite passing every mocked unit test. Fixed by switching both gates to `node_exists_by_parts` (`docs/llds/quine-client.md § node_exists_by_parts`), which embeds `idFrom()` in the query text and lets Quine compute the real address.
 
@@ -155,7 +174,12 @@ src/modok/cli/commands/
 | Dependabot detection | `user.login == "dependabot[bot]"` | Label-based | Login is stable; labels vary per repo |
 | HTTP client | `httpx` (async) | `requests` (sync) | Consistent with the rest of modok's async pattern |
 | `ingest_issue`/`ingest_pr` internals | Normalize to `IngestEvent`, dispatch to `run_ingest_event` | Keep inline `upsert_node`/edge-writing logic, duplicated from the webhook path | Discovered live that the poll/batch path (this module) and the webhook path (`GitHubAdapter` + `run_ingest_event`) had drifted into two independently-maintained implementations, one of them (webhook's PR handling) meaningfully less complete than the other — see `docs/llds/continuous-ci-ingestion.md § Prerequisite` for the full finding and the parity-test discipline gating this change |
+| Deletion detection mechanism | Full unfiltered `/issues` list, diffed against the graph, every poll cycle | A targeted per-ticket `GET /issues/{number}` existence check, only for tickets about to be counted toward a threshold (e.g. `RootCauseEscalation`'s qualifying set) | User-selected: fixes `CustomerIssue.status` staleness generally, for every consumer, not just the one feature that happened to surface the gap. A per-consumer targeted check would be cheaper but would need to be independently re-added to every future feature that assumes `status` is trustworthy |
+| Deletion detection cadence | Same ~30s poll cycle as everything else | A separate, longer interval with its own cursor, given the real cost step-up of an unfiltered full-list fetch | User-selected: simplicity over cost optimization at this project's current scale; explicitly flagged as revisit-later, not measured against a specific issue count |
+| `"deleted"` representation | A new `CustomerIssue.status` value | A separate boolean field (e.g. `is_deleted`); removing the node entirely | A new `status` value means every existing `status == "open"` filter excludes deleted tickets automatically, with no code changes at any consumer. A boolean field would need every consumer updated to check it; removing the node would destroy a ticket's investigation history, violating this project's never-delete-evidence discipline |
 
 ## Open Questions
 
 1. Should `Fix -[:IMPLEMENTED_IN]-> Commit` be traversed by the DRE to surface the specific fix commit in the debug packet? Deferred — `pr_url` already links to the PR (which shows the merge commit), and adding a Fix→Commit traversal expands the DRE's scope. Revisit when there is a concrete use case for surfacing fix commit SHAs directly.
+2. Should `FileEscalation`'s `FLAGS` write-back, or any other consumer that doesn't currently filter by ticket status at all, be updated to exclude `"deleted"` tickets explicitly? Not addressed here — this component only establishes that `status = "deleted"` becomes available and correct; auditing every existing consumer for whether it should additionally special-case `"deleted"` (beyond the `status == "open"` checks that already benefit for free) is out of scope for this fix.
+3. Cost at scale — no measurement of the full-list fetch's cost against a specific issue count where the "same cadence as everything else" choice stops being negligible. Revisit if observed.
