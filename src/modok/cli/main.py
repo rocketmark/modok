@@ -24,6 +24,7 @@ from modok.cli.commands.diagnose import diagnose_cmd
 from modok.cli.commands.quine import quine_cmd
 from modok.cli.commands.serve import serve_command
 from modok.cli.commands.stream import stream_cmd
+from modok.cli.commands.backfill_flags import backfill_flags_cmd
 from modok.cli.config import ModokConfig
 from modok.quine.client import QuineClient
 
@@ -91,3 +92,4 @@ cli.add_command(diagnose_cmd, name="diagnose")
 cli.add_command(quine_cmd, name="quine")
 cli.add_command(serve_command, name="serve")
 cli.add_command(stream_cmd, name="stream")
+cli.add_command(backfill_flags_cmd, name="backfill-flags")

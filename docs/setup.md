@@ -139,7 +139,7 @@ Note: Quine does not expand `~` in HOCON paths. The heredoc above uses `$HOME` w
 
 ## Step 5 — Install a local LLM backend
 
-MODOK uses a local LLM for metadata proposals (`--fix`), ticket classification, and anchor extraction. Two backends are supported.
+MODOK uses a local LLM for registry bootstrap proposals (`modok init --assisted`, `modok normalise`), ticket classification, and anchor extraction. Two backends are supported.
 
 ### Option A — Ollama (default, cross-platform)
 

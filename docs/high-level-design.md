@@ -311,16 +311,16 @@ The more docs the repo contains, the more accurate and complete the output. The 
 
 When a project maintains structured arrow index docs (`index.yaml`), `modok import-arrow` is the preferred bootstrap path — it produces more accurate output than LLM-from-docs extraction and validates file claims against the code map before writing.
 
-This is distinct from the `--fix` metadata proposal pass in `modok ingest`, which fills in missing frontmatter fields on individual docs after registries exist. The registry proposal pass runs first and is a prerequisite for ingestion.
+The registry proposal pass (`init --assisted` / `normalise`) runs first and is a prerequisite for ingestion; `modok ingest` itself has no separate metadata-proposal flag today — this paragraph originally described one (`--fix`), which was never implemented as a CLI option (found stale during a documentation accuracy pass; corrected here rather than left as an aspirational claim).
 
 ### 9. Code extraction before doc ingestion (Option A)
 
 The repo is the primary source of truth for what files, modules, and symbols exist. Docs make claims against that known universe — they do not define it.
 
-`modok ingest` requires a code map. If one does not exist it is generated automatically before ingestion proceeds (equivalent to running `modok extract-code-map` first). Passing `--no-code-map` skips generation and disables code-map validation for that run.
+`modok ingest` requires a code map. If one does not exist it is generated automatically before ingestion proceeds (equivalent to running `modok extract-code-map` first). (This paragraph previously also described a `--no-code-map` flag to skip generation — no such flag exists on `modok ingest` today; corrected during the same accuracy pass as the `--fix` note above, rather than left as an aspirational claim.)
 
 Consequences:
-- A `source_files` claim in a doc frontmatter that is absent from the code map produces a warning by default and an error under `--strict`. This catches stale or mistyped file references.
+- A `source_files` claim in a doc frontmatter that is absent from the code map produces a warning. This catches stale or mistyped file references. (This bullet previously also described an `--strict` flag escalating the warning to an error — no such flag exists on `modok ingest` today; corrected during the same accuracy pass as the `--fix`/`--no-code-map` notes above.)
 - A `module` claim that conflicts with the code map's registry-based mapping produces a warning.
 - Docs with no source file claims (HLDs, runbooks, conceptual docs) are unaffected — not every doc must reference code.
 - The Registry Proposal Engine (LLM-from-docs) is demoted to a one-time bootstrap hint for projects with no code map and no existing registry. It is not invoked during normal ingestion.

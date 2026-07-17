@@ -116,6 +116,8 @@ Both reuse the same `github_repo`/`GITHUB_TOKEN` config as the rest of GitHub wr
 
 A ticket **deleted** (not closed) on GitHub is detected within one poll cycle and marked `status = "deleted"` in the graph — it stops counting toward either escalation's threshold automatically, the same way a closed ticket does. This is a correctness fix, not something to configure (`docs/llds/github-ingestion.md § Deleted Ticket Detection`).
 
+**Tickets investigated before these patterns existed won't count until backfilled.** `FLAGS` is only ever computed at a ticket's *first* investigation-triggering standing-query match — `DistinctId` fires at most once per ticket, ever, so an already-investigated ticket never gets a second chance to have `retrieve()`/`FLAGS` run through the normal write-back path. Run `modok backfill-flags --project <slug>` once to catch these up — it finds every open GitHub ticket with no `FLAGS` edge yet, computes it, and backfills `created_at` too if it's missing (using the ticket's earliest `Investigation.triggered_at` as the best available proxy for tickets that predate that field). Safe to re-run; it skips anything already flagged.
+
 ---
 
 ## Re-run `ingest-elements` as code changes

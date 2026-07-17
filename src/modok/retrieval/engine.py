@@ -689,6 +689,33 @@ async def _traverse_similarity(
 
 
 # ---------------------------------------------------------------------------
+# FLAGS write-back (docs/llds/file-escalation-pattern.md § FLAGS Write-Back)
+# Shared by _maybe_notify_github (webhook/server.py) and the `modok
+# backfill-flags` CLI command, so there is exactly one place this logic
+# lives rather than two copies that could drift.
+# ---------------------------------------------------------------------------
+
+
+async def write_flags_for_packet(
+    client: Any, project_slug: str, source_system: str, ticket_id: str, packet: Any
+) -> list[str]:
+    """Reconcile a CustomerIssue's FLAGS edges to exactly its current
+    high-confidence source candidates. Called unconditionally, including
+    when the set is empty (docs/llds/file-escalation-pattern.md § FLAGS
+    Write-Back — a non-empty-only guard would leave stale FLAGS edges from
+    a prior investigation in place)."""
+    high_confidence_files = [
+        c.path for c in packet.scored_candidates if c.kind == "source" and c.confidence == "high"
+    ]
+    await client.replace_edges_by_parts(
+        ("customer-issue", project_slug, source_system, ticket_id),
+        "FLAGS",
+        [("file", project_slug, path) for path in high_confidence_files],
+    )
+    return high_confidence_files
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 

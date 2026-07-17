@@ -555,7 +555,7 @@ New `src/modok/cli/commands/stream.py`, group `stream`, registered in `cli/main.
 ```
 modok stream install   # idempotent: installs actionable-issue-pattern if not already present
 modok stream status    # lists installed standing queries by name
-modok stream remove    # removes actionable-issue-pattern
+modok stream remove    # removes every installed standing query (loops over all_definitions(), same as install)
 ```
 
 No `--project` flag — standing queries are Quine-instance-level infrastructure (like `modok quine start/stop/status`), not per-project data, because of the topology-based isolation argument above. `install` calls `client.standing_query_exists(name)` first; if `True`, prints `"{name} is already installed"` and exits 0 without a network write — this is the literal idempotency the task's acceptance criteria ask for, not just "won't error on retry."

@@ -405,7 +405,11 @@ async def _maybe_notify_github(
         if not github_repo or not token:
             return
 
-        from modok.retrieval.engine import quick_investigation_summary, retrieve
+        from modok.retrieval.engine import (
+            quick_investigation_summary,
+            retrieve,
+            write_flags_for_packet,
+        )
 
         # Resolve the real Quine node ID by property lookup — the CustomerIssue
         # was addressed via Quine's own idFrom() at write time (embedded in the
@@ -501,19 +505,8 @@ async def _maybe_notify_github(
             feature_source_files=feature_source_files,
         )
 
-        # @spec FESC-FLAGS-001, FESC-FLAGS-002, FESC-SCOPE-001 — reconcile this
-        # ticket's high-confidence source-file candidates to FLAGS edges,
-        # unconditionally (including to an empty set — see docs/llds/
-        # file-escalation-pattern.md § FLAGS Write-Back for why an
-        # if-non-empty guard here would be a real reconciliation bug).
-        high_confidence_files = [
-            c.path for c in packet.scored_candidates if c.kind == "source" and c.confidence == "high"
-        ]
-        await client.replace_edges_by_parts(
-            ("customer-issue", project_slug, source_system, ticket_id),
-            "FLAGS",
-            [("file", project_slug, path) for path in high_confidence_files],
-        )
+        # @spec FESC-FLAGS-001, FESC-FLAGS-002, FESC-SCOPE-001
+        await write_flags_for_packet(client, project_slug, source_system, ticket_id, packet)
 
         results_body = format_debug_packet_markdown(packet, investigation_id, standing_query_name)
 
