@@ -20,12 +20,28 @@ from modok.ingestion.anchor_linking import (
 )
 from modok.ingestion.github import post_issue_comment
 from modok.quine.client import QuineClient
-from modok.quine.models import CustomerIssue, Investigation, InvestigationMilestone
+from modok.quine.models import (
+    CustomerIssue,
+    FileEscalation,
+    Investigation,
+    InvestigationMilestone,
+    RootCauseEscalation,
+)
+from modok.retrieval.formatting import (
+    format_file_escalation_markdown,
+    format_file_escalation_title,
+    format_file_escalation_update_markdown,
+    format_root_cause_escalation_markdown,
+    format_root_cause_escalation_title,
+    format_root_cause_escalation_update_markdown,
+)
 from modok.webhook.errors import WebhookAuthError
 from modok.webhook.models import (
+    FileEscalationData,
     IngestEvent,
     InvestigationData,
     MilestoneData,
+    RootCauseEscalationData,
     WebhookConfig,
 )
 from modok.webhook.pipeline import run_ingest_event
@@ -38,6 +54,70 @@ _REQUIRED_MATCH_FIELDS = (
     "source_system",
     "ticket_id",
 )
+
+# @spec FESC-SQ-006
+_REQUIRED_FILE_ESCALATION_MATCH_FIELDS = (
+    "project_slug",
+    "file_path",
+    "since_commit",
+)
+
+# @spec RCESC-SQ-004
+_REQUIRED_ROOT_CAUSE_ESCALATION_MATCH_FIELDS = (
+    "project_slug",
+    "feature_slug",
+)
+
+
+def _required_fields_for_match(match: dict) -> tuple[str, ...]:
+    if match.get("milestone_kind"):
+        return _REQUIRED_MATCH_FIELDS
+    if match.get("since_commit"):
+        return _REQUIRED_FILE_ESCALATION_MATCH_FIELDS
+    if match.get("feature_slug"):
+        return _REQUIRED_ROOT_CAUSE_ESCALATION_MATCH_FIELDS
+    return _REQUIRED_MATCH_FIELDS
+
+
+# @spec SQ-ROUTE-007, FESC-SQ-006, RCESC-SQ-004
+def _standing_query_row_to_event_data(
+    match: dict,
+) -> InvestigationData | MilestoneData | FileEscalationData | RootCauseEscalationData:
+    milestone_kind = match.get("milestone_kind")
+    if milestone_kind:
+        return MilestoneData(
+            source_system=match["source_system"],
+            ticket_id=match["ticket_id"],
+            milestone_kind=milestone_kind,
+            standing_query_name=match.get("standing_query_name", "ci-corroboration-pattern"),
+            workflow_run_id=match.get("workflow_run_id", ""),
+            test_failure_id=match.get("test_failure_id", ""),
+            error_signature=match.get("error_signature", ""),
+            workflow_name=match.get("workflow_name", ""),
+            head_sha=match.get("head_sha", ""),
+        )
+    since_commit = match.get("since_commit")
+    if since_commit:
+        return FileEscalationData(
+            project_slug=match["project_slug"],
+            file_path=match["file_path"],
+            since_commit=since_commit,
+            standing_query_name=match.get("standing_query_name", "file-escalation-pattern"),
+        )
+    feature_slug = match.get("feature_slug")
+    if feature_slug:
+        return RootCauseEscalationData(
+            project_slug=match["project_slug"],
+            feature_slug=feature_slug,
+            standing_query_name=match.get("standing_query_name", "root-cause-escalation-pattern"),
+        )
+    return InvestigationData(
+        source_system=match["source_system"],
+        ticket_id=match["ticket_id"],
+        known_issue_id=match.get("known_issue_id", ""),
+        fix_id=match.get("fix_id", ""),
+        standing_query_name=match.get("standing_query_name", "actionable-issue-pattern"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -418,11 +498,308 @@ async def _maybe_notify_github(
             feature_source_files=feature_source_files,
         )
 
+        # @spec FESC-FLAGS-001, FESC-FLAGS-002, FESC-SCOPE-001 — reconcile this
+        # ticket's high-confidence source-file candidates to FLAGS edges,
+        # unconditionally (including to an empty set — see docs/llds/
+        # file-escalation-pattern.md § FLAGS Write-Back for why an
+        # if-non-empty guard here would be a real reconciliation bug).
+        high_confidence_files = [
+            c.path for c in packet.scored_candidates if c.kind == "source" and c.confidence == "high"
+        ]
+        await client.replace_edges_by_parts(
+            ("customer-issue", project_slug, source_system, ticket_id),
+            "FLAGS",
+            [("file", project_slug, path) for path in high_confidence_files],
+        )
+
         results_body = format_debug_packet_markdown(packet, investigation_id, standing_query_name)
 
         await post_issue_comment(github_repo, token, ticket_id, results_body)
     except Exception as exc:
         print(f"GitHub write-back failed for {project_slug}#{ticket_id}: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# file_escalation — threshold-and-recency escalation, best-effort fast path
+# (standing query) + reconciliation-sweep backstop
+# @spec FESC-PROC-001 through 007, FESC-GH-002, FESC-ERR-001..003
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_github_repo_and_token(project_slug: str) -> tuple[str, str] | None:
+    from modok.cli.config import ModokConfig
+
+    config = ModokConfig.load()
+    project = next((p for p in config.projects if p.slug == project_slug), None)
+    github_repo = getattr(project, "github_repo", None) if project else None
+
+    import os
+
+    token = os.environ.get("GITHUB_TOKEN")
+    if not github_repo or not token:
+        return None
+    return github_repo, token
+
+
+# @spec FESC-GH-002, FESC-GH-003, FESC-GH-004
+async def _create_file_escalation_issue(
+    client: Any,
+    project_slug: str,
+    file_path: str,
+    since_commit: str,
+    qualifying: list[tuple[str, str, str]],
+) -> None:
+    github = await _resolve_github_repo_and_token(project_slug)
+    if github is None:
+        return
+    github_repo, token = github
+    title = format_file_escalation_title(file_path, len(qualifying), since_commit)
+    body = format_file_escalation_markdown(file_path, since_commit, qualifying)
+
+    from modok.ingestion.github import create_issue
+
+    issue_number = await create_issue(github_repo, token, title, body, labels=["modok-escalation"])
+    if issue_number:
+        await client.query(
+            "MATCH (fe) WHERE id(fe) = idFrom('file-escalation', $p, $path, $since_commit) "
+            "SET fe.github_issue_number = $num",
+            {"p": project_slug, "path": file_path, "since_commit": since_commit, "num": issue_number},
+        )
+
+
+# @spec FESC-PROC-001, FESC-PROC-002, FESC-PROC-003, FESC-PROC-004,
+#       FESC-PROC-005, FESC-PROC-006, FESC-PROC-007, FESC-ERR-001, FESC-ERR-002,
+#       FESC-ERR-003, FESC-SCOPE-002
+async def _process_file_escalation(
+    client: Any, project_slug: str, file_path: str, since_commit: str
+) -> int:
+    """Shared by the run_ingest_event file_escalation branch and
+    reconcile_file_escalations (src/modok/ingestion/ci_ingestion.py) — no
+    duplicated processing logic between the two call sites."""
+    try:
+        rows = await client.query(
+            "MATCH (f) WHERE f.node_type = 'File' AND f.project_slug = $p AND f.repo_path = $path "
+            "MATCH (f)<-[:TOUCHES]-(c) WHERE c.node_type = 'Commit' AND c.sha = $since_commit "
+            "MATCH (f)<-[:FLAGS]-(ci) WHERE ci.node_type = 'CustomerIssue' AND ci.created_at > c.timestamp "
+            "RETURN ci.source_system AS source_system, ci.ticket_id AS ticket_id, ci.summary AS summary",
+            {"p": project_slug, "path": file_path, "since_commit": since_commit},
+        )
+        qualifying = [(row[0], row[1], row[2]) for row in rows]
+        if len(qualifying) < 3:
+            return 0
+
+        fe_parts = ("file-escalation", project_slug, file_path, since_commit)
+        exists = await client.node_exists_by_parts(fe_parts)
+
+        if not exists:
+            node = FileEscalation(
+                node_type="FileEscalation",
+                project_slug=project_slug,
+                file_path=file_path,
+                since_commit=since_commit,
+                github_issue_number="",
+                status="open",
+                created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                standing_query_name="file-escalation-pattern",
+            )
+            await client.upsert_node(node)
+            await client.write_edge_by_parts(fe_parts, "ESCALATES", ("file", project_slug, file_path))
+            for source_system, ticket_id, _ in qualifying:
+                await client.write_edge_by_parts(
+                    fe_parts,
+                    "INCLUDES",
+                    ("customer-issue", project_slug, source_system, ticket_id),
+                )
+            await _create_file_escalation_issue(client, project_slug, file_path, since_commit, qualifying)
+            return 1
+
+        issue_number_rows = await client.query(
+            "MATCH (fe) WHERE id(fe) = idFrom('file-escalation', $p, $path, $since_commit) "
+            "RETURN fe.github_issue_number AS github_issue_number",
+            {"p": project_slug, "path": file_path, "since_commit": since_commit},
+        )
+        github_issue_number = (
+            issue_number_rows[0][0] if issue_number_rows and issue_number_rows[0] else ""
+        )
+
+        if not github_issue_number:
+            await _create_file_escalation_issue(client, project_slug, file_path, since_commit, qualifying)
+            return 1
+
+        included_rows = await client.query(
+            "MATCH (fe)-[:INCLUDES]->(ci) WHERE id(fe) = idFrom('file-escalation', $p, $path, $since_commit) "
+            "RETURN ci.ticket_id AS ticket_id",
+            {"p": project_slug, "path": file_path, "since_commit": since_commit},
+        )
+        included_ticket_ids = {row[0] for row in included_rows}
+        new_issues = [q for q in qualifying if q[1] not in included_ticket_ids]
+        if not new_issues:
+            return 0
+
+        github = await _resolve_github_repo_and_token(project_slug)
+        from modok.ingestion.github import post_issue_comment as _post_issue_comment
+
+        for source_system, ticket_id, summary in new_issues:
+            await client.write_edge_by_parts(
+                fe_parts, "INCLUDES", ("customer-issue", project_slug, source_system, ticket_id)
+            )
+            if github is not None:
+                github_repo, token = github
+                body = format_file_escalation_update_markdown(source_system, ticket_id, summary)
+                await _post_issue_comment(github_repo, token, github_issue_number, body)
+        return 1
+    except Exception as exc:
+        print(
+            f"file-escalation: processing failed for {project_slug}/{file_path}@{since_commit}: {exc}",
+            file=sys.stderr,
+        )
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# root_cause_escalation — threshold-by-feature escalation, reset by a human
+# closing the GitHub issue rather than by a code-change anchor
+# @spec RCESC-PROC-001 through 013, RCESC-CREATE-001 through 003
+# ---------------------------------------------------------------------------
+
+
+# @spec RCESC-CREATE-001, RCESC-CREATE-002, RCESC-CREATE-003
+async def _create_or_retry_root_cause_escalation(
+    client: Any,
+    project_slug: str,
+    feature_slug: str,
+    sequence: int,
+    qualifying: list[tuple[str, str, str]],
+) -> None:
+    rce_parts = ("root-cause-escalation", project_slug, feature_slug, sequence)
+
+    if not await client.node_exists_by_parts(rce_parts):
+        node = RootCauseEscalation(
+            node_type="RootCauseEscalation",
+            project_slug=project_slug,
+            feature_slug=feature_slug,
+            sequence=sequence,
+            github_issue_number="",
+            status="open",
+            created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            standing_query_name="root-cause-escalation-pattern",
+        )
+        await client.upsert_node(node)
+        await client.write_edge_by_parts(rce_parts, "ESCALATES", ("feature", project_slug, feature_slug))
+
+    for source_system, ticket_id, _ in qualifying:
+        await client.write_edge_by_parts(
+            rce_parts, "INCLUDES", ("customer-issue", project_slug, source_system, ticket_id)
+        )
+
+    # @spec RCESC-CREATE-002 — narrow the create-issue race: re-check
+    # immediately before the external call, not relying on the
+    # node_exists_by_parts check above (which only confirms the node
+    # exists, not that its issue was successfully created).
+    current_rows = await client.query(
+        "MATCH (rce) WHERE id(rce) = idFrom('root-cause-escalation', $p, $f, $seq) "
+        "RETURN rce.github_issue_number AS github_issue_number",
+        {"p": project_slug, "f": feature_slug, "seq": sequence},
+    )
+    current_issue_number = current_rows[0][0] if current_rows and current_rows[0] else ""
+    if current_issue_number:
+        return
+
+    github = await _resolve_github_repo_and_token(project_slug)
+    if github is None:
+        return
+    github_repo, token = github
+    title = format_root_cause_escalation_title(feature_slug, len(qualifying), sequence)
+    body = format_root_cause_escalation_markdown(feature_slug, qualifying)
+
+    from modok.ingestion.github import create_issue
+
+    issue_number = await create_issue(github_repo, token, title, body, labels=["modok-root-cause"])
+    if issue_number:
+        await client.query(
+            "MATCH (rce) WHERE id(rce) = idFrom('root-cause-escalation', $p, $f, $seq) "
+            "SET rce.github_issue_number = $num",
+            {"p": project_slug, "f": feature_slug, "seq": sequence, "num": issue_number},
+        )
+
+
+# @spec RCESC-PROC-001 through 013
+async def _process_root_cause_escalation(client: Any, project_slug: str, feature_slug: str) -> int:
+    """Shared by the run_ingest_event root_cause_escalation branch and
+    reconcile_root_cause_escalations (src/modok/ingestion/ci_ingestion.py)."""
+    try:
+        open_rows = await client.query(
+            "MATCH (feat) WHERE feat.node_type = 'Feature' AND feat.project_slug = $p "
+            "AND feat.feature_slug = $f "
+            "MATCH (feat)<-[:AFFECTS]-(ci) WHERE ci.node_type = 'CustomerIssue' AND ci.status = 'open' "
+            "RETURN ci.source_system AS source_system, ci.ticket_id AS ticket_id, ci.summary AS summary",
+            {"p": project_slug, "f": feature_slug},
+        )
+        linked_rows = await client.query(
+            "MATCH (rce) WHERE rce.node_type = 'RootCauseEscalation' AND rce.project_slug = $p "
+            "AND rce.feature_slug = $f AND rce.github_issue_number <> '' "
+            "MATCH (rce)-[:INCLUDES]->(ci) WHERE ci.node_type = 'CustomerIssue' "
+            "RETURN ci.ticket_id AS ticket_id",
+            {"p": project_slug, "f": feature_slug},
+        )
+        already_linked = {row[0] for row in linked_rows}
+        qualifying = [(row[0], row[1], row[2]) for row in open_rows if row[1] not in already_linked]
+        if len(qualifying) < 3:
+            return 0
+
+        latest_rows = await client.query(
+            "MATCH (rce) WHERE rce.node_type = 'RootCauseEscalation' AND rce.project_slug = $p "
+            "AND rce.feature_slug = $f "
+            "RETURN rce.sequence AS sequence, rce.github_issue_number AS github_issue_number "
+            "ORDER BY rce.sequence DESC LIMIT 1",
+            {"p": project_slug, "f": feature_slug},
+        )
+        if not latest_rows:
+            await _create_or_retry_root_cause_escalation(client, project_slug, feature_slug, 1, qualifying)
+            return 1
+
+        latest_sequence, latest_issue_number = latest_rows[0][0], latest_rows[0][1]
+
+        if not latest_issue_number:
+            await _create_or_retry_root_cause_escalation(
+                client, project_slug, feature_slug, latest_sequence, qualifying
+            )
+            return 1
+
+        github = await _resolve_github_repo_and_token(project_slug)
+        if github is None:
+            return 0
+        github_repo, token = github
+
+        from modok.ingestion.github import get_issue_state
+
+        state = await get_issue_state(github_repo, token, latest_issue_number)
+        if state is None:
+            return 0
+
+        if state == "open":
+            from modok.ingestion.github import post_issue_comment as _post_issue_comment
+
+            rce_parts = ("root-cause-escalation", project_slug, feature_slug, latest_sequence)
+            for source_system, ticket_id, summary in qualifying:
+                await client.write_edge_by_parts(
+                    rce_parts, "INCLUDES", ("customer-issue", project_slug, source_system, ticket_id)
+                )
+                body = format_root_cause_escalation_update_markdown(source_system, ticket_id, summary)
+                await _post_issue_comment(github_repo, token, latest_issue_number, body)
+            return 1
+
+        # state == "closed"
+        await _create_or_retry_root_cause_escalation(
+            client, project_slug, feature_slug, latest_sequence + 1, qualifying
+        )
+        return 1
+    except Exception as exc:
+        print(
+            f"root-cause-escalation: processing failed for {project_slug}/{feature_slug}: {exc}",
+            file=sys.stderr,
+        )
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +953,7 @@ def build_app(
             if "data" in match and "meta" in match and isinstance(match["data"], dict):
                 match = match["data"]
 
-            missing = [f for f in _REQUIRED_MATCH_FIELDS if not match.get(f)]
+            missing = [f for f in _required_fields_for_match(match) if not match.get(f)]
             if missing:
                 return JSONResponse(
                     {"detail": f"Missing required fields: {missing}"}, status_code=400
@@ -586,42 +963,20 @@ def build_app(
             if slugs is not None and project_slug not in slugs:
                 return JSONResponse({"detail": f"Unknown project: {project_slug}"}, status_code=404)
 
-            # @spec SQ-ROUTE-007 — dispatch on payload shape, not a second route:
-            # the ci-corroboration-pattern's enrichment includes milestone_kind,
-            # existing patterns' enrichments don't.
-            milestone_kind = match.get("milestone_kind")
-            if milestone_kind:
-                event = IngestEvent(
-                    kind="milestone",
-                    project_slug=project_slug,
-                    data=MilestoneData(
-                        source_system=match["source_system"],
-                        ticket_id=match["ticket_id"],
-                        milestone_kind=milestone_kind,
-                        standing_query_name=match.get(
-                            "standing_query_name", "ci-corroboration-pattern"
-                        ),
-                        workflow_run_id=match.get("workflow_run_id", ""),
-                        test_failure_id=match.get("test_failure_id", ""),
-                        error_signature=match.get("error_signature", ""),
-                        workflow_name=match.get("workflow_name", ""),
-                        head_sha=match.get("head_sha", ""),
-                    ),
-                )
+            # @spec SQ-ROUTE-007, FESC-SQ-006 — dispatch on payload shape, not a
+            # second route: milestone_kind identifies a milestone row,
+            # since_commit (with no milestone_kind) identifies a file_escalation
+            # row, otherwise investigation (the pre-existing default).
+            data = _standing_query_row_to_event_data(match)
+            event: IngestEvent
+            if isinstance(data, MilestoneData):
+                event = IngestEvent(kind="milestone", project_slug=project_slug, data=data)
+            elif isinstance(data, FileEscalationData):
+                event = IngestEvent(kind="file_escalation", project_slug=project_slug, data=data)
+            elif isinstance(data, RootCauseEscalationData):
+                event = IngestEvent(kind="root_cause_escalation", project_slug=project_slug, data=data)
             else:
-                event = IngestEvent(
-                    kind="investigation",
-                    project_slug=project_slug,
-                    data=InvestigationData(
-                        source_system=match["source_system"],
-                        ticket_id=match["ticket_id"],
-                        known_issue_id=match.get("known_issue_id", ""),
-                        fix_id=match.get("fix_id", ""),
-                        standing_query_name=match.get(
-                            "standing_query_name", "actionable-issue-pattern"
-                        ),
-                    ),
-                )
+                event = IngestEvent(kind="investigation", project_slug=project_slug, data=data)
             investigations_written += await asyncio.to_thread(run_ingest_event, event, quine_client)
 
         return JSONResponse({"status": "ok", "investigations_written": investigations_written})

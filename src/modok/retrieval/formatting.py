@@ -105,6 +105,59 @@ def format_ci_corroboration_milestone_markdown(
     return "\n".join(lines)
 
 
+# @spec FESC-GH-003
+def format_file_escalation_title(file_path: str, n: int, since_commit: str) -> str:
+    return f"MODOK: {file_path} flagged by {n} tickets since {since_commit[:7]}"
+
+
+def format_file_escalation_markdown(
+    file_path: str, since_commit: str, issues: list[tuple[str, str, str]]
+) -> str:
+    """issues: list of (source_system, ticket_id, summary) tuples for the
+    escalation's initial contributing CustomerIssues."""
+    lines = [
+        "## 🚨 MODOK file escalation",
+        "",
+        f"`{file_path}` has been flagged as a high-confidence debug candidate by "
+        f"{len(issues)} separate tickets since commit `{since_commit[:7]}`.",
+        "",
+        "**Contributing tickets:**",
+    ]
+    for source_system, ticket_id, summary in issues:
+        lines.append(f"- {source_system}#{ticket_id}: {summary}")
+    lines.append("")
+    lines.append(f"_Escalation: file={file_path}, since_commit={since_commit}_")
+    return "\n".join(lines)
+
+
+def format_file_escalation_update_markdown(source_system: str, ticket_id: str, summary: str) -> str:
+    return f"Additional ticket flagged this file: {source_system}#{ticket_id} — {summary}"
+
+
+# @spec RCESC-GH-005
+def format_root_cause_escalation_title(feature_slug: str, n: int, sequence: int) -> str:
+    return f"MODOK: {feature_slug} has {n} open tickets in progress"
+
+
+def format_root_cause_escalation_markdown(feature_slug: str, issues: list[tuple[str, str, str]]) -> str:
+    lines = [
+        "## 🔗 MODOK root-cause grouping",
+        "",
+        f"`{feature_slug}` has {len(issues)} separate open tickets affecting it.",
+        "",
+        "**Related tickets:**",
+    ]
+    for source_system, ticket_id, summary in issues:
+        lines.append(f"- {source_system}#{ticket_id}: {summary}")
+    lines.append("")
+    lines.append(f"_Root-cause grouping: feature={feature_slug}_")
+    return "\n".join(lines)
+
+
+def format_root_cause_escalation_update_markdown(source_system: str, ticket_id: str, summary: str) -> str:
+    return f"Additional ticket affecting this feature: {source_system}#{ticket_id} — {summary}"
+
+
 def format_debug_packet_markdown(
     packet: DebugPacket, investigation_id: str, standing_query_name: str
 ) -> str:

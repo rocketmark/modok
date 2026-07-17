@@ -79,9 +79,33 @@ class MilestoneData:
 
 
 @dataclass(frozen=True, eq=True)
-class IngestEvent:
-    kind: Literal["customer_issue", "fix", "investigation", "milestone", "skip"]
+class FileEscalationData:
     project_slug: str
-    data: CustomerIssueData | FixData | InvestigationData | MilestoneData | None = field(
-        default=None
-    )
+    file_path: str
+    since_commit: str
+    standing_query_name: str
+
+
+@dataclass(frozen=True, eq=True)
+class RootCauseEscalationData:
+    project_slug: str
+    feature_slug: str
+    standing_query_name: str
+
+
+@dataclass(frozen=True, eq=True)
+class IngestEvent:
+    kind: Literal[
+        "customer_issue", "fix", "investigation", "milestone",
+        "file_escalation", "root_cause_escalation", "skip",
+    ]
+    project_slug: str
+    data: (
+        CustomerIssueData
+        | FixData
+        | InvestigationData
+        | MilestoneData
+        | FileEscalationData
+        | RootCauseEscalationData
+        | None
+    ) = field(default=None)

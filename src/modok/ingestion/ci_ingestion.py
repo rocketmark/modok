@@ -721,3 +721,66 @@ async def expand_workflow_run(
             expansion_last_attempted_at=now,
         )
     )
+
+
+# @spec FESC-POLL-001, FESC-PROC-001a, FESC-POLL-002, FESC-POLL-004
+async def reconcile_file_escalations(client: Any, project_slug: str) -> None:
+    """Correctness backstop for the file-escalation-pattern standing query
+    (docs/llds/file-escalation-pattern.md § Reconciliation Sweep): Quine's
+    DistinctId standing-query pattern can only key on a node, not the
+    completing FLAGS edge, so a ticket's second-or-later flag to a different
+    file can structurally fail to ever re-trigger evaluation. This sweep
+    re-derives every File currently crossing the 3-ticket-since-last-commit
+    threshold directly, independent of whether any standing-query delivery
+    ever fired for it, and processes each via the same shared function the
+    run_ingest_event branch uses — no duplicated logic between the two call
+    sites. Ordinary, unrestricted Cypher (not a standing-query enrichment),
+    so the WITH/aggregation restriction that applies to standing-query
+    patterns and their enrichment stages does not apply here."""
+    rows = await client.query(
+        "MATCH (f) WHERE f.node_type = 'File' AND f.project_slug = $p "
+        "MATCH (f)<-[:FLAGS]-(any_ci) WHERE any_ci.node_type = 'CustomerIssue' "
+        "WITH DISTINCT f "
+        "MATCH (f)<-[:TOUCHES]-(c) WHERE c.node_type = 'Commit' "
+        "WITH f, c ORDER BY c.timestamp DESC LIMIT 1 "
+        "MATCH (f)<-[:FLAGS]-(ci) WHERE ci.node_type = 'CustomerIssue' AND ci.created_at > c.timestamp "
+        "WITH f, c, count(distinct ci) AS n "
+        "WHERE n >= 3 "
+        "RETURN f.repo_path AS file_path, c.sha AS since_commit",
+        {"p": project_slug},
+    )
+    # Lazy import — a module-level import here would close a real cycle:
+    # server.py -> router.py -> github_poll.py -> ci_ingestion.py (this
+    # module). See docs/llds/file-escalation-pattern.md § Standing Query.
+    from modok.webhook.server import _process_file_escalation
+
+    for row in rows:
+        if not row:
+            continue
+        file_path, since_commit = row[0], row[1]
+        await _process_file_escalation(client, project_slug, file_path, since_commit)
+
+
+# @spec RCESC-POLL-001, RCESC-POLL-002
+async def reconcile_root_cause_escalations(client: Any, project_slug: str) -> None:
+    """Correctness backstop for the root-cause-escalation-pattern standing
+    query, mirroring reconcile_file_escalations exactly
+    (docs/llds/root-cause-escalation-pattern.md § Reconciliation Sweep). A
+    loose prefilter — any feature with at least one currently-open,
+    affecting ticket, not necessarily 3 unlinked ones; the authoritative
+    check is inside _process_root_cause_escalation itself."""
+    rows = await client.query(
+        "MATCH (feat) WHERE feat.node_type = 'Feature' AND feat.project_slug = $p "
+        "MATCH (feat)<-[:AFFECTS]-(ci) WHERE ci.node_type = 'CustomerIssue' AND ci.status = 'open' "
+        "WITH DISTINCT feat "
+        "RETURN feat.feature_slug AS feature_slug",
+        {"p": project_slug},
+    )
+    # Lazy import — same import-cycle reason as reconcile_file_escalations above.
+    from modok.webhook.server import _process_root_cause_escalation
+
+    for row in rows:
+        if not row:
+            continue
+        feature_slug = row[0]
+        await _process_root_cause_escalation(client, project_slug, feature_slug)

@@ -344,6 +344,8 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
         ErrorSignature,
         KnownIssue,
         CustomerIssue,
+        FileEscalation,
+        RootCauseEscalation,
         SimilarityMatch,
         Fix,
         ResolutionEvent,
@@ -421,6 +423,24 @@ def _idFrom_cypher_args(node: QuineNode) -> tuple[str, dict[str, Any]]:
                 "idf_project_slug": node.project_slug,
                 "idf_source_system": node.source_system,
                 "idf_ticket_id": node.ticket_id,
+            },
+        )
+    if isinstance(node, FileEscalation):
+        return (
+            "'file-escalation', $idf_project_slug, $idf_file_path, $idf_since_commit",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_file_path": node.file_path,
+                "idf_since_commit": node.since_commit,
+            },
+        )
+    if isinstance(node, RootCauseEscalation):
+        return (
+            "'root-cause-escalation', $idf_project_slug, $idf_feature_slug, $idf_sequence",
+            {
+                "idf_project_slug": node.project_slug,
+                "idf_feature_slug": node.feature_slug,
+                "idf_sequence": node.sequence,
             },
         )
     if isinstance(node, SimilarityMatch):

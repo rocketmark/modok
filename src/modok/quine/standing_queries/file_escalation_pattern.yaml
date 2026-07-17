@@ -1,0 +1,17 @@
+name: file-escalation-pattern
+mode: DistinctId
+pattern: |
+  MATCH (f)<-[:FLAGS]-(ci) WHERE f.node_type = 'File' AND ci.node_type = 'CustomerIssue'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  MATCH (ci)-[:FLAGS]->(f) WHERE f.node_type = 'File'
+  WITH f
+  MATCH (f)<-[:TOUCHES]-(c) WHERE c.node_type = 'Commit'
+  WITH f, c ORDER BY c.timestamp DESC LIMIT 1
+  MATCH (f)<-[:FLAGS]-(ci2) WHERE ci2.node_type = 'CustomerIssue' AND ci2.created_at > c.timestamp
+  WITH f, c, count(distinct ci2) AS n
+  WHERE n >= 3
+  RETURN f.project_slug AS project_slug, f.repo_path AS file_path, c.sha AS since_commit,
+         'file-escalation-pattern' AS standing_query_name
+output_name: file-escalation-trigger

@@ -56,6 +56,8 @@ def _default_ci_ingestion(monkeypatch):
     monkeypatch.setattr(github_poll, "expand_workflow_run", AsyncMock(return_value=None))
     monkeypatch.setattr(github_poll, "reconcile_commit_edges", AsyncMock(return_value=None))
     monkeypatch.setattr(github_poll, "reconcile_test_execution_links", AsyncMock(return_value=None))
+    monkeypatch.setattr(github_poll, "reconcile_file_escalations", AsyncMock(return_value=None))
+    monkeypatch.setattr(github_poll, "reconcile_root_cause_escalations", AsyncMock(return_value=None))
 
 
 # ---------------------------------------------------------------------------

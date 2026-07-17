@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -80,6 +81,7 @@ def _ingest_customer_ticket(
         summary=summary,
         raw_text=text,
         status="open",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
     asyncio.run(_write_ticket_and_link_anchors(client, project_slug, repo_root, node))
     click.echo(f"Ingested customer ticket {ticket_id} (source: {source_system})")

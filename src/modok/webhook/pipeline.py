@@ -15,15 +15,18 @@ Event Routing."""
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from modok.quine.models import CustomerIssue, Fix
 from modok.webhook.models import (
     CustomerIssueData,
+    FileEscalationData,
     FixData,
     IngestEvent,
     InvestigationData,
     MilestoneData,
+    RootCauseEscalationData,
 )
 
 
@@ -50,6 +53,7 @@ def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
             raw_text=event.data.raw_text,
             status=event.data.status,
             ticket_kind=event.data.ticket_kind,
+            created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         asyncio.run(quine_client.upsert_node(node))
         from modok.webhook.server import _link_anchors_resilient
@@ -74,6 +78,7 @@ def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
                 summary=data.summary,
                 raw_text="",
                 status="open",
+                created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
             asyncio.run(quine_client.upsert_node(node))
             return 1
@@ -121,5 +126,25 @@ def run_ingest_event(event: IngestEvent, quine_client: Any) -> int:
         from modok.webhook.server import _process_milestone
 
         return asyncio.run(_process_milestone(event, quine_client))
+
+    if event.kind == "file_escalation":
+        assert isinstance(event.data, FileEscalationData)
+        from modok.webhook.server import _process_file_escalation
+
+        return asyncio.run(
+            _process_file_escalation(
+                quine_client, event.data.project_slug, event.data.file_path, event.data.since_commit
+            )
+        )
+
+    if event.kind == "root_cause_escalation":
+        assert isinstance(event.data, RootCauseEscalationData)
+        from modok.webhook.server import _process_root_cause_escalation
+
+        return asyncio.run(
+            _process_root_cause_escalation(
+                quine_client, event.data.project_slug, event.data.feature_slug
+            )
+        )
 
     return 0

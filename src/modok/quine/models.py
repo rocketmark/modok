@@ -84,6 +84,7 @@ class CustomerIssue(QuineNode):
     raw_text: str | None = None
     status: str
     ticket_kind: str | None = None
+    created_at: str = ""  # MODOK's own ingestion wall-clock time, not the source system's
 
 
 class SimilarityMatch(QuineNode):
@@ -143,6 +144,30 @@ class Investigation(QuineNode):
     status: str
     trigger_type: str
     triggered_at: str
+    standing_query_name: str
+
+
+# @spec FESC-NODE-001
+class FileEscalation(QuineNode):
+    node_type: Literal["FileEscalation"]
+    project_slug: str
+    file_path: str
+    since_commit: str
+    github_issue_number: str
+    status: str
+    created_at: str
+    standing_query_name: str
+
+
+# @spec RCESC-NODE-001
+class RootCauseEscalation(QuineNode):
+    node_type: Literal["RootCauseEscalation"]
+    project_slug: str
+    feature_slug: str
+    sequence: int
+    github_issue_number: str
+    status: str
+    created_at: str
     standing_query_name: str
 
 
@@ -324,6 +349,8 @@ _NODE_TYPE_MAP: dict[str, type[QuineNode]] = {
     "DiagnosticNote": DiagnosticNote,
     "Commit": Commit,
     "Investigation": Investigation,
+    "FileEscalation": FileEscalation,
+    "RootCauseEscalation": RootCauseEscalation,
     "WorkflowRun": WorkflowRun,
     "WorkflowJob": WorkflowJob,
     "WorkflowJobStep": WorkflowJobStep,

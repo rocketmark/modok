@@ -18,6 +18,8 @@ from modok.ingestion.ci_ingestion import (
     expand_workflow_run,
     find_expansion_backlog,
     reconcile_commit_edges,
+    reconcile_file_escalations,
+    reconcile_root_cause_escalations,
     reconcile_test_execution_links,
     save_last_workflow_sync,
 )
@@ -182,6 +184,24 @@ async def _run_ci_ingestion_cycle(quine_client: QuineClient, project: ProjectCon
     except Exception as exc:
         print(
             f"github-poll: {project.slug} — test-execution link reconciliation failed: {exc}",
+            file=sys.stderr,
+        )
+
+    # @spec FESC-POLL-003
+    try:
+        await reconcile_file_escalations(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — file-escalation reconciliation failed: {exc}",
+            file=sys.stderr,
+        )
+
+    # @spec RCESC-POLL-003
+    try:
+        await reconcile_root_cause_escalations(quine_client, project.slug)
+    except Exception as exc:
+        print(
+            f"github-poll: {project.slug} — root-cause-escalation reconciliation failed: {exc}",
             file=sys.stderr,
         )
 

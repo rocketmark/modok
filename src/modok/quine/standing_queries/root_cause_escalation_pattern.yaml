@@ -1,0 +1,11 @@
+name: root-cause-escalation-pattern
+mode: DistinctId
+pattern: |
+  MATCH (feat)<-[:AFFECTS]-(ci) WHERE feat.node_type = 'Feature' AND ci.node_type = 'CustomerIssue'
+  RETURN DISTINCT id(ci) AS id
+enrichment_query: |
+  MATCH (ci) WHERE id(ci) = $that.data.id
+  MATCH (ci)-[:AFFECTS]->(feat) WHERE feat.node_type = 'Feature'
+  RETURN feat.project_slug AS project_slug, feat.feature_slug AS feature_slug,
+         'root-cause-escalation-pattern' AS standing_query_name
+output_name: root-cause-escalation-trigger

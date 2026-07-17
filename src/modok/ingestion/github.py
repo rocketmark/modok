@@ -264,6 +264,63 @@ class GithubIngester:
         return results
 
 
+# @spec FESC-GH-001
+async def create_issue(
+    github_repo: str, token: str, title: str, body: str, labels: list[str] | None = None
+) -> str | None:
+    """Best-effort: create a new GitHub issue. Returns the created issue's
+    number as a string on success, None on any non-2xx response or
+    exception. Never raises — unlike post_issue_comment this DOES return a
+    value the caller needs (the issue number to persist), so it cannot be
+    purely fire-and-forget."""
+    url = f"{_API_BASE}/repos/{github_repo}/issues"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    payload: dict[str, Any] = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30) as http:
+            resp = await http.post(url, json=payload)
+            if resp.status_code >= 300:
+                print(f"GitHub issue create failed ({resp.status_code}): {url}", file=sys.stderr)
+                return None
+            return str(resp.json()["number"])
+    except Exception as exc:
+        print(f"GitHub issue create failed: {exc}", file=sys.stderr)
+        return None
+
+
+# @spec RCESC-GH-001, RCESC-GH-002, RCESC-GH-003
+async def get_issue_state(github_repo: str, token: str, issue_number: str) -> str | None:
+    """Best-effort: fetch a GitHub issue's current state ("open"/"closed",
+    GitHub's own values, unremapped). A 404 (deleted/transferred issue)
+    returns "closed" — functionally equivalent to a human closing it, since
+    neither can be appended to. Any other non-2xx response or exception
+    returns None (transient — retry later). Never raises."""
+    url = f"{_API_BASE}/repos/{github_repo}/issues/{issue_number}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30) as http:
+            resp = await http.get(url)
+            if resp.status_code == 404:
+                return "closed"
+            if resp.status_code >= 300:
+                print(f"GitHub issue state fetch failed ({resp.status_code}): {url}", file=sys.stderr)
+                return None
+            return resp.json().get("state")
+    except Exception as exc:
+        print(f"GitHub issue state fetch failed: {exc}", file=sys.stderr)
+        return None
+
+
 # @spec SQ-GH-001, SQ-GH-004
 async def post_issue_comment(github_repo: str, token: str, issue_number: str, body: str) -> None:
     """Best-effort: post a comment to a GitHub issue. Never raises."""
