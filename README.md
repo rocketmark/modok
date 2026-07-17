@@ -456,6 +456,8 @@ MODOK currently focuses on inspectable support/debugging context, static and liv
 - automatic investigation triggering when connected evidence becomes actionable
 - GitHub issue write-back: an immediate acknowledgment comment, followed by the full resulting debug packet
 - dependency package/version tracking: manifest changes linked to their commit and PR, mapped to the source files that import them, surfaced as recall evidence — not a claim of root cause
+- repeat-offender escalation: when 3+ open tickets independently point at the same file or the same feature, MODOK opens a new GitHub issue grouping them, so investigation happens in one place instead of being repeated per ticket
+- ticket lifecycle correctness: a ticket deleted (not just closed) on GitHub is detected and excluded from every "still open" check within one poll cycle
 
 ---
 

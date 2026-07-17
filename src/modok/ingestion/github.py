@@ -264,6 +264,39 @@ class GithubIngester:
         return results
 
 
+async def ensure_label_color(github_repo: str, token: str, label_name: str, color: str) -> None:
+    """Best-effort: ensure a GitHub label exists with the given color
+    (6-digit hex, no '#'). GitHub assigns a random default color to a label
+    referenced only by name during issue creation, so this must be a
+    separate call. Tries PATCH first (the label most likely already exists,
+    possibly auto-created with a random color by an earlier issue-creation
+    call); falls back to POST (create) on 404. Labels are a repo-level
+    resource — recoloring one retroactively updates every issue, past and
+    future, that already carries it. Never raises."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30) as http:
+            resp = await http.patch(
+                f"{_API_BASE}/repos/{github_repo}/labels/{label_name}", json={"color": color}
+            )
+            if resp.status_code == 404:
+                resp = await http.post(
+                    f"{_API_BASE}/repos/{github_repo}/labels",
+                    json={"name": label_name, "color": color},
+                )
+            if resp.status_code >= 300:
+                print(
+                    f"GitHub label color update failed ({resp.status_code}): {label_name}",
+                    file=sys.stderr,
+                )
+    except Exception as exc:
+        print(f"GitHub label color update failed: {exc}", file=sys.stderr)
+
+
 # @spec FESC-GH-001
 async def create_issue(
     github_repo: str, token: str, title: str, body: str, labels: list[str] | None = None

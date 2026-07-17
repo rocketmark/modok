@@ -68,6 +68,9 @@ _REQUIRED_ROOT_CAUSE_ESCALATION_MATCH_FIELDS = (
     "feature_slug",
 )
 
+_ROOT_CAUSE_LABEL = "modok-root-cause"
+_ROOT_CAUSE_LABEL_COLOR = "FFA500"  # orange — visual alert, per user request
+
 
 def _required_fields_for_match(match: dict) -> tuple[str, ...]:
     if match.get("milestone_kind"):
@@ -712,9 +715,10 @@ async def _create_or_retry_root_cause_escalation(
     title = format_root_cause_escalation_title(feature_slug, len(qualifying), sequence)
     body = format_root_cause_escalation_markdown(feature_slug, qualifying)
 
-    from modok.ingestion.github import create_issue
+    from modok.ingestion.github import create_issue, ensure_label_color
 
-    issue_number = await create_issue(github_repo, token, title, body, labels=["modok-root-cause"])
+    await ensure_label_color(github_repo, token, _ROOT_CAUSE_LABEL, _ROOT_CAUSE_LABEL_COLOR)
+    issue_number = await create_issue(github_repo, token, title, body, labels=[_ROOT_CAUSE_LABEL])
     if issue_number:
         await client.query(
             "MATCH (rce) WHERE id(rce) = idFrom('root-cause-escalation', $p, $f, $seq) "

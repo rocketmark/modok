@@ -425,6 +425,64 @@ async def test_get_issue_state_network_error_returns_none():
     assert state is None
 
 
+# @spec label-color (direct, unscoped fix — orange visual alert per user request)
+@pytest.mark.asyncio
+async def test_ensure_label_color_patches_existing_label():
+    from modok.ingestion.github import ensure_label_color
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.patch = AsyncMock(return_value=httpx.Response(200, json={}))
+        await ensure_label_color("acme/stagehand", "tok", "modok-root-cause", "FFA500")
+    mock_instance.patch.assert_called_once()
+    assert "FFA500" in str(mock_instance.patch.call_args)
+
+
+@pytest.mark.asyncio
+async def test_ensure_label_color_creates_on_404():
+    from modok.ingestion.github import ensure_label_color
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.patch = AsyncMock(return_value=httpx.Response(404, json={}))
+        mock_instance.post = AsyncMock(return_value=httpx.Response(201, json={}))
+        await ensure_label_color("acme/stagehand", "tok", "modok-root-cause", "FFA500")
+    mock_instance.post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_label_color_swallows_failure():
+    from modok.ingestion.github import ensure_label_color
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = mock_cls.return_value.__aenter__.return_value
+        mock_instance.patch = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        await ensure_label_color("acme/stagehand", "tok", "modok-root-cause", "FFA500")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_create_or_retry_ensures_label_color_before_creating_issue():
+    from modok.webhook.server import _create_or_retry_root_cause_escalation
+
+    client = _mock_client()
+    client.node_exists_by_parts = AsyncMock(return_value=False)
+    client.query = AsyncMock(return_value=[[""]])
+    fake_project = type("P", (), {"slug": "stagehand", "github_repo": "acme/stagehand"})()
+    fake_config = type("C", (), {"projects": [fake_project]})()
+
+    call_order = []
+    with patch("modok.cli.config.ModokConfig.load", return_value=fake_config), \
+         patch.dict("os.environ", {"GITHUB_TOKEN": "tok"}), \
+         patch("modok.ingestion.github.ensure_label_color",
+               new=AsyncMock(side_effect=lambda *a, **k: call_order.append("ensure_label_color"))), \
+         patch("modok.ingestion.github.create_issue",
+               new=AsyncMock(side_effect=lambda *a, **k: call_order.append("create_issue") or "99")):
+        await _create_or_retry_root_cause_escalation(
+            client, "stagehand", "wifi-provisioning", 1, [_issue_row()]
+        )
+    assert call_order == ["ensure_label_color", "create_issue"]
+
+
 # @spec RCESC-GH-004, RCESC-GH-005
 def test_root_cause_title_and_label():
     from modok.retrieval.formatting import format_root_cause_escalation_title

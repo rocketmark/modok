@@ -169,7 +169,7 @@ A loose prefilter — any feature with *at least one* currently-open, affecting 
 
 `format_root_cause_escalation_update_markdown(source_system: str, ticket_id: str, summary: str) -> str`: `"Additional ticket affecting this feature: {source_system}#{ticket_id} — {summary}"`.
 
-**Labels**: `["modok-root-cause"]` — distinct from `FileEscalation`'s `"modok-escalation"`, so the two escalation families stay independently filterable on GitHub.
+**Labels**: `["modok-root-cause"]` — distinct from `FileEscalation`'s `"modok-escalation"`, so the two escalation families stay independently filterable on GitHub. **Colored orange (`FFA500`)**, added directly (small, mechanical, no full LID cycle — same precedent as the test-coverage demotion earlier this project) via `ensure_label_color` (`src/modok/ingestion/github.py`), called immediately before every `create_issue` attempt in `_create_or_retry_root_cause_escalation`. GitHub assigns a random default color to a label referenced only by name during issue creation, so an explicit `PATCH .../labels/{name}` (falling back to `POST` on 404, for the label's first-ever use) is required to get a specific color — labels are a repo-level resource, so recoloring one retroactively updates every issue already carrying it, past and future, with no per-issue update needed.
 
 ---
 

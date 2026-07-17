@@ -12,7 +12,7 @@ modok stream install     # idempotent — safe to re-run; reports "already insta
 modok serve              # in a second terminal; leave running
 ```
 
-`modok stream status` should now list `actionable-issue-pattern`.
+`modok stream status` should now list all six installed patterns (`actionable-issue-pattern`, `new-bug-report-pattern`, `error-flagged-pattern`, `ci-corroboration-pattern`, `file-escalation-pattern`, `root-cause-escalation-pattern`) — this walkthrough exercises `actionable-issue-pattern` specifically; the other five are unrelated to the steps below and won't fire from this script's seed data.
 
 ## 2. Seed the "already-documented" side of the pattern
 
