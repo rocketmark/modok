@@ -1266,6 +1266,102 @@ def test_customer_issue_branch_skips_llm_fallback_when_feature_matched():
 
 
 # ---------------------------------------------------------------------------
+# SQ-ANCH-012 — match text is title + body, not raw_text (body) alone
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-ANCH-012
+def test_customer_issue_branch_passes_same_match_text_to_all_three_linkers():
+    """Reproduces a real miss: a GitHub issue titled 'wifi is broke' with a
+    near-content-free body ('wtf man?') must still make the title's signal
+    available to anchor linking and the LLM fallback, not just the body."""
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="47", summary="wifi is broke", raw_text="wtf man?", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ) as mock_link_errors, patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ) as mock_link_features, patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ) as mock_classify:
+        run_ingest_event(event, mock_client)
+
+    error_text = mock_link_errors.call_args.args[-1]
+    feature_text = mock_link_features.call_args.args[-1]
+    classify_text = mock_classify.call_args.args[-1]
+    assert error_text == feature_text == classify_text
+    assert "wifi is broke" in error_text
+    assert "wtf man?" in error_text
+
+
+# @spec SQ-ANCH-004, SQ-ANCH-012
+def test_customer_issue_branch_matches_on_title_alone_when_body_empty():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="wifi is broke", raw_text="", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ) as mock_link_errors, patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ):
+        run_ingest_event(event, mock_client)
+
+    match_text = mock_link_errors.call_args.args[-1]
+    assert match_text == "wifi is broke"
+
+
+# @spec SQ-ANCH-012
+def test_customer_issue_branch_match_text_empty_when_title_and_body_both_empty():
+    from modok.webhook.server import run_ingest_event
+
+    event = IngestEvent(
+        kind="customer_issue",
+        project_slug="test-project",
+        data=CustomerIssueData(
+            ticket_id="1", summary="", raw_text="", status="open",
+            source_system="github",
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.upsert_node = AsyncMock(return_value=None)
+
+    with patch(
+        "modok.webhook.server.link_customer_issue_error_anchors", new=AsyncMock(return_value=[])
+    ) as mock_link_errors, patch(
+        "modok.webhook.server.link_customer_issue_feature_anchors", new=AsyncMock(return_value=[])
+    ), patch(
+        "modok.webhook.server.classify_customer_issue_anchors", new=AsyncMock()
+    ):
+        run_ingest_event(event, mock_client)
+
+    match_text = mock_link_errors.call_args.args[-1]
+    assert match_text == ""
+
+
+# ---------------------------------------------------------------------------
 # SQ-INV-001..004 — the "investigation" IngestEvent branch
 # ---------------------------------------------------------------------------
 

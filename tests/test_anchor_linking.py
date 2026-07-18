@@ -397,6 +397,45 @@ async def test_missing_registries_returns_empty_feature_list_without_raising(tmp
 
 
 # ---------------------------------------------------------------------------
+# SQ-ANCH-011 — tokens shared by 2+ features are excluded from overlap matching
+# ---------------------------------------------------------------------------
+
+
+# @spec SQ-ANCH-011
+@pytest.mark.asyncio
+async def test_ambiguous_shared_token_alone_does_not_match_any_feature(tmp_path):
+    repo_root = make_registries(
+        tmp_path, features={"client-alpha": "Client Alpha", "client-beta": "Client Beta"}
+    )
+    client = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
+
+    linked = await link_customer_issue_feature_anchors(
+        client, "stagehand", repo_root, "github", "42",
+        "the client is misbehaving",
+    )
+    assert linked == []
+
+
+# @spec SQ-ANCH-011
+@pytest.mark.asyncio
+async def test_non_ambiguous_token_still_discriminates_between_features(tmp_path):
+    repo_root = make_registries(
+        tmp_path, features={"client-alpha": "Client Alpha", "client-beta": "Client Beta"}
+    )
+    client = AsyncMock()
+    client.node_exists_by_parts = AsyncMock(return_value=True)
+    client.replace_edges_by_parts = AsyncMock()
+
+    linked = await link_customer_issue_feature_anchors(
+        client, "stagehand", repo_root, "github", "42",
+        "the client alpha module is misbehaving",
+    )
+    assert linked == ["client-alpha"]
+
+
+# ---------------------------------------------------------------------------
 # SQ-LLMANCH-003 — write AFFECTS only for validated, existing Feature slugs
 # ---------------------------------------------------------------------------
 

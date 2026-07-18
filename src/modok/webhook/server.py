@@ -135,7 +135,7 @@ def _standing_query_row_to_event_data(
 
 # ---------------------------------------------------------------------------
 # customer_issue — mechanical anchor linking + LLM fallback classification
-# @spec SQ-ANCH-006, SQ-ANCH-007, SQ-LLMANCH-001, SQ-LLMANCH-002
+# @spec SQ-ANCH-006, SQ-ANCH-007, SQ-ANCH-012, SQ-LLMANCH-001, SQ-LLMANCH-002
 # ---------------------------------------------------------------------------
 
 
@@ -163,13 +163,18 @@ async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: Cu
         )
         repo_root = _UNCONFIGURED_REPO_ROOT
 
+    # @spec SQ-ANCH-012 — title and body are both potential carriers of a
+    # ticket's signal; a terse title over an empty/low-content body must
+    # still be matchable, not just the body alone.
+    match_text = "\n\n".join(t for t in (node.summary, node.raw_text) if t)
+
     matched_errors = await link_customer_issue_error_anchors(
         quine_client,
         project_slug,
         repo_root,
         node.source_system,
         node.ticket_id,
-        node.raw_text,
+        match_text,
     )
     matched_features = await link_customer_issue_feature_anchors(
         quine_client,
@@ -177,7 +182,7 @@ async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: Cu
         repo_root,
         node.source_system,
         node.ticket_id,
-        node.raw_text,
+        match_text,
     )
     # @spec SQ-LLMANCH-001, SQ-LLMANCH-002
     if not matched_errors and not matched_features:
@@ -187,7 +192,7 @@ async def _link_anchors_resilient(quine_client: Any, project_slug: str, node: Cu
             repo_root,
             node.source_system,
             node.ticket_id,
-            node.raw_text,
+            match_text,
         )
 
 

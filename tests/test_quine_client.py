@@ -258,7 +258,7 @@ async def test_upsert_node_sends_full_property_set(name_a, name_b):
 @pytest.mark.asyncio
 async def test_upsert_node_does_not_send_edge_mutations():
     # All Quine operations go through POST /api/v1/query/cypher.
-    # upsert_node must only send SET/MERGE statements — never CREATE relationship.
+    # upsert_node must only send a property SET — never CREATE relationship.
     cypher_bodies = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -489,9 +489,9 @@ async def test_replace_edges_deletes_then_recreates():
 
     await client.replace_edges(from_id, "HAS_FEATURE", [to_id])
 
-    # First call must be a DELETE, second must be a MERGE (write_edge)
+    # First call must be a DELETE, second must be a CREATE (write_edge)
     assert any("DELETE" in q for q in calls), "replace_edges must DELETE stale edges"
-    assert any("MERGE" in q for q in calls), "replace_edges must re-create specified edges"
+    assert any("CREATE" in q for q in calls), "replace_edges must re-create specified edges"
 
 
 # @spec QC-EW-004
@@ -683,7 +683,7 @@ async def test_replace_edges_by_parts_deletes_then_recreates():
     )
 
     assert any("DELETE" in q and "idFrom(" in q for q in calls)
-    assert any("MERGE" in q and "idFrom(" in q for q in calls)
+    assert any("CREATE" in q and "idFrom(" in q for q in calls)
 
 
 # @spec QC-EW-006

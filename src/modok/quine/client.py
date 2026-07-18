@@ -161,11 +161,15 @@ class QuineClient:
 
     # @spec QC-EW-001, QC-EW-002, QC-EW-003
     async def write_edge(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> None:
-        # MERGE on both endpoints and the relationship — idempotent by construction.
+        # CREATE, not MERGE — confirmed with thatdot that MERGE is a Neo4j
+        # anachronism in Quine with no effect different from CREATE. Quine's
+        # edge identity is structural (from, type, to), so a repeated CREATE
+        # of the same edge is already a no-op; there is no match-then-create
+        # search for MERGE to save.
         query = (
             "MATCH (a) WHERE id(a) = $from_id "
             "MATCH (b) WHERE id(b) = $to_id "
-            f"MERGE (a)-[:{edge_type}]->(b)"
+            f"CREATE (a)-[:{edge_type}]->(b)"
         )
         await self._cypher(query, {"from_id": from_id, "to_id": to_id})
 
@@ -191,13 +195,13 @@ class QuineClient:
             query = (
                 f"MATCH (a) WHERE id(a) = idFrom({from_args}) "
                 f"MATCH (b) WHERE id(b) = idFrom({to_args}) "
-                f"MERGE (a)-[r:{edge_type}]->(b) SET r += $props"
+                f"CREATE (a)-[r:{edge_type}]->(b) SET r += $props"
             )
         else:
             query = (
                 f"MATCH (a) WHERE id(a) = idFrom({from_args}) "
                 f"MATCH (b) WHERE id(b) = idFrom({to_args}) "
-                f"MERGE (a)-[:{edge_type}]->(b)"
+                f"CREATE (a)-[:{edge_type}]->(b)"
             )
         await self._cypher(query, params)
 

@@ -5,8 +5,8 @@ docs/llds/standing-queries.md § Mechanical Anchor Linking,
 § LLM Fallback Anchor Classification."""
 # @spec SQ-ANCH-001, SQ-ANCH-002, SQ-ANCH-003, SQ-ANCH-004, SQ-ANCH-005,
 #       SQ-ANCH-006, SQ-ANCH-007, SQ-ANCH-008, SQ-ANCH-009, SQ-ANCH-010,
-#       SQ-LLMANCH-001, SQ-LLMANCH-003, SQ-LLMANCH-004, SQ-LLMANCH-005,
-#       SQ-LLMANCH-006, SQ-LLMANCH-007
+#       SQ-ANCH-011, SQ-ANCH-012, SQ-LLMANCH-001, SQ-LLMANCH-003,
+#       SQ-LLMANCH-004, SQ-LLMANCH-005, SQ-LLMANCH-006, SQ-LLMANCH-007
 
 from __future__ import annotations
 

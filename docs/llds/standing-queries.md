@@ -277,7 +277,7 @@ async def link_customer_issue_feature_anchors(
 
 ### Error linking algorithm (unchanged)
 
-1. If `raw_text` is `None` or empty, return `[]` immediately — no anchors possible.
+1. If the input text (match text — § Match text: title + body, not `raw_text` alone) is `None` or empty, return `[]` immediately — no anchors possible.
 2. Load the project's `Registry` from `repo_root / "registries"`. If `RegistryNotFoundError` is raised (no registries bootstrapped yet for this project), log a warning to stderr and return `[]` — ticket ingestion must still succeed even if anchor linking cannot run.
 3. For each error slug in `registry.error_slugs()` (new method — mirrors the existing `feature_slugs()`/`module_slugs()`), read its `normalized_error` string.
 4. Match on a **word boundary**, not a raw substring — `re.search(rf"\b{re.escape(normalized_error)}\b", raw_text, re.IGNORECASE)`. A raw `in` check would false-positive on short or generic `normalized_error` values that happen to appear inside an unrelated larger word (e.g. `"GSS"` inside `"GSSAPI"`); word-boundary matching is nearly as cheap and closes that off.
@@ -287,15 +287,23 @@ async def link_customer_issue_feature_anchors(
 
 ### Feature linking algorithm (new)
 
-1. If `raw_text` is `None` or empty, return `[]` immediately.
+1. If the input text (match text) is `None` or empty, return `[]` immediately.
 2. Load the project's `Registry`. If `RegistryNotFoundError`, log a warning and return `[]` — same non-fatal behavior as error linking.
-3. Tokenize `raw_text` into a set of lowercase word tokens via `modok.text_utils.extract_text_tokens` (word extraction, then camelCase/snake_case/kebab-case splitting, length > 2) — the exact same tokenizer the Diagnostic Retrieval Engine's `_pre_match_modules` already uses at read time, now extracted into a shared module so both call sites stay in sync.
+3. Tokenize the input text into a set of lowercase word tokens via `modok.text_utils.extract_text_tokens` (word extraction, then camelCase/snake_case/kebab-case splitting, length > 2) — the exact same tokenizer the Diagnostic Retrieval Engine's `_pre_match_modules` already uses at read time, now extracted into a shared module so both call sites stay in sync.
 4. For each registered feature (`registry.feature_names()` → slug, name), tokenize the slug and the name the same way, and check for any token overlap with the ticket's tokens. E.g. a ticket mentioning "wifi" overlaps feature slug `wifi-provisioning` (tokenizes to `{wifi, provisioning}`).
 5. For each token-match, check `client.node_exists(idFrom('feature', project_slug, slug))` — same never-invent-a-node discipline as error linking.
 6. Compute the full current set of matched feature slugs, call `replace_edges(ci_id, "AFFECTS", [...])` once — same reconciliation rationale as step 6 above (a ticket edit that removes a feature mention should drop the stale `AFFECTS` edge, not accumulate it).
 7. Return the list of linked feature slugs.
 
 Both linkers are deliberately narrower than the Diagnostic Retrieval Engine's LLM fallback (`docs/llds/diagnostic-retrieval-engine.md § Anchor Extraction`): no LLM, no scoring. They only ever confirm a match against a *registered* string against a node *already present* in the graph — the same "convention + registries are truth" invariant the rest of ingestion follows. Token matching is more forgiving than the error linker's exact word-boundary match (necessary because organically-written ticket text essentially never contains a feature's literal slug string), but it is still a fixed, deterministic, LLM-free rule — not classification.
+
+### Match text: title + body, not `raw_text` alone (SQ-ANCH-012)
+
+Both linkers, and the LLM fallback classifier below, are called with **match text** — not `node.raw_text` directly, despite the parameter still being named `raw_text` in each function's signature (unchanged; it just means "the text to match," not literally the stored field). The call site (`_link_anchors_resilient`, `src/modok/webhook/server.py`) builds it once, before any of the three calls: `"\n\n".join(t for t in (node.summary, node.raw_text) if t)`. `node.summary` is the ticket title, `node.raw_text` is the body — either may carry the ticket's real signal, and GitHub issue bodies are frequently empty or content-free.
+
+Found live: a GitHub issue titled "wifi is broke" with a body of "wtf man?" produced zero anchors — mechanical or LLM — because only the body (`raw_text`) was ever passed to any of the three functions; the title's one meaningful word never reached them. All three now receive the same match text, so a ticket whose signal lives entirely in its title is matchable exactly like one whose signal lives in its body. SQ-ANCH-004's empty-text skip now keys off match text being empty (title and body both empty/absent), not `raw_text` alone.
+
+The `modok ingest <ticket_file>` CLI call site (below) doesn't need this change: its `raw_text` argument is already the whole ticket file, subject line included, so title-equivalent text was already present in what it passes.
 
 **Call sites** (every place a `CustomerIssue` node is written runs both linkers immediately after the `upsert_node`, then conditionally the LLM fallback classifier below):
 
@@ -332,10 +340,10 @@ This is the one point in the ingestion path where LLM output is written to Quine
 
 Algorithm:
 
-1. If `raw_text` is `None` or empty, return immediately — no anchors possible.
+1. If the input text (match text — § Match text: title + body, not `raw_text` alone) is `None` or empty, return immediately — no anchors possible.
 2. Load the project's `Registry`. If `RegistryNotFoundError`, log a warning and return — same non-fatal behavior as both mechanical linkers.
 3. Build the same registry-derived context `modok retrieve`/`diagnose` already assemble for the DRE (`src/modok/cli/commands/retrieve.py`): `feature_slugs`, `module_slugs`, `valid_slugs = feature_slugs + module_slugs`, `feature_descriptions`, `module_descriptions`, `module_elements`, `all_module_source_files()`.
-4. Call `gateway.parse_ticket(raw_text, project_slug, backend=backend, valid_slugs=valid_slugs, ...)` — the identical call the DRE's read-time fallback makes (`engine.py`). `parse_ticket` already filters `feature_slugs` in its result against `valid_slugs` before returning (`gateway.py:771-772`); `error_signatures` are **not** pre-filtered by `parse_ticket` and must be validated here.
+4. Call `gateway.parse_ticket(match_text, project_slug, backend=backend, valid_slugs=valid_slugs, ...)` — the identical call the DRE's read-time fallback makes (`engine.py`). `parse_ticket` already filters `feature_slugs` in its result against `valid_slugs` before returning (`gateway.py:771-772`); `error_signatures` are **not** pre-filtered by `parse_ticket` and must be validated here.
 5. If `parse_ticket` raises `LLMUnavailableError` or `LLMGatewayError`, log to stderr and return — write nothing. The `CustomerIssue` node write (which already completed before this function was ever called) is unaffected.
 6. **Feature validation and write**: keep only slugs that are (a) in `registry.feature_slugs()` specifically — not `module_slugs` — since `AFFECTS` targets are `Feature` nodes only, and (b) confirmed via `client.node_exists(idFrom('feature', ...))`. Call `replace_edges(ci_id, "AFFECTS", [...])` once with the full validated set (possibly empty), mirroring the mechanical linkers' reconciliation discipline.
 7. **Error validation and write**: keep only signatures that are (a) present in `registry.error_normalized_values()`, and (b) confirmed via `client.node_exists(idFrom('error', ...))`. Call `replace_edges(ci_id, "HAS_ERROR", [...])` once with the full validated set.
@@ -379,7 +387,7 @@ This keeps the node schema to exactly the five fields the task's schema guidance
 
 Edge: `Investigation -[:INVESTIGATES]-> CustomerIssue`.
 
-Because `investigation_id` fully encodes the evidence identity, redelivery of the same match — Quine retrying a `PostToEndpoint` call, or a caller replaying a captured payload — always resolves to the same node address. `upsert_node` on an unchanged address is a no-op in effect (same properties re-set); the `INVESTIGATES` edge write is idempotent via `MERGE`. This satisfies "duplicate events do not create duplicate investigations" without any deduplication logic beyond the ID scheme itself.
+Because `investigation_id` fully encodes the evidence identity, redelivery of the same match — Quine retrying a `PostToEndpoint` call, or a caller replaying a captured payload — always resolves to the same node address. `upsert_node` on an unchanged address is a no-op in effect (same properties re-set); the `INVESTIGATES` edge write is idempotent via `CREATE` — Quine's edge identity is structural (`docs/llds/quine-client.md § Decisions & Alternatives`), so a repeated `CREATE` of the same edge is already a no-op. This satisfies "duplicate events do not create duplicate investigations" without any deduplication logic beyond the ID scheme itself.
 
 **A `CustomerIssue` is not guaranteed to have only one `Investigation`.** This section's identity scheme (SQ-INV-001/002) is per-*firing*, not per-ticket — a ticket that matches `actionable-issue-pattern` via two distinct `(known_issue_id, fix_id)` combinations gets two `Investigation` nodes (SQ-INV-006), and a ticket that also accumulates `ci-corroboration-pattern` milestones gets yet another `Investigation`, on a completely different identity scheme (`docs/llds/continuous-ci-ingestion.md § Investigation and Milestone Model`, which states this compatibility invariant in full). Do not write a consumer that traverses `INVESTIGATES` expecting exactly one result.
 

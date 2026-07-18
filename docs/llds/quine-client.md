@@ -215,8 +215,12 @@ class QuineClient:
     async def node_exists(self, node_id: QuineNodeId) -> bool: ...
 
     # Edge operations
-    # Idempotent — writing the same edge twice is always a no-op.
-    # Client guards with edge_exists() if Quine does not deduplicate natively.
+    # Idempotent — writing the same edge twice is always a no-op. Written with
+    # CREATE, not MERGE: confirmed with thatdot that MERGE has no effect
+    # different from CREATE in Quine (a Neo4j anachronism carried over from
+    # this client's original design) — Quine's edge identity is structural
+    # (from, type, to), so a repeated CREATE of the same edge is already a
+    # no-op without any match-then-create search.
     async def write_edge(self, from_id: QuineNodeId, edge_type: str, to_id: QuineNodeId) -> None: ...
     async def get_neighbors(
         self,
@@ -292,8 +296,10 @@ SET n += {node_type: 'Feature', project_slug: $project_slug, feature_slug: $feat
 ```cypher
 MATCH (a) WHERE id(a) = idFrom('feature', $project_slug, $feature_slug)
 MATCH (b) WHERE id(b) = idFrom('module', $project_slug, $module_slug)
-MERGE (a)-[:IMPLEMENTED_BY]->(b)
+CREATE (a)-[:IMPLEMENTED_BY]->(b)
 ```
+
+Uses `CREATE`, not `MERGE` — see the `write_edge` decision row below.
 
 **Query endpoint:** `POST /api/v1/query/cypher` with body `{"text": "<cypher>", "parameters": {...}}`. The field name is `text`, not `query`.
 
@@ -328,6 +334,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 | Upsert semantics | SET current fields only, never touch edges | Full node replace (remove old properties too), merge | SET is sufficient for v1 — schemas are stable and property removal is rare. Ghost properties are accepted; the fetch-then-replace pattern is the documented fix if they become a problem. Full node replace would require a MATCH+DELETE+RECREATE sequence, losing edges unless carefully reconstructed. |
 | `get_node` on missing ID | Raise `QuineNodeNotFoundError` | Return `None` | A missing node is almost always a bug in the ingestion pipeline, not a normal condition; `node_exists()` is the opt-in check for callers that expect absence |
 | `write_edge` on duplicate | No-op (idempotent) | Raise on duplicate | Ingestion runs are repeatable by design; raising on duplicate would break every re-ingest |
+| `write_edge`/`write_edge_by_parts` clause | `CREATE` | `MERGE` (original v1 choice) | Confirmed directly with thatdot (Ryan): `MERGE` has no effect different from `CREATE` in Quine — a Neo4j anachronism. Quine's edge identity is structural (`from`, `type`, `to`), so a repeated `CREATE` of the same edge is already idempotent; there is no match-then-create search for `MERGE` to save. thatdot's own static Recipe Analyzer flags any `MERGE` clause as a potential full property scan regardless of whether both endpoints are already `id()`-bound — a false positive for this pattern, since Quine doesn't have Neo4j's `MERGE` cost model at all. |
 | Async client | `httpx.AsyncClient` | `requests` (sync), `aiohttp` | `httpx` supports both sync and async, has a clean test-double story (`httpx.MockTransport`), and is the modern choice for Python async HTTP |
 | Raw Cypher escape hatch | Exposed internally, not via MCP | Fully abstracted, no raw Cypher | Retrieval engine needs complex traversals; hiding Cypher from agents prevents injection risk while preserving internal power |
 
@@ -343,6 +350,7 @@ The client does not manage Quine's lifecycle. Quine is started externally (Docke
 7. ✅ `get_node` on missing ID raises `QuineNodeNotFoundError` — `node_exists()` for opt-in absence checks.
 8. ✅ `write_edge` is idempotent — duplicate writes are always no-ops.
 9. ✅ `ResolutionEvent` ID includes `source_system` — disambiguates ticket IDs across source systems.
+10. ✅ `MERGE` vs `CREATE` for edge writes — confirmed with thatdot that `MERGE` is a Neo4j anachronism with no effect different from `CREATE` in Quine; switched `write_edge`/`write_edge_by_parts` to `CREATE` (see Decisions & Alternatives). Idempotency is unaffected — it comes from Quine's structural edge identity, not from `MERGE`'s match-then-create semantics.
 
 ### Deferred
 1. **Quine authentication** — Quine's auth model in production (shared Mac mini). Currently `QuineAuth | None`; implementation deferred until shared deployment.
