@@ -11,12 +11,12 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "next": "16.3.5",
+    "next": "16.4.0",
     "react": "^19",
     "react-dom": "^19"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
@@ -25,12 +25,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10",
-    "fast-check": "^4.10.1",
-    "jest": "^30.5.1",
-    "jest-environment-jsdom": "^30.5.1",
+    "fast-check": "^4.10.2",
+    "jest": "^30.5.2",
+    "jest-environment-jsdom": "^30.5.2",
     "postcss": "^8",
     "tailwindcss": "^4",
-    "ts-jest": "^29.4.12",
+    "ts-jest": "^29.4.14",
     "ts-node": "^10.9.2",
     "typescript": "^7"
   }
